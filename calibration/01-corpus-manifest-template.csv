@@ -1,0 +1,5 @@
+path,label,language_hint,kind,notes
+samples/student_001.py,human,python,file,strong process evidence
+samples/student_002.py,known_human,python,file,pre-policy or verified human baseline
+samples/llm_001.py,ai_generated,python,file,generated from comparable task prompt
+samples/hybrid_project,hybrid,python,project,declared assisted project folder

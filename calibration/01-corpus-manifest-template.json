@@ -1,0 +1,30 @@
+{
+  "profile_id": "course-assignment-v1",
+  "label": "Course assignment local calibration",
+  "course": "COURSE-CODE",
+  "assignment": "ASSIGNMENT-NAME",
+  "samples": [
+    {
+      "path": "samples/human/student_001.py",
+      "label": "human",
+      "language_hint": "python",
+      "kind": "file"
+    },
+    {
+      "path": "samples/ai/llm_001.py",
+      "label": "ai_generated",
+      "language_hint": "python",
+      "kind": "file"
+    },
+    {
+      "path": "samples/hybrid_project",
+      "label": "hybrid",
+      "language_hint": "auto",
+      "kind": "project"
+    }
+  ],
+  "metric_overrides": {},
+  "notes": [
+    "Template only. Replace paths and labels with local, auditable calibration evidence before generating a profile."
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "schema_version": "codeprobe-calibration-profile/v1",
+  "profile_id": "example-intro-python-2026-v1",
+  "label": "Example Intro Python 2026 calibration profile \u2014 not validated",
+  "course": "EXAMPLE-101",
+  "assignment": "project-1",
+  "profile_version": "v1",
+  "review_policy": {
+    "file": {
+      "low_max": 0.28,
+      "moderate_max": 0.48,
+      "elevated_max": 0.68,
+      "review_trigger": 0.6
+    },
+    "project": {
+      "low_max": 0.28,
+      "moderate_max": 0.48,
+      "elevated_max": 0.68,
+      "review_trigger": 0.6
+    }
+  },
+  "metric_overrides": {},
+  "validation": {
+    "sample_counts": {
+      "human": 0,
+      "ai": 0,
+      "hybrid": 0
+    },
+    "language_counts": {},
+    "warning": "This example demonstrates the schema only; do not use it as evidence."
+  },
+  "notes": [
+    "Illustrative schema example only.",
+    "Generate a real profile with tools/calibrate_profile.py."
+  ],
+  "target_false_positive_rate": 0.05,
+  "tool_version": "2.2.0",
+  "source": "illustrative-only"
+}
