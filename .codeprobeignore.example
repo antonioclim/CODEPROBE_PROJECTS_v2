@@ -1,0 +1,102 @@
+# CodeProbe project-mode exclusion template
+#
+# Copy this file to `.codeprobeignore` at the root of a student project when
+# using Open project ZIP or Open folder. Phase 3 parses it automatically.
+#
+# Supported subset: comments, blank lines, directory patterns ending in `/`,
+# glob patterns such as `*.min.js`, anchored patterns beginning with `/`, and
+# negation with `!` for files that must be re-included.
+
+# Dependencies and vendor code
+node_modules/
+bower_components/
+vendor/
+vendors/
+third_party/
+third-party/
+external/
+lib/
+libs/
+packages/
+
+# Generated, compiled or build output
+dist/
+build/
+out/
+target/
+bin/
+obj/
+coverage/
+htmlcov/
+site/
+.next/
+generated/
+gen/
+autogen/
+auto_generated/
+*.min.js
+*.min.css
+*.bundle.js
+*.map
+*.class
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+*.pyc
+
+# Framework or package-manager locks that students normally do not author
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+poetry.lock
+Pipfile.lock
+Cargo.lock
+
+# Data, assets and media
+*.csv
+*.json
+*.xml
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.pdf
+*.docx
+*.pptx
+*.xlsx
+
+# Documentation and assignment prose; project mode excludes these by default,
+# but listing them here makes the policy explicit and visible to students.
+README.md
+docs/
+*.md
+*.rst
+*.adoc
+*.docx
+*.pdf
+
+# Instructor starter code or scaffold folders - rename for your module.
+starter/
+template/
+scaffold/
+provided/
+instructor/
+
+# Tests may be student-authored. Exclude only if your course does not assess them.
+# tests/
+
+# Example re-inclusion rule: if a generated-looking folder contains a file the
+# student actually authored, exclude the folder first and re-include that file.
+# generated/
+# !generated/student_owned.py
