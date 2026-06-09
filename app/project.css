@@ -1,0 +1,37 @@
+    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0b1220; color: #e8eefc; }
+    main { width: min(1200px, calc(100% - 2rem)); margin: 1rem auto; display: grid; gap: 1rem; }
+    section { background: #111a2e; border: 1px solid #2a3b63; border-radius: 16px; padding: 1rem; }
+    button, select { min-height: 2.5rem; border-radius: 10px; border: 1px solid #2a3b63; background: #1b2a47; color: #e8eefc; padding: 0.5rem 0.8rem; }
+    button.primary { background: #1d5dad; }
+    button:disabled { opacity: 0.55; }
+    textarea { width: 100%; min-height: 16rem; border-radius: 12px; border: 1px solid #2a3b63; background: #07101f; color: #e8eefc; padding: 0.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .row { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: center; }
+    .muted { color: #a8b5d6; }
+    .hidden { display: none; }
+    .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+    .card { background: #16213b; border: 1px solid #20304e; border-radius: 12px; padding: 0.8rem; }
+    .card strong { display:block; font-size: 1.35rem; margin-top: 0.25rem; }
+    .calibration-input { min-height: 8rem; }
+
+/* Phase 8 project-mode drag/drop and review guidance. */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 7, 18, 0.78);
+  border: 4px dashed #67b3ff;
+  pointer-events: none;
+  text-align: center;
+}
+.drop-overlay strong { display: block; font-size: 1.2rem; margin-bottom: 0.45rem; }
+.drop-overlay span { display: block; color: #a8b5d6; }
+.review-panel { display: grid; gap: 0.75rem; }
+.review-card, .risk-card { background: #16213b; border: 1px solid #20304e; border-radius: 12px; padding: 0.8rem; }
+.review-card h3, .risk-card h3 { margin: 0 0 0.45rem; }
+.review-list, .risk-list { margin: 0.35rem 0 0; padding-left: 1.1rem; line-height: 1.45; }
+.risk-high { border-color: #fb7185; }
+.risk-elevated { border-color: #fbbf24; }
+.risk-moderate { border-color: #67b3ff; }
+.risk-low { border-color: #34d399; }

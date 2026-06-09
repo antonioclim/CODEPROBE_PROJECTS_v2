@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeProbe v2.2.0 — heuristic code and project analysis in the browser</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net blob: 'wasm-unsafe-eval'; connect-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+  <link rel="stylesheet" href="codeprobe.css" integrity="sha256-Wg0hisd5Nyi3EBPsRmE7pbmmzyU5zrH0t5bPEjqP8Tc=">
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <div>
+        <h1>CodeProbe v2.2.0 — heuristic code and project analysis in the browser</h1>
+        <p>
+          Browser interface for local analysis of Python, JavaScript, Bash, C, C++, C#, Markdown and whole project folders or ZIP archives,
+          including direct drag-and-drop of single files, folders and GitHub-generated ZIP exports. The modular UI exposes JSON/text export,
+          optional local history, lightweight syntax highlighting, .codeprobeignore-aware filtering, manual-review guidance
+          and configurable metric weights and thresholds. The result is a heuristic concern signal and should be read
+          alongside oral examination, version history and assignment context.
+        </p>
+      </div>
+      <div class="badges">
+        <span class="badge info">Transparent package • browser UI</span>
+        <span class="badge info">Engine: Python in the browser</span>
+        <span class="badge info">Project mode • .codeprobeignore aware</span>
+        <span id="engineBadge" class="badge warn">Engine initialising</span>
+      </div>
+    </header>
+
+
+
+    <section class="policy-panel" aria-labelledby="coursePolicyTitle">
+      <div class="policy-header">
+        <div>
+          <h2 id="coursePolicyTitle">Course use policy</h2>
+          <p>
+            The AI-style concern score is a formative review signal, not proof of misconduct. In this
+            course, 60% is a local review trigger rather than a universal validity threshold. Scores above
+            that level should trigger revision, re-analysis and, where required by the module, a brief disclosure.
+          </p>
+        </div>
+        <div class="badges">
+          <span class="badge ready">Default review trigger: 60%</span>
+          <span class="badge info">Use with Git history and oral explanation</span>
+        </div>
+      </div>
+      <div class="policy-grid">
+        <div class="policy-item">
+          <strong>Use on authored code only</strong>
+          <span>Check only the files written by the student for the assessed task.</span>
+        </div>
+        <div class="policy-item">
+          <strong>Exclude non-student material</strong>
+          <span>Leave out starter code, third-party libraries, generated files, minified assets and documentation.</span>
+        </div>
+        <div class="policy-item">
+          <strong>Use a calibrated trigger when available</strong>
+          <span>The bundled 60% trigger is provisional; a course-local calibration profile can replace it.</span>
+        </div>
+        <div class="policy-item">
+          <strong>No automatic penalty</strong>
+          <span>Where concern remains, read the report alongside commits, design notes and a short code walkthrough.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="toolbar">
+      <div class="group-actions">
+        <button id="openBtn" class="ghost" type="button">Open file</button>
+        <input id="fileInput" type="file" class="hidden" accept=".py,.pyw,.js,.mjs,.cjs,.jsx,.ts,.tsx,.sh,.bash,.zsh,.ksh,.c,.h,.cpp,.cxx,.cc,.hpp,.hxx,.hh,.cs,.md,.markdown,.txt,text/plain">
+        <button id="openProjectZipBtn" class="ghost" type="button">Open project ZIP</button>
+        <input id="projectZipInput" type="file" class="hidden" accept=".zip,application/zip,application/x-zip-compressed">
+        <button id="openFolderBtn" class="ghost" type="button">Open project folder</button>
+        <input id="folderInput" type="file" class="hidden" multiple webkitdirectory directory>
+        <button id="loadEngineBtn" class="ghost hidden" type="button">Load engine file</button>
+        <input id="engineFileInput" type="file" class="hidden" accept=".py,text/x-python,text/plain">
+        <button id="analyzeBtn" class="primary" type="button" disabled>Analyse</button>
+        <button id="clearBtn" class="ghost" type="button">Clear</button>
+        <button id="exportJsonBtn" class="secondary" type="button" disabled>Export JSON</button>
+        <button id="exportTextBtn" class="secondary" type="button" disabled>Export text</button>
+        <button id="clearHistoryBtn" class="ghost" type="button">Clear history</button>
+        <button id="privacyWipeBtn" class="ghost" type="button">Clear privacy data</button>
+        <label class="help-inline"><input id="historyEnabled" type="checkbox"> Keep local report history</label>
+      </div>
+      <div class="group-meta">
+        <div class="field">
+          <label for="languageSelect">Language</label>
+          <select id="languageSelect">
+            <option value="auto">Auto</option>
+            <option value="python">Python</option>
+            <option value="javascript">JavaScript</option>
+            <option value="bash">Bash</option>
+            <option value="c">C</option>
+            <option value="cpp">C++</option>
+            <option value="csharp">C#</option>
+            <option value="markdown">Markdown</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="profileSelect">Scoring profile</label>
+          <select id="profileSelect">
+            <option value="default">default</option>
+            <option value="strict">strict</option>
+            <option value="permissive">permissive</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Shortcuts</label>
+          <div class="help-inline">Ctrl/Cmd+O opens a file · Ctrl/Cmd+Enter runs analysis · Ctrl/Cmd+S exports JSON</div>
+        </div>
+      </div>
+    </section>
+
+    <main class="main">
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Code editor</h2>
+            <p>Paste code here, drag a file/folder/ZIP anywhere onto the page, or use the open buttons.</p>
+          </div>
+          <div class="badge info" id="editorModeBadge">Highlight: auto</div>
+        </div>
+        <div class="drop-hint" aria-live="polite">Drop a source file for single-file analysis, or drop a folder / GitHub ZIP export for project analysis.</div>
+        <div id="dropZone" class="editor-shell">
+          <pre id="highlightLayer" aria-hidden="true"></pre>
+          <textarea
+            id="editor"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+            autocorrect="off"
+          ># Paste or load a Python, JavaScript, Bash, C, C++, C# or Markdown file.
+# The analysis runs locally in the browser without sending the source to a server.
+</textarea>
+        </div>
+        <div class="editor-footer">
+          <span id="fileMeta">File: fragment.py</span>
+          <span id="lineMeta">Lines: 2</span>
+          <span id="langMeta">Detected language: Python</span>
+          <span id="staleMeta">No report has been generated yet.</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="summary-grid">
+          <div class="summary-card">
+            <div class="label">AI-style concern score</div>
+            <div id="scoreValue" class="value">—</div>
+            <div class="score-bar"><span id="scoreBar"></span></div>
+          </div>
+          <div class="summary-card">
+            <div class="label">Reading</div>
+            <div id="verdictValue" class="value verdict-insufficient">Insufficient data</div>
+          </div>
+          <div class="summary-card">
+            <div class="label">Confidence</div>
+            <div id="confidenceValue" class="value">—</div>
+          </div>
+          <div class="summary-card">
+            <div class="label">Language</div>
+            <div id="summaryLanguage" class="value">—</div>
+          </div>
+          <div class="summary-card">
+            <div class="label">Profile</div>
+            <div id="summaryProfile" class="value">default</div>
+          </div>
+          <div id="lowLevelQualityCard" class="summary-card hidden">
+            <div class="label">Low-Level Quality</div>
+            <div id="lowLevelQualityValue" class="value">—</div>
+            <div class="score-bar"><span id="lowLevelQualityBar"></span></div>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Result panels">
+          <button class="tab-btn active" data-tab="tab-summary" type="button">Summary</button>
+          <button class="tab-btn" data-tab="tab-review" type="button">Manual review</button>
+          <button class="tab-btn" data-tab="tab-metrics" type="button">Metrics</button>
+          <button class="tab-btn" data-tab="tab-text" type="button">Text report</button>
+          <button class="tab-btn" data-tab="tab-json" type="button">JSON</button>
+          <button class="tab-btn" data-tab="tab-history" type="button">History</button>
+        </div>
+
+        <section id="tab-summary" class="tab-panel active">
+          <div class="summary-box">
+            <div>
+              <h3>Notes</h3>
+              <ul id="notesList" class="note-list">
+                <li class="empty-state">The report will appear here after the first analysis.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Warnings</h3>
+              <ul id="warningsList" class="warning-list">
+                <li class="empty-state">No warnings.</li>
+              </ul>
+            </div>
+            <details class="config-box">
+              <summary>Metric configuration (optional JSON override)</summary>
+              <p class="help-inline">
+                Enter a partial JSON object to override enabled, weight, thresholds, group or contribution flags for the next run.
+                Unknown metrics and unsupported keys are rejected by the engine.
+                Example: <code>{"comment_to_code_ratio":{"weight":0.15,"thresholds":{"ai_peak":0.22}}}</code>
+              </p>
+              <textarea id="configOverride" placeholder='{}'></textarea>
+            </details>
+            <details class="config-box">
+              <summary>Calibration profile (optional JSON)</summary>
+              <p class="help-inline">
+                Paste a course-local calibration profile produced by <code>tools/calibrate_profile.py</code>.
+                It may define <code>review_policy</code> thresholds and calibrated metric overrides.
+              </p>
+              <textarea id="calibrationProfile" placeholder='{"profile_id":"intro-python-2026","review_policy":{"file":{"low_max":0.28,"moderate_max":0.48,"elevated_max":0.68,"review_trigger":0.62},"project":{"low_max":0.28,"moderate_max":0.48,"elevated_max":0.68,"review_trigger":0.60}}}'></textarea>
+            </details>
+            <details class="config-box security-panel">
+              <summary>Browser security and privacy boundary</summary>
+              <p class="help-inline">
+                Phase 6 uses external JavaScript/CSS files, a stricter Content Security Policy and a runtime Pyodide loader.
+                Source code is not stored in local history; history is disabled by default and can be wiped with Clear privacy data.
+                Pyodide may still be loaded from the configured CDN unless <code>runtime-config.json</code> is switched to a local vendor path.
+              </p>
+            </details>
+          </div>
+        </section>
+
+        <section id="tab-review" class="tab-panel">
+          <div id="manualReviewPanel" class="review-panel">
+            <div class="empty-state">Manual-review guidance will appear after analysis. The guidance is a defensible triage plan, not a misconduct finding.</div>
+          </div>
+        </section>
+
+        <section id="tab-metrics" class="tab-panel">
+          <div class="metric-layout">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                    <th>Score</th>
+                    <th>Weight</th>
+                    <th>State</th>
+                  </tr>
+                </thead>
+                <tbody id="metricsBody">
+                  <tr><td colspan="5" class="empty-state">No metrics yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <aside class="detail-box">
+              <h3>Metric detail</h3>
+              <div id="metricDetail" class="help-inline">
+                Select a metric for an explanation, details and references.
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="tab-text" class="tab-panel">
+          <textarea id="textReport" class="mono-area" readonly>The text report will appear here.</textarea>
+        </section>
+
+        <section id="tab-json" class="tab-panel">
+          <textarea id="jsonReport" class="json-area" readonly>{}</textarea>
+        </section>
+
+        <section id="tab-history" class="tab-panel">
+          <div class="history-box">
+            <div class="panel-header history-header">
+              <div class="panel-title">
+                <h3>Local history</h3>
+                <p>Recent reports can be kept in the browser without storing the loaded source. Disable history when reports are sensitive.</p>
+              </div>
+            </div>
+            <div id="historyList" class="history-list">
+              <div class="empty-state">History is empty.</div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <footer class="statusbar">
+      <div id="spinner" class="spinner" aria-hidden="true"></div>
+      <div id="statusText" class="status-text">Starting the analysis engine…</div>
+      <div id="contextText" class="context-text">No current report.</div>
+    </footer>
+  </div>
+  <div id="globalDropOverlay" class="drop-overlay hidden" aria-hidden="true">
+    <div>
+      <strong>Drop to load into CodeProbe</strong>
+      <span>Single file → file analysis · Folder or GitHub ZIP → project analysis</span>
+    </div>
+  </div>
+  <script src="pyodide-loader.js" defer integrity="sha256-876RR3lY7z81OopPUT4JNlpxbyWc6i6VQDrGXsi9kU4="></script>
+  <script src="codeprobe-ui.js" defer integrity="sha256-m7Xi7vw0SoQN6PyzxMI9KglnD9B4qr8YKH5OC/QEyf4="></script>
+
+</body>
+</html>

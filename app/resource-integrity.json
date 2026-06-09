@@ -1,0 +1,48 @@
+{
+  "schema": "codeprobe-browser-resource-integrity/v1",
+  "note": "SRI values are computed for local CodeProbe browser assets and the auditable Python runtime. Pyodide CDN integrity must be supplied in runtime-config.json if integrity enforcement is required.",
+  "assets": [
+    {
+      "path": "codeprobe.css",
+      "size_bytes": 17743,
+      "sha256_hex": "5a0d218ac7793728b71013ec46613ba5b9a6cf2539ceb1f4b796cf123a8ff137",
+      "sri_sha256": "sha256-Wg0hisd5Nyi3EBPsRmE7pbmmzyU5zrH0t5bPEjqP8Tc="
+    },
+    {
+      "path": "project.css",
+      "size_bytes": 2149,
+      "sha256_hex": "95d7e54df02c0b34dd42b3ccdd01c3659026740b859f65b649168f7a601eb3eb",
+      "sri_sha256": "sha256-ldflTfAsCzTdQrPM3QHDZZAmdAuFn2W2SRaPemAes+s="
+    },
+    {
+      "path": "pyodide-loader.js",
+      "size_bytes": 5449,
+      "sha256_hex": "f3be91477958ef3f353a8a4f513e09365a716f259cea2e95403ac65ec8bd914e",
+      "sri_sha256": "sha256-876RR3lY7z81OopPUT4JNlpxbyWc6i6VQDrGXsi9kU4="
+    },
+    {
+      "path": "codeprobe-ui.js",
+      "size_bytes": 71276,
+      "sha256_hex": "9bb5e2eefc344a840de8fcb3c4c23d2a09670fd078aabf18287e4e0bf404c9fe",
+      "sri_sha256": "sha256-m7Xi7vw0SoQN6PyzxMI9KglnD9B4qr8YKH5OC/QEyf4="
+    },
+    {
+      "path": "project-ui.js",
+      "size_bytes": 14480,
+      "sha256_hex": "aa94b1f5838f85d4e0b4c45cac502ad9c290f8b27fa6c4a60416abef07dd812e",
+      "sri_sha256": "sha256-qpSx9YOPhdTgtMRcrFAq2cKQ+LJ/psSmBBar7wfdgS4="
+    },
+    {
+      "path": "../src/codeprobe_runtime.py",
+      "size_bytes": 241879,
+      "sha256_hex": "138a3f34fc1c44856e0d7ff5b4054ca6a39932c610eb7c9a41c616520710fba3",
+      "sri_sha256": "sha256-E4o/NPwcRIVuDX/1tAVMpqOZMsYQ63yaQcYWUgcQ+6M="
+    },
+    {
+      "path": "runtime-config.json",
+      "size_bytes": 581,
+      "sha256_hex": "d825c029d36ded0c029ac6ab0b14b2f5ec0e5058d0ed8bb99444eca9772f0ab7",
+      "sri_sha256": "sha256-2CXAKdNt7QwCmsarCxSy9ewOUFjQ7Yu5lETsqXcvCrc="
+    }
+  ]
+}
