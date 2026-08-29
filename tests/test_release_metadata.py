@@ -1,8 +1,10 @@
 import json
+import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -14,6 +16,7 @@ if str(SRC) not in sys.path:
 
 import codeprobe_runtime as engine
 from codeprobe_engine import api as cp_api
+from codeprobe_engine import release
 from codeprobe_engine.metrics import metric_inventory
 from codeprobe_engine.release import build_release_manifest, verify_manifest, write_manifest
 
@@ -63,18 +66,26 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertEqual(manifest["app_version"], "2.2.0")
         self.assertGreater(manifest["file_count"], 10)
         with tempfile.TemporaryDirectory() as tmp:
-            # verification is meaningful only against the actual tree, so write
-            # the manifest temporarily into the project root and then remove it.
-            manifest_path = ROOT / "release/release-manifest.json"
-            old = manifest_path.read_text(encoding="utf-8") if manifest_path.exists() else None
-            try:
-                write_manifest(ROOT, engine.APP_VERSION)
-                self.assertFalse(verify_manifest(ROOT))
-            finally:
-                if old is None:
-                    manifest_path.unlink(missing_ok=True)
-                else:
-                    manifest_path.write_text(old, encoding="utf-8")
+            fixture_root = Path(tmp) / "kit"
+            shutil.copytree(
+                ROOT,
+                fixture_root,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"),
+            )
+            write_manifest(fixture_root, engine.APP_VERSION)
+            self.assertFalse(verify_manifest(fixture_root))
+
+    def test_atomic_write_cleans_up_after_sync_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            target = directory / "evidence.json"
+            target.write_bytes(b"original\n")
+            before = {path.name for path in directory.iterdir()}
+            with mock.patch.object(release.os, "fsync", side_effect=OSError("forced sync failure")):
+                with self.assertRaisesRegex(OSError, "forced sync failure"):
+                    release.atomic_write_bytes(target, b"replacement\n")
+            self.assertEqual(target.read_bytes(), b"original\n")
+            self.assertEqual({path.name for path in directory.iterdir()}, before)
 
 
 if __name__ == "__main__":

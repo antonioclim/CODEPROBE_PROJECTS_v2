@@ -26,6 +26,7 @@ STANDARD_ROOT_FILES = {
     "README.md",
 }
 EXPECTED_DIRS = {"app", "src", "tools", "docs", "educator", "calibration", "release", "tests"}
+IGNORED_DIRS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"}
 RETIRED_FILES = {
     "KIT_INDEX.md",
     "RELEASE_MANIFEST.json",
@@ -55,12 +56,11 @@ NumberedTemplate = re.compile(r"^[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*(?:\.template)
 
 
 def iter_release_paths(root: Path) -> Iterable[Path]:
-    ignored = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"}
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
         rel = path.relative_to(root)
-        if set(rel.parts) & ignored:
+        if set(rel.parts) & IGNORED_DIRS:
             continue
         if path.suffix.lower() in {".pyc", ".pyo"}:
             continue
@@ -77,7 +77,7 @@ def check_root_layout(root: Path) -> list[str]:
         if (root / retired).exists():
             errors.append(f"retired path still exists: {retired}")
     for path in root.iterdir():
-        if path.is_dir() and path.name not in EXPECTED_DIRS:
+        if path.is_dir() and path.name not in EXPECTED_DIRS and path.name not in IGNORED_DIRS:
             errors.append(f"unexpected top-level directory: {path.name}")
     return errors
 

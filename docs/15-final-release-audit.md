@@ -15,7 +15,7 @@ This document records the v2.2.0 naming-stable release boundary. It is an intern
 
 ## Final audit checks
 
-The release pipeline verifies:
+The canonical read-only release gate verifies:
 
 1. Python compilation for runtime, support package, tools and tests;
 2. unit-test discovery;
@@ -28,13 +28,24 @@ The release pipeline verifies:
 9. high-confidence Markdown/HTML file references;
 10. file-rename-map coverage for every release file;
 11. absence of uncontrolled references to retired active paths outside approved historical/audit files;
-12. release-manifest writing and verification;
-13. deterministic ZIP construction and sidecar generation.
+12. exact verification of the committed audit reports, plus path-membership and
+    SHA-256 verification of the release manifest, without rewriting them.
+
+After that gate passes, `tools/build_release.py` performs deterministic ZIP
+construction and sidecar generation as a separate operation. It consumes, but
+does not rewrite, the tracked release evidence.
 
 ## Interpretation boundary
 
 CodeProbe reports a heuristic AI-style concern score. The score can guide revision and manual review, but it does not prove AI authorship, misconduct or independent authorship. Any triggered case must be read together with the analysed files, excluded-file inventory, repository history, tests, design notes, disclosure and, where required, an oral walkthrough.
 
-## Final status
+## Release status boundary
 
-The v2.2.0 package is the naming-stable release. Future features should extend the existing directories rather than reintroducing unnumbered documentation, phase-numbered test filenames, ambiguous runtime paths or duplicate active release manifests.
+The v2.2.0 layout defines the naming-stable candidate boundary. A particular
+commit is releasable only when the canonical read-only gate passes in both a
+fresh clone and an exact Git export under the same supported toolchain and a
+byte-preserving checkout configuration, the checkout remains byte-identical
+after validation and the package is built from the exact verified head. Future
+features should extend the existing directories rather than reintroducing
+unnumbered documentation, phase-numbered test filenames, ambiguous runtime
+paths or duplicate active release manifests.

@@ -4,27 +4,29 @@ This file records how to verify a CodeProbe source release. The authoritative pe
 
 ## Source tree manifest
 
-Refresh before distribution:
+Refresh intentionally after an accepted source change:
 
 ```bash
-python3 tools/check_release.py --write-manifest
+python3 tools/check_release.py --write-release-evidence
 ```
 
-Verify after extraction:
+Inspect the evidence diff, then run the canonical read-only gate:
 
 ```bash
-python3 tools/validate_release.py --skip-tests
+python3 tools/check_release.py
 ```
 
 ## Final ZIP hash
 
-After building the ZIP, create a sidecar hash file:
+`tools/build_release.py` creates the sidecar beside the ZIP as:
 
-```bash
-sha256sum CodeProbe_Project_Kit_v2.2.0.zip > CodeProbe_Project_Kit_v2.2.0.zip.sha256
+```text
+CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
 ```
 
-The ZIP hash cannot be embedded inside the ZIP without changing the ZIP itself. Keep the sidecar `.sha256` file with the institutional archive and course release notes.
+The ZIP hash cannot be embedded inside the ZIP without changing the ZIP itself.
+Keep the generated `.zip.sha256.txt` file with the institutional archive and
+course release notes.
 
 ## What to archive
 

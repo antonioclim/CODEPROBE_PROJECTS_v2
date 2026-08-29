@@ -81,10 +81,16 @@ Avoid any change that uploads analysed code, reports or filenames to an external
 Before proposing or distributing a release candidate, run:
 
 ```bash
-python3 tools/check_release.py --write-manifest
+python3 tools/check_release.py
 ```
 
-This validates Python syntax, the unit-test suite, external browser-script syntax where Node.js is available, browser CSP/SRI hygiene, resource-integrity metadata, version consistency, smoke reports and the release manifest. A change that modifies metric semantics, report shape or project filtering should add or update a regression test.
+This read-only gate validates Python syntax, the unit-test suite, external
+browser-script syntax where Node.js is available, browser CSP/SRI hygiene,
+resource-integrity metadata, version consistency, smoke reports and committed
+release evidence. If a deliberate change requires refreshed evidence, run
+`python3 tools/check_release.py --write-release-evidence` only after the other
+checks pass. A change that modifies metric semantics, report shape or project
+filtering should add or update a regression test.
 
 
 ## Institutional release checks
@@ -93,7 +99,7 @@ Before proposing a packaged release, run:
 
 ```bash
 python3 tools/audit_institutional_pack.py
-python3 tools/check_release.py --write-manifest
+python3 tools/check_release.py
 ```
 
 Do not remove or weaken the student, instructor, review and deployment guidance unless the course policy is updated at the same time.

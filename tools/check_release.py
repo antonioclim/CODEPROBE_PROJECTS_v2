@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+sys.dont_write_bytecode = True
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 APP = ROOT / "app"
@@ -39,7 +41,13 @@ import final_audit  # noqa: E402
 import check_naming  # noqa: E402
 from codeprobe_engine import api as cp_api  # noqa: E402
 from codeprobe_engine import metrics as cp_metrics  # noqa: E402
-from codeprobe_engine.release import MANIFEST_NAME, verify_manifest, write_manifest  # noqa: E402
+from codeprobe_engine.release import (  # noqa: E402
+    MANIFEST_NAME,
+    atomic_write_bytes,
+    atomic_write_text,
+    verify_manifest,
+    write_manifest,
+)
 
 
 @dataclass
@@ -61,15 +69,17 @@ def _python_files() -> Iterable[Path]:
 
 def check_python_compile() -> CheckResult:
     try:
-        for path in _python_files():
-            py_compile.compile(str(path), doraise=True)
+        with tempfile.TemporaryDirectory(prefix="codeprobe-pycompile-") as tmp:
+            output_dir = Path(tmp)
+            for index, path in enumerate(_python_files()):
+                py_compile.compile(str(path), cfile=str(output_dir / f"{index}.pyc"), doraise=True)
         return CheckResult("python-compile", True, "all Python files compile")
     except Exception as exc:  # pragma: no cover - failure path reported by CLI
         return CheckResult("python-compile", False, str(exc))
 
 
 def check_unittest_suite(verbose: bool = False) -> CheckResult:
-    cmd = [sys.executable, "-m", "unittest", "discover", "-s", "tests"]
+    cmd = [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"]
     if verbose:
         cmd.append("-v")
     completed = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
@@ -254,14 +264,19 @@ def check_naming_policy() -> CheckResult:
 
 
 
-def check_final_audit() -> CheckResult:
-    report = final_audit.write_reports(ROOT)
+def check_final_audit(*, verify_persisted: bool = True) -> CheckResult:
+    report = final_audit.build_audit(ROOT)
     if report.get("status") == "pass":
+        if verify_persisted:
+            errors = final_audit.verify_reports(ROOT, report)
+            if errors:
+                return CheckResult("final-audit", False, "; ".join(errors[:10]))
         return CheckResult("final-audit", True, f"{report.get('file_count')} release-set files audited")
     detail_items = (
         report.get("missing_required_paths")
         or report.get("forbidden_paths_present")
         or report.get("reference_errors")
+        or report.get("naming_errors")
         or report.get("institutional_errors")
         or ["final audit failed"]
     )
@@ -292,18 +307,87 @@ def check_final_package_audit() -> CheckResult:
     return CheckResult("final-package-audit", True, "final naming-stable package audit passed")
 
 
-def check_manifest(write: bool = False) -> CheckResult:
-    if write:
-        path = write_manifest(ROOT, engine.APP_VERSION)
-        errors = verify_manifest(ROOT)
-        return CheckResult("release-manifest", not errors, f"wrote {path.name}" if not errors else "; ".join(errors[:10]))
-    errors = verify_manifest(ROOT)
+def check_manifest(root: Path = ROOT) -> CheckResult:
+    errors = verify_manifest(root)
     return CheckResult("release-manifest", not errors, "verified" if not errors else "; ".join(errors[:10]))
 
 
-def run_checks(skip_tests: bool = False, verbose_tests: bool = False, write_manifest_file: bool = False) -> list[CheckResult]:
-    checks = [
-        check_python_compile(),
+EVIDENCE_PATHS = (
+    Path("release/final-audit-report.json"),
+    Path("release/final-audit-summary.md"),
+    Path(MANIFEST_NAME),
+)
+
+
+def diagnostic_output_is_outside_release_set(path: Path, root: Path = ROOT) -> bool:
+    """Return whether an explicit diagnostic output avoids the release set."""
+    root = root.resolve()
+    resolved = path.resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError:
+        return True
+    return bool(relative.parts) and relative.parts[0] == "dist"
+
+
+def refresh_release_evidence(root: Path = ROOT) -> CheckResult:
+    """Refresh tracked release evidence only after a successful in-memory audit."""
+    root = root.resolve()
+    missing = [relative.as_posix() for relative in EVIDENCE_PATHS if not (root / relative).is_file()]
+    if missing:
+        return CheckResult(
+            "release-evidence",
+            False,
+            f"not written because tracked evidence is missing: {', '.join(missing)}",
+        )
+    report = final_audit.build_audit(root)
+    if report.get("status") != "pass":
+        return CheckResult("release-evidence", False, "not written because the final audit failed")
+
+    snapshots: dict[Path, bytes] = {}
+    try:
+        for relative in EVIDENCE_PATHS:
+            snapshots[relative] = (root / relative).read_bytes()
+    except OSError as exc:
+        return CheckResult("release-evidence", False, f"not written because existing evidence could not be read: {exc}")
+    try:
+        final_audit.write_reports(root, report)
+        write_manifest(root, engine.APP_VERSION)
+        post_report = final_audit.build_audit(root)
+        errors = []
+        if post_report.get("status") != "pass":
+            errors.append("post-write final audit failed")
+        else:
+            errors.extend(final_audit.verify_reports(root, post_report))
+        errors.extend(verify_manifest(root))
+        if errors:
+            raise RuntimeError("; ".join(errors[:10]))
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        for relative, content in snapshots.items():
+            path = root / relative
+            try:
+                atomic_write_bytes(path, content)
+            except OSError as rollback_exc:
+                rollback_errors.append(f"{relative.as_posix()}: {rollback_exc}")
+        if rollback_errors:
+            detail = "; ".join(rollback_errors[:3])
+            return CheckResult("release-evidence", False, f"refresh failed; rollback incomplete ({detail}): {exc}")
+        return CheckResult("release-evidence", False, f"refresh failed and was rolled back: {exc}")
+    return CheckResult("release-evidence", True, "audit reports and release manifest refreshed with atomic file replacement")
+
+
+def run_checks(
+    skip_tests: bool = False,
+    verbose_tests: bool = False,
+    write_manifest_file: bool = False,
+    verify_manifest_file: bool = True,
+    verify_persisted_evidence: bool = True,
+) -> list[CheckResult]:
+    checks = [check_python_compile()]
+    if not skip_tests:
+        checks.append(check_unittest_suite(verbose=verbose_tests))
+    checks.extend([
         check_javascript_syntax(),
         check_browser_security(),
         check_resource_integrity(),
@@ -312,11 +396,21 @@ def run_checks(skip_tests: bool = False, verbose_tests: bool = False, write_mani
         check_institutional_package(),
         check_reference_integrity(),
         check_naming_policy(),
-        check_final_audit(),
-        check_manifest(write=write_manifest_file),
-    ]
-    if not skip_tests:
-        checks.insert(1, check_unittest_suite(verbose=verbose_tests))
+        check_final_audit(verify_persisted=verify_persisted_evidence and not write_manifest_file),
+    ])
+    prerequisites_ok = all(result.ok for result in checks)
+    if write_manifest_file:
+        if prerequisites_ok:
+            checks.append(refresh_release_evidence())
+        else:
+            checks.append(CheckResult(
+                "release-evidence",
+                True,
+                "not written because an earlier validation check failed",
+                skipped=True,
+            ))
+    if verify_manifest_file or write_manifest_file:
+        checks.append(check_manifest())
     return checks
 
 
@@ -324,18 +418,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run CodeProbe release validation checks.")
     parser.add_argument("--skip-tests", action="store_true", help="Skip the unittest suite and run only fast checks.")
     parser.add_argument("--verbose-tests", action="store_true", help="Run unittest discovery with -v.")
-    parser.add_argument("--write-manifest", action="store_true", help=f"Write or refresh {MANIFEST_NAME} before verifying it.")
+    parser.add_argument(
+        "--write-release-evidence",
+        "--write-manifest",
+        dest="write_manifest",
+        action="store_true",
+        help=f"Refresh audit reports and {MANIFEST_NAME} only after all preceding checks pass.",
+    )
     parser.add_argument("--json-out", help="Write machine-readable check results to this path.")
     args = parser.parse_args(argv)
+
+    json_output = Path(args.json_out) if args.json_out else None
+    if json_output is not None and not diagnostic_output_is_outside_release_set(json_output):
+        parser.error("--json-out must be outside the release set; use dist/ or a path outside the checkout")
 
     results = run_checks(skip_tests=args.skip_tests, verbose_tests=args.verbose_tests, write_manifest_file=args.write_manifest)
     for result in results:
         status = "SKIP" if result.skipped else ("PASS" if result.ok else "FAIL")
         print(f"[{status}] {result.name}: {result.detail}")
 
-    if args.json_out:
+    if json_output is not None:
         payload = {"app_version": engine.APP_VERSION, "results": [result.__dict__ for result in results]}
-        Path(args.json_out).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        try:
+            atomic_write_text(json_output, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            print(f"[FAIL] diagnostic-output: {exc}")
+            return 1
 
     return 0 if all(result.ok for result in results) else 1
 

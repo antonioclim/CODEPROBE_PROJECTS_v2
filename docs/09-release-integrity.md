@@ -32,6 +32,19 @@ Then check:
 
 A release is acceptable when the membership and hash manifest are coherent. A release is not acceptable merely because its ZIP size looks plausible.
 
+## Source-tree immutability invariant
+
+`python3 tools/check_release.py` is a read-only operation. Run it in both a fresh
+Git clone and an exact `git archive` export when preparing a release candidate.
+With the same supported toolchain and a byte-preserving checkout configuration,
+the semantic results must agree, and a before/after inventory of the complete
+source tree, excluding `.git`, must be unchanged. Evidence generation is a
+separate explicit maintenance action through `--write-release-evidence`; the ZIP
+builder consumes that committed evidence rather than silently replacing it.
+The repository does not yet define a cross-platform `.gitattributes`
+normalisation policy, so line-ending and other content-changing checkout filters
+remain a separate release-hardening concern.
+
 ## Canonical v2.1.8 package observed during Phase 9 audit
 
 The canonical Phase 8 package available in the build workspace had the following audit values:

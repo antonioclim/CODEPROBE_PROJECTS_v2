@@ -23,8 +23,13 @@ This option uses the Pyodide source configured in `app/runtime-config.json`. In 
 5. Run:
 
 ```bash
-python3 tools/check_release.py --write-manifest
+python3 tools/check_release.py --write-release-evidence
+python3 tools/check_release.py
 ```
+
+The first command explicitly refreshes tracked release evidence after the
+runtime change. Inspect that diff before using the second, read-only command as
+the release gate.
 
 6. Build and archive the institutional ZIP:
 

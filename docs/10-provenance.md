@@ -54,14 +54,21 @@ The Phase-4 release adds calibration profiles and sensitivity reporting. These f
 
 The Phase-5 release adds release metadata, an engine fingerprint, a metric-configuration digest, a maintainer support package and release-validation scripts. These additions reduce provenance ambiguity by making the distributed kit easier to identify and compare. They do not make the detector more evidentially decisive; they make the toolchain more auditable.
 
-Before distributing this phase, maintainers should run `python3 tools/check_release.py --write-manifest` and archive the resulting release ZIP hash with any course-local calibration profile.
+Before distributing this phase, maintainers should explicitly refresh tracked
+evidence with `python3 tools/check_release.py --write-release-evidence`, inspect
+the diff, run the read-only `python3 tools/check_release.py` gate and archive the
+resulting release ZIP hash with any course-local calibration profile.
 
 
 ## Phase-6 validation note
 
 The Phase-6 release hardens browser delivery and privacy controls. Inline JavaScript and CSS have been moved to external resources, the CSP no longer permits `unsafe-inline`, local browser assets carry SRI attributes, and the Pyodide runtime source is made explicit through `runtime-config.json`. These changes reduce packaging ambiguity; they do not make AI-use detection more certain.
 
-Before distributing this phase, maintainers should run `python3 tools/check_release.py --write-manifest`, inspect `app/runtime-config.json`, and decide whether the course will use the default CDN mode or an institutionally supplied local Pyodide runtime.
+Before distributing this phase, maintainers should explicitly refresh tracked
+evidence with `python3 tools/check_release.py --write-release-evidence`, inspect
+the diff, run the read-only `python3 tools/check_release.py` gate, inspect
+`app/runtime-config.json`, and decide whether the course will use the default CDN
+mode or an institutionally supplied local Pyodide runtime.
 
 ## Phase 8 consolidation note
 

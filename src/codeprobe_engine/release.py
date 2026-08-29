@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -19,6 +21,34 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    """Replace ``path`` with ``content`` without exposing a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    previous_mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary_path, previous_mode)
+        temporary_path.replace(path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    """UTF-8 text variant of :func:`atomic_write_bytes`."""
+    atomic_write_bytes(path, content.encode("utf-8"))
 
 
 def iter_release_files(root: Path) -> Iterable[Path]:
@@ -60,7 +90,7 @@ def build_release_manifest(root: Path, *, app_version: str, schema_version: str 
 
 def write_release_manifest(root: Path, output: Path, *, app_version: str) -> Dict[str, Any]:
     manifest = build_release_manifest(root, app_version=app_version)
-    output.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    atomic_write_text(output, json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     return manifest
 
 
@@ -123,7 +153,7 @@ def verify_manifest(root: Path) -> List[str]:
     root = root.resolve()
     manifest_path = root / MANIFEST_NAME
     if not manifest_path.exists():
-        return [f"{MANIFEST_NAME} is missing; run tools/check_release.py --write-manifest"]
+        return [f"{MANIFEST_NAME} is missing; restore the tracked manifest from version control before refreshing release evidence"]
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception as exc:

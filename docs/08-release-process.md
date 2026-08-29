@@ -18,8 +18,13 @@ Before building a release, update:
 From the repository root:
 
 ```bash
-python3 tools/check_release.py --write-manifest
+python3 tools/check_release.py
 ```
+
+This is the canonical read-only gate. It does not write bytecode, audit reports
+or the release manifest into the source tree. A normal Git clone and an exact
+`git archive` export must produce the same semantic check results when the same
+supported toolchain and a byte-preserving checkout configuration are used.
 
 This runs:
 
@@ -31,13 +36,33 @@ This runs:
 - version-consistency checks;
 - file and project smoke analyses;
 - metric-inventory checks;
-- release-manifest writing and verification.
+- verification of the committed audit reports and release manifest.
+
+After an intentional source change, refresh the tracked release evidence with:
+
+```bash
+python3 tools/check_release.py --write-release-evidence
+```
+
+The refresh is attempted only after the other checks pass. Each evidence file
+uses atomic replacement, the manifest is written last and post-write
+verification must pass. A detected generation failure triggers restoration of
+the previous bytes; if restoration itself encounters an I/O error, the command
+reports that rollback is incomplete. `--write-manifest` remains a compatibility
+alias, but it is not the canonical spelling. Missing tracked audit artefacts are
+treated as a fail-closed condition rather than bootstrapped from an incomplete
+release set.
 
 For a faster pre-commit pass:
 
 ```bash
 python3 tools/check_release.py --skip-tests
 ```
+
+Machine-readable results may be requested with `--json-out`, but that explicit
+diagnostic output must be placed under `dist/` or outside the checkout. The tool
+rejects destinations inside the release set because they would immediately make
+the committed manifest stale.
 
 ## 3. Inspect `release/release-manifest.json`
 
@@ -49,7 +74,11 @@ The release manifest records each file path, file size and SHA-256 digest. It is
 python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
 ```
 
-The builder runs the validation checks, refreshes the manifest and writes a ZIP archive containing the release files.
+The builder runs the complete read-only gate against the committed evidence,
+then writes the ZIP and its external sidecars. It does not refresh tracked
+source-tree evidence. If validation fails, package construction is not started.
+Transactional replacement of the ZIP and its sidecars remains a separate
+packaging-hardening concern.
 
 ## 5. Post-build smoke use
 

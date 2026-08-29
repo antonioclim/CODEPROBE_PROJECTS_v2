@@ -53,4 +53,6 @@ Features that need to survive export should be added to the JSON report in `src/
 3. Add a renderer in `app/codeprobe-ui.js`.
 4. Add CSS to `app/codeprobe.css`.
 5. Add tests for schema, UI hooks and release validation.
-6. Refresh `app/resource-integrity.json` and run `tools/check_release.py --write-manifest`.
+6. Refresh `app/resource-integrity.json`, run
+   `tools/check_release.py --write-release-evidence`, inspect the evidence diff,
+   and then run the read-only `tools/check_release.py` gate.

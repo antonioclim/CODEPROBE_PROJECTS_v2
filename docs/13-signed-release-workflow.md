@@ -2,11 +2,14 @@
 
 CodeProbe does not require cryptographic signing, but institutions may want a signed release record for audit. The package provides deterministic file hashes through `release/release-manifest.json`; signing can be performed with institutional tools outside the kit.
 
-## 1. Refresh validation and manifest
+## 1. Refresh evidence and run the read-only gate
 
 ```bash
-python3 tools/check_release.py --write-manifest
+python3 tools/check_release.py --write-release-evidence
+python3 tools/check_release.py
 ```
+
+Inspect the evidence diff between these commands.
 
 ## 2. Build the release ZIP
 
@@ -14,16 +17,20 @@ python3 tools/check_release.py --write-manifest
 python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
 ```
 
-## 3. Record the ZIP hash
+## 3. Verify the generated ZIP hash sidecar
+
+The builder writes
+`dist/CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt`. From the `dist/`
+directory, verify it independently:
 
 ```bash
-sha256sum dist/CodeProbe_Project_Kit_v2.2.0.zip > dist/CodeProbe_Project_Kit_v2.2.0.zip.sha256
+sha256sum -c CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
 ```
 
 On macOS:
 
 ```bash
-shasum -a 256 dist/CodeProbe_Project_Kit_v2.2.0.zip > dist/CodeProbe_Project_Kit_v2.2.0.zip.sha256
+shasum -a 256 -c CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
 ```
 
 ## 4. Sign with the institutional key
@@ -32,7 +39,7 @@ Example using GnuPG:
 
 ```bash
 gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.2.0.zip
-gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.2.0.zip.sha256
+gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
 gpg --detach-sign --armor release/release-manifest.json
 ```
 
@@ -52,9 +59,12 @@ Archive:
 ## 6. Verification by a recipient
 
 ```bash
-sha256sum -c CodeProbe_Project_Kit_v2.2.0.zip.sha256
+sha256sum -c CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
 gpg --verify CodeProbe_Project_Kit_v2.2.0.zip.asc CodeProbe_Project_Kit_v2.2.0.zip
 ```
+
+On macOS, replace the first command with
+`shasum -a 256 -c CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt`.
 
 After extraction, run:
 

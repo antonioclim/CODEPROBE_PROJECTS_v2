@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -22,6 +23,14 @@ from codeprobe_engine.release import iter_release_files  # noqa: E402
 class ReferenceIntegrityTests(unittest.TestCase):
     def test_reference_checker_passes(self) -> None:
         self.assertEqual(check_file_references.run_checks(ROOT), [])
+
+    def test_document_link_checker_ignores_vcs_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metadata = root / ".git"
+            metadata.mkdir()
+            (metadata / "host-note.md").write_text("[missing](does-not-exist.md)\n", encoding="utf-8")
+            self.assertEqual(check_file_references.check_document_links(root), [])
 
     def test_rename_map_covers_current_release_files(self) -> None:
         with (ROOT / "release" / "file-rename-map.csv").open("r", encoding="utf-8", newline="") as handle:

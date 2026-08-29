@@ -8,6 +8,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 TOOLS = ROOT / "tools"
@@ -18,8 +20,7 @@ if str(SRC) not in sys.path:
 
 import codeprobe_runtime as engine  # noqa: E402
 import check_release  # noqa: E402
-import final_audit  # noqa: E402
-from codeprobe_engine.release import MANIFEST_NAME, iter_release_files, sha256_file, write_manifest, write_zip_summary  # noqa: E402
+from codeprobe_engine.release import MANIFEST_NAME, iter_release_files, sha256_file, write_zip_summary  # noqa: E402
 
 # ZIP headers are normalised so that two builds from the same source tree are
 # byte-for-byte comparable. The chosen date is arbitrary but valid for the ZIP
@@ -65,15 +66,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-sidecars", action="store_true", help="Do not write .sha256.txt and .package_audit.json next to the ZIP.")
     args = parser.parse_args(argv)
 
-    final_audit.write_reports(ROOT)
-    results = check_release.run_checks(skip_tests=args.skip_tests, write_manifest_file=True)
+    results = check_release.run_checks(skip_tests=args.skip_tests)
     for result in results:
         status = "SKIP" if result.skipped else ("PASS" if result.ok else "FAIL")
         print(f"[{status}] {result.name}: {result.detail}")
     if not all(result.ok for result in results):
         return 1
 
-    write_manifest(ROOT, engine.APP_VERSION)
     output = Path(args.out) if args.out else ROOT / "dist" / f"CodeProbe_Project_Kit_v{engine.APP_VERSION}.zip"
     build_zip(ROOT, output)
     print(f"release: {output}")

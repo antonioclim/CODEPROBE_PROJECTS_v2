@@ -41,13 +41,17 @@ Set:
 }
 ```
 
-## 4. Run release validation
+## 4. Refresh evidence and run release validation
 
 ```bash
-python3 tools/check_release.py --write-manifest
+python3 tools/check_release.py --write-release-evidence
+python3 tools/check_release.py
 ```
 
-This updates `release/release-manifest.json` after the local Pyodide files are added. Large Pyodide files will increase the ZIP size substantially.
+The first command explicitly refreshes the audit reports and release manifest
+after the local Pyodide files are added. Inspect the resulting diff. The second
+command is the canonical read-only release gate. Large Pyodide files will
+increase the ZIP size substantially.
 
 ## 5. Distribute the folder or a validated ZIP
 

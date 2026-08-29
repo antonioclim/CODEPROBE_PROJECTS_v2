@@ -9,6 +9,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 TOOLS = ROOT / "tools"
@@ -20,7 +22,7 @@ import audit_institutional_pack  # noqa: E402
 import check_file_references  # noqa: E402
 import check_naming  # noqa: E402
 import codeprobe_runtime as engine  # noqa: E402
-from codeprobe_engine.release import iter_release_files  # noqa: E402
+from codeprobe_engine.release import atomic_write_text, iter_release_files  # noqa: E402
 
 REQUIRED_FINAL_PATHS = [
     "00-kit-index.md",
@@ -89,12 +91,13 @@ def build_audit(root: Path = ROOT) -> dict:
     }
 
 
-def write_reports(root: Path = ROOT) -> dict:
-    root = root.resolve()
-    report = build_audit(root)
-    release_dir = root / "release"
-    release_dir.mkdir(parents=True, exist_ok=True)
-    (release_dir / "final-audit-report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+def render_report(report: dict) -> str:
+    """Render the canonical machine-readable audit artefact."""
+    return json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+
+
+def render_summary(report: dict) -> str:
+    """Render the human-readable companion for an audit report."""
     lines = [
         "# Final audit summary",
         "",
@@ -119,17 +122,63 @@ def write_reports(root: Path = ROOT) -> dict:
         "",
         "The JSON companion file provides the machine-readable audit detail.",
     ])
-    (release_dir / "final-audit-summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
+
+
+def verify_reports(root: Path = ROOT, report: dict | None = None) -> list[str]:
+    """Compare committed audit artefacts with a freshly computed report."""
+    root = root.resolve()
+    report = report or build_audit(root)
+    expected = {
+        root / "release" / "final-audit-report.json": render_report(report),
+        root / "release" / "final-audit-summary.md": render_summary(report),
+    }
+    errors: list[str] = []
+    for path, content in expected.items():
+        relative = path.relative_to(root).as_posix()
+        if not path.is_file():
+            errors.append(f"missing audit artefact: {relative}")
+            continue
+        try:
+            actual = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            errors.append(f"invalid or unreadable audit artefact: {relative}")
+            continue
+        if actual != content:
+            errors.append(f"stale audit artefact: {relative}")
+    return errors
+
+
+def write_reports(
+    root: Path = ROOT,
+    report: dict | None = None,
+    output_dir: Path | None = None,
+) -> dict:
+    """Persist a successful audit using atomic replacement for each file."""
+    root = root.resolve()
+    report = report or build_audit(root)
+    if report.get("status") != "pass":
+        raise ValueError("refusing to replace release evidence with a failed audit")
+    release_dir = output_dir.resolve() if output_dir is not None else root / "release"
+    report_text = render_report(report)
+    summary_text = render_summary(report)
+    atomic_write_text(release_dir / "final-audit-report.json", report_text)
+    atomic_write_text(release_dir / "final-audit-summary.md", summary_text)
     return report
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Generate CodeProbe final package audit artefacts.")
+    parser = argparse.ArgumentParser(description="Check the CodeProbe final package audit boundary.")
     parser.add_argument("--root", default=str(ROOT), help="CodeProbe checkout root.")
     args = parser.parse_args(argv)
-    report = write_reports(Path(args.root))
-    print(f"final-audit: {report['status']} ({report['file_count']} files)")
-    return 0 if report["status"] == "pass" else 1
+    root = Path(args.root)
+    report = build_audit(root)
+    artefact_errors = verify_reports(root, report)
+    status = "pass" if report["status"] == "pass" and not artefact_errors else "fail"
+    for error in artefact_errors:
+        print(f"[FAIL] {error}")
+    print(f"final-audit: {status} ({report['file_count']} files)")
+    return 0 if status == "pass" else 1
 
 
 if __name__ == "__main__":
