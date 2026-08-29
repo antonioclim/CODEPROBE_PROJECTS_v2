@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import build_release  # noqa: E402
 import check_release  # noqa: E402
 import final_audit  # noqa: E402
+from codeprobe_engine.release import ReleaseSetError  # noqa: E402
 
 
 class FinalPackageAuditTests(unittest.TestCase):
@@ -132,6 +133,38 @@ class FinalPackageAuditTests(unittest.TestCase):
         refresh.assert_not_called()
         self.assertTrue(any(not result.ok for result in results))
 
+    def test_unsafe_release_set_stops_the_gate_before_other_readers(self) -> None:
+        with mock.patch.object(
+            check_release,
+            "validate_release_set",
+            side_effect=ReleaseSetError("symbolic links are forbidden"),
+        ):
+            with mock.patch.object(check_release, "check_python_compile") as compiler:
+                results = check_release.run_checks(skip_tests=True, write_manifest_file=True)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].name, "release-set-safety")
+        self.assertFalse(results[0].ok)
+        compiler.assert_not_called()
+
+    def test_final_audit_cli_does_not_read_symlinked_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_root = Path(tmp) / "kit"
+            shutil.copytree(
+                ROOT,
+                fixture_root,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"),
+            )
+            evidence = fixture_root / "release" / "final-audit-report.json"
+            external = Path(tmp) / "external.json"
+            external.write_text('{"external": true}\n', encoding="utf-8")
+            evidence.unlink()
+            evidence.symlink_to(external)
+            with mock.patch.object(final_audit, "read_regular_file") as reader:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    exit_code = final_audit.main(["--root", str(fixture_root)])
+            self.assertEqual(exit_code, 1)
+            reader.assert_not_called()
+
     def test_unreadable_evidence_prevents_refresh_before_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture_root = Path(tmp)
@@ -141,7 +174,7 @@ class FinalPackageAuditTests(unittest.TestCase):
                 path.write_bytes(b"existing\n")
             report = final_audit.build_audit(ROOT)
             with mock.patch.object(final_audit, "build_audit", return_value=report):
-                with mock.patch.object(Path, "read_bytes", side_effect=OSError("forced read failure")):
+                with mock.patch.object(check_release, "read_regular_file", side_effect=OSError("forced read failure")):
                     with mock.patch.object(final_audit, "write_reports") as report_writer:
                         with mock.patch.object(check_release, "write_manifest") as manifest_writer:
                             result = check_release.refresh_release_evidence(fixture_root)
@@ -243,11 +276,11 @@ class FinalPackageAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "release.zip"
             with mock.patch.object(check_release, "run_checks", return_value=[failure]):
-                with mock.patch.object(build_release, "build_zip") as builder:
+                with mock.patch.object(build_release, "publish_release") as publisher:
                     with contextlib.redirect_stdout(io.StringIO()):
                         exit_code = build_release.main(["--out", str(output)])
         self.assertEqual(exit_code, 1)
-        builder.assert_not_called()
+        publisher.assert_not_called()
 
     def test_root_legacy_release_files_are_absent(self) -> None:
         self.assertFalse((ROOT / "RELEASE_MANIFEST.json").exists())

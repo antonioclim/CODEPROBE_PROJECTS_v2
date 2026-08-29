@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import stat
 import sys
 from collections import Counter
 from pathlib import Path
@@ -22,7 +23,7 @@ import audit_institutional_pack  # noqa: E402
 import check_file_references  # noqa: E402
 import check_naming  # noqa: E402
 import codeprobe_runtime as engine  # noqa: E402
-from codeprobe_engine.release import atomic_write_text, iter_release_files  # noqa: E402
+from codeprobe_engine.release import ReleaseSetError, atomic_write_text, iter_release_files, read_regular_file  # noqa: E402
 
 REQUIRED_FINAL_PATHS = [
     "00-kit-index.md",
@@ -62,21 +63,49 @@ FORBIDDEN_ACTIVE_PATHS = [
 ]
 
 
+def _is_regular_file(path: Path) -> bool:
+    try:
+        return stat.S_ISREG(path.lstat().st_mode)
+    except OSError:
+        return False
+
+
+def _entry_exists(path: Path) -> bool:
+    try:
+        path.lstat()
+    except OSError:
+        return False
+    return True
+
+
 def build_audit(root: Path = ROOT) -> dict:
     root = root.resolve()
-    files = sorted(path.relative_to(root).as_posix() for path in iter_release_files(root))
+    release_set_errors: list[str] = []
+    try:
+        files = sorted(path.relative_to(root).as_posix() for path in iter_release_files(root))
+    except ReleaseSetError as exc:
+        files = []
+        release_set_errors.append(str(exc))
     by_area = Counter(path.split("/", 1)[0] if "/" in path else "root" for path in files)
-    missing_required = [path for path in REQUIRED_FINAL_PATHS if not (root / path).is_file()]
-    forbidden_present = [path for path in FORBIDDEN_ACTIVE_PATHS if (root / path).exists()]
-    reference_errors = check_file_references.run_reference_audit(root)
-    naming_errors = check_naming.run_checks(root)
-    institutional_errors = audit_institutional_pack.run_audit(root)
+    missing_required = [path for path in REQUIRED_FINAL_PATHS if not _is_regular_file(root / path)]
+    forbidden_present = [path for path in FORBIDDEN_ACTIVE_PATHS if _entry_exists(root / path)]
+    if release_set_errors:
+        # These readers are deliberately not invoked on an unsafe filesystem tree.
+        reference_errors: list[str] = []
+        naming_errors: list[str] = []
+        institutional_errors: list[str] = []
+    else:
+        reference_errors = check_file_references.run_reference_audit(root)
+        naming_errors = check_naming.run_checks(root)
+        institutional_errors = audit_institutional_pack.run_audit(root)
     return {
         "schema": "codeprobe-final-package-audit/v1",
         "app_version": engine.APP_VERSION,
         "generated_at_utc": "not embedded; final ZIP hash is recorded in the external sidecar",
         "file_count": len(files),
         "files_by_area": dict(sorted(by_area.items())),
+        "release_set_safety_ok": not release_set_errors,
+        "release_set_errors": release_set_errors,
         "required_final_paths": REQUIRED_FINAL_PATHS,
         "missing_required_paths": missing_required,
         "forbidden_active_paths": FORBIDDEN_ACTIVE_PATHS,
@@ -87,7 +116,14 @@ def build_audit(root: Path = ROOT) -> dict:
         "naming_errors": naming_errors,
         "institutional_package_ok": not institutional_errors,
         "institutional_errors": institutional_errors,
-        "status": "pass" if not missing_required and not forbidden_present and not reference_errors and not naming_errors and not institutional_errors else "fail",
+        "status": "pass"
+        if not release_set_errors
+        and not missing_required
+        and not forbidden_present
+        and not reference_errors
+        and not naming_errors
+        and not institutional_errors
+        else "fail",
     }
 
 
@@ -114,6 +150,7 @@ def render_summary(report: dict) -> str:
         "",
         "## Checks",
         "",
+        f"- Release-set safety: {'pass' if report['release_set_safety_ok'] else 'fail'}",
         f"- Required final paths present: {'yes' if not report['missing_required_paths'] else 'no'}",
         f"- Forbidden active legacy paths absent: {'yes' if not report['forbidden_paths_present'] else 'no'}",
         f"- Reference integrity: {'pass' if report['reference_integrity_ok'] else 'fail'}",
@@ -129,6 +166,8 @@ def verify_reports(root: Path = ROOT, report: dict | None = None) -> list[str]:
     """Compare committed audit artefacts with a freshly computed report."""
     root = root.resolve()
     report = report or build_audit(root)
+    if not report.get("release_set_safety_ok", False):
+        return ["release-set safety failed; persisted audit artefacts were not read"]
     expected = {
         root / "release" / "final-audit-report.json": render_report(report),
         root / "release" / "final-audit-summary.md": render_summary(report),
@@ -136,12 +175,12 @@ def verify_reports(root: Path = ROOT, report: dict | None = None) -> list[str]:
     errors: list[str] = []
     for path, content in expected.items():
         relative = path.relative_to(root).as_posix()
-        if not path.is_file():
+        if not _is_regular_file(path):
             errors.append(f"missing audit artefact: {relative}")
             continue
         try:
-            actual = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
+            actual = read_regular_file(path, root=root).decode("utf-8")
+        except (OSError, UnicodeError, ReleaseSetError):
             errors.append(f"invalid or unreadable audit artefact: {relative}")
             continue
         if actual != content:

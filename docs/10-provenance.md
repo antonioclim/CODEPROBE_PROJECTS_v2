@@ -57,7 +57,8 @@ The Phase-5 release adds release metadata, an engine fingerprint, a metric-confi
 Before distributing this phase, maintainers should explicitly refresh tracked
 evidence with `python3 tools/check_release.py --write-release-evidence`, inspect
 the diff, run the read-only `python3 tools/check_release.py` gate and archive the
-resulting release ZIP hash with any course-local calibration profile.
+resulting ZIP and both required sidecars with any course-local calibration
+profile.
 
 
 ## Phase-6 validation note

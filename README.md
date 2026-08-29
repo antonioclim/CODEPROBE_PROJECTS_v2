@@ -135,9 +135,11 @@ Run the full validation pipeline from the repository root:
 python3 tools/check_release.py
 ```
 
-This canonical gate is read-only: it verifies the committed audit reports and
-release manifest without replacing them. After an intentional source change,
-refresh those evidence files only after the remaining checks pass:
+This canonical gate is read-only. Its first check rejects symbolic links and
+special files in the release set, then it verifies the committed audit reports
+and the complete manifest metadata, membership, sizes and hashes without
+replacing them. After an intentional source change, refresh those evidence files
+only after the remaining checks pass:
 
 ```bash
 python3 tools/check_release.py --write-release-evidence
@@ -145,15 +147,20 @@ python3 tools/check_release.py --write-release-evidence
 
 The former `--write-manifest` spelling remains a compatibility alias.
 
-Build a deterministic source ZIP and sidecars:
+Build the manifest-verified three-file release packet:
 
 ```bash
 python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
 ```
 
 The builder verifies the committed evidence without rewriting tracked source
-evidence. The ZIP hash is written beside the archive, and member-level package
-accounting is written as `.package_audit.json`.
+evidence. It captures immutable bytes for every manifest-listed regular file and
+for the verified manifest itself, then packages them under the stable
+`CodeProbe_Project_Kit_v2.2.0/` archive root. The ZIP, its required SHA-256
+sidecar and its required `.package_audit.json` member-accounting sidecar are
+staged and verified before their public paths are replaced. A detected publication failure attempts
+to restore the prior three-file packet and reports an incomplete rollback. See
+`docs/08-release-process.md` for the crash and filesystem guarantee boundary.
 
 ## Final naming-stable audit
 

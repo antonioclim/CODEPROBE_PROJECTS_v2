@@ -27,7 +27,7 @@ tools/
 ├── run_local_server.py     # localhost static server
 ├── check_release.py        # release validation
 ├── validate_release.py     # compatibility wrapper for check_release.py
-└── build_release.py        # validated ZIP builder
+└── build_release.py        # staged release-packet publisher
 ```
 
 ## Why `codeprobe_runtime.py` remains self-contained
@@ -51,7 +51,7 @@ The cost is that `codeprobe_runtime.py` is still large. Phase 5 therefore introd
 | `api.py` | small JSON wrappers around the browser-compatible engine entry points |
 | `metrics.py` | metric inventory for release checks and documentation |
 | `project_io.py` | shared folder/ZIP payload construction |
-| `release.py` | release-manifest creation and verification |
+| `release.py` | release-set safety, strict manifest verification and immutable package snapshots |
 | `paths.py` | path-normalisation helpers |
 
 This structure reduces duplication while preserving the static browser contract.

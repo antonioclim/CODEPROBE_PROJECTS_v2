@@ -61,4 +61,7 @@ A validated release ZIP can be produced with:
 python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_offline.zip
 ```
 
-Archive the final ZIP hash in your institutional course repository so students and instructors use the same runtime.
+Vendored runtime content must consist of regular files rather than symbolic
+links or special filesystem entries. Archive the final ZIP and both required
+sidecars in your institutional course repository so students and instructors
+use the same runtime.

@@ -12,7 +12,7 @@ This roadmap records the completed generic hardening phases. Future work should 
 | 6 | v2.1.6 | browser security hardening, CSP, SRI, runtime config and privacy controls |
 | 7 | v2.1.7 | institutional teaching pack, review protocol and evidence rubric |
 | 8 | v2.1.8 | dynamic UI, drag-and-drop intake and manual-review recommendations |
-| 9 | v2.1.9 | deterministic ZIP builds, package audits and GitHub ZIP-root hardening |
+| 9 | v2.1.9 | fixed-metadata ZIP builds, package audits and GitHub ZIP-root hardening |
 | 10 | v2.1.10 | naming policy, file catalogue, file-rename map and reference checking |
 | 11 | v2.1.11 | documentation, educator and calibration resource migration |
 | 12 | v2.1.12 | browser app, runtime, CLI and test naming migration |

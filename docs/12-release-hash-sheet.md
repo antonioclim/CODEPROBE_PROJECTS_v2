@@ -1,6 +1,9 @@
 # Release hash sheet
 
-This file records how to verify a CodeProbe source release. The authoritative per-file hashes are in `release/release-manifest.json`; the final ZIP hash is recorded outside the ZIP after packaging.
+This file records how to verify a CodeProbe source release. After exact gate
+verification, `release/release-manifest.json` is the committed package allowlist
+and records each regular file's size and SHA-256 digest. The final ZIP hash is
+recorded outside the ZIP after packaging.
 
 ## Source tree manifest
 
@@ -18,10 +21,11 @@ python3 tools/check_release.py
 
 ## Final ZIP hash
 
-`tools/build_release.py` creates the sidecar beside the ZIP as:
+`tools/build_release.py` creates two required sidecars beside the ZIP as:
 
 ```text
 CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
+CodeProbe_Project_Kit_v2.2.0.zip.package_audit.json
 ```
 
 The ZIP hash cannot be embedded inside the ZIP without changing the ZIP itself.
@@ -32,6 +36,7 @@ course release notes.
 
 - final ZIP;
 - final ZIP SHA-256 sidecar;
+- final ZIP package-audit sidecar;
 - optional detached signature;
 - `release/release-manifest.json`;
 - active calibration profile, if used;

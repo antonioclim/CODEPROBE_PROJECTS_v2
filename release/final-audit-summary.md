@@ -18,6 +18,7 @@ Release-set files counted: 112
 
 ## Checks
 
+- Release-set safety: pass
 - Required final paths present: yes
 - Forbidden active legacy paths absent: yes
 - Reference integrity: pass

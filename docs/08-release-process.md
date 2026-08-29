@@ -28,6 +28,8 @@ supported toolchain and a byte-preserving checkout configuration are used.
 
 This runs:
 
+- release-set safety checks that reject symbolic links and non-regular files
+  before later readers are invoked;
 - Python compilation checks;
 - unit-test discovery;
 - JavaScript syntax checking through Node.js when available;
@@ -36,7 +38,7 @@ This runs:
 - version-consistency checks;
 - file and project smoke analyses;
 - metric-inventory checks;
-- verification of the committed audit reports and release manifest.
+- exact verification of the committed audit reports and release manifest.
 
 After an intentional source change, refresh the tracked release evidence with:
 
@@ -66,7 +68,14 @@ the committed manifest stale.
 
 ## 3. Inspect `release/release-manifest.json`
 
-The release manifest records each file path, file size and SHA-256 digest. It is intended for audit and institutional archiving. If a distributed release is later questioned, the manifest helps establish which exact files were shipped.
+The release manifest is the explicit package allowlist. Verification requires
+the exact schema, application name and version, canonical ordered relative paths,
+file count, aggregate size, per-file sizes and SHA-256 digests and the canonical
+manifest digest. Duplicate JSON keys, duplicate paths, traversal paths, excluded
+locations and unrecognised fields fail closed. The manifest itself and every
+listed source must be a regular file rather than a symbolic link or special
+filesystem entry. Current regular-file membership must match the manifest
+exactly; an extra or missing release file fails verification.
 
 ## 4. Build the release ZIP
 
@@ -75,10 +84,34 @@ python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
 ```
 
 The builder runs the complete read-only gate against the committed evidence,
-then writes the ZIP and its external sidecars. It does not refresh tracked
-source-tree evidence. If validation fails, package construction is not started.
-Transactional replacement of the ZIP and its sidecars remains a separate
-packaging-hardening concern.
+captures immutable bytes for every manifest-listed file and for the verified
+manifest itself, then builds the ZIP only from that snapshot. The archive root
+is `CodeProbe_Project_Kit_v2.2.0/`, independent of both the checkout directory
+and output ZIP basename.
+Output inside the checkout is allowed only under `dist/`; an external output is
+also permitted. The builder rejects non-`.zip` names, output target symbolic
+links, special files and hard links that alias source files.
+
+The ZIP, SHA-256 sidecar and package-audit sidecar form one required release
+packet. All three are created and checked in a private same-filesystem staging
+directory. When replacement is required, existing targets are backed up, then
+the ZIP and package audit are replaced before the checksum readiness marker. A detected in-process write,
+sync or verification failure attempts to restore the complete prior packet. If
+rollback is incomplete, the command returns non-zero and retains its recovery
+directory.
+
+This is not a power-loss or `SIGKILL`-atomic three-file transaction: ordinary
+filesystems cannot replace three independent names as one atomic operation. An
+uncatchable interruption can leave staging or lock debris and may require
+operator recovery. Consumers must treat the checksum sidecar as the readiness
+marker and verify it before using the ZIP. Byte-for-byte ZIP reproducibility is
+bounded to identical source bytes and the same supported Python/zlib toolchain.
+Windows does not expose the same directory `fsync` durability primitive used on
+POSIX systems, so the tool does not claim equivalent rename durability there.
+Run validation and evidence refresh in a quiescent checkout. The safety precheck
+is not a sandbox against another process that already has write access to the
+tree. Package construction is insulated from later source changes only after
+the immutable snapshot has been captured.
 
 ## 5. Post-build smoke use
 
@@ -108,6 +141,7 @@ For course publication, archive the following together:
 
 - the release ZIP produced by `tools/build_release.py`;
 - the ZIP SHA-256 sidecar file;
+- the `.zip.package_audit.json` sidecar file;
 - `release/release-manifest.json`;
 - optional detached signatures, if institutional policy requires signing;
 - active course-local calibration profile and validation summary, if used;
@@ -116,4 +150,6 @@ For course publication, archive the following together:
 See `docs/13-signed-release-workflow.md` and `docs/12-release-hash-sheet.md` for the optional signing and hash-recording procedure.
 
 
-From v2.2.0, `tools/build_release.py` writes `.zip.sha256.txt` and `.zip.package_audit.json` sidecars. Use these sidecars rather than visible ZIP size when reconciling release artefacts.
+From v2.2.0, `tools/build_release.py` writes required `.zip.sha256.txt` and
+`.zip.package_audit.json` sidecars. Keep the three files together and use their
+content rather than visible ZIP size when reconciling release artefacts.

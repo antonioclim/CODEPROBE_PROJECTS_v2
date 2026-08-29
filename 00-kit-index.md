@@ -26,7 +26,7 @@ This page is the quickest way to locate the right part of the package. For curre
 - `docs/05-offline-deployment.md` — local Pyodide deployment notes.
 - `docs/13-signed-release-workflow.md` — optional signed-release workflow using the release manifest and external signature tools.
 - `docs/15-final-release-audit.md` — final acceptance checks for naming, references and functionality.
-- `release/release-manifest.json` — deterministic file inventory with SHA-256 hashes.
+- `release/release-manifest.json` — strict package allowlist with canonical paths, sizes and SHA-256 digests.
 
 ## For maintainers
 
@@ -39,7 +39,7 @@ This page is the quickest way to locate the right part of the package. For curre
 - `src/codeprobe_runtime.py` — self-contained browser engine used by Pyodide.
 - `src/codeprobe_engine/` — maintainer support package for CLI, release and metadata helpers.
 - `tools/check_release.py` — full release validation script.
-- `tools/build_release.py` — release ZIP builder.
+- `tools/build_release.py` — strict manifest-selected release packet builder.
 - `tools/audit_institutional_pack.py` — checks for the institutional distribution pack.
 - `tests/` — regression tests across the phased hardening work.
 

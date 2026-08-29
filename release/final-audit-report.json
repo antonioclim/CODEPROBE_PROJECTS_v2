@@ -14,6 +14,8 @@
     "tests": 19,
     "tools": 13
   },
+  "release_set_safety_ok": true,
+  "release_set_errors": [],
   "required_final_paths": [
     "00-kit-index.md",
     "README.md",

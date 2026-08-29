@@ -17,23 +17,29 @@ This document records the v2.2.0 naming-stable release boundary. It is an intern
 
 The canonical read-only release gate verifies:
 
-1. Python compilation for runtime, support package, tools and tests;
-2. unit-test discovery;
-3. JavaScript syntax for the browser scripts;
-4. CSP, inline-code and local SRI checks for the browser pages;
-5. browser-resource integrity for local assets and the auditable runtime;
-6. version consistency across runtime, UI, documentation and changelog;
-7. file and project smoke reports;
-8. institutional distribution artefact presence;
-9. high-confidence Markdown/HTML file references;
-10. file-rename-map coverage for every release file;
-11. absence of uncontrolled references to retired active paths outside approved historical/audit files;
-12. exact verification of the committed audit reports, plus path-membership and
-    SHA-256 verification of the release manifest, without rewriting them.
+1. release-set regular-file safety before any later reader is invoked;
+2. Python compilation for runtime, support package, tools and tests;
+3. unit-test discovery;
+4. JavaScript syntax for the browser scripts;
+5. CSP, inline-code and local SRI checks for the browser pages;
+6. browser-resource integrity for local assets and the auditable runtime;
+7. version consistency across runtime, UI, documentation and changelog;
+8. file and project smoke reports;
+9. institutional distribution artefact presence;
+10. high-confidence Markdown/HTML file references;
+11. file-rename-map coverage and retired active-path containment;
+12. exact verification of the committed audit reports and every authoritative
+    release-manifest field, membership, size and SHA-256 value, without
+    rewriting them.
 
-After that gate passes, `tools/build_release.py` performs deterministic ZIP
-construction and sidecar generation as a separate operation. It consumes, but
-does not rewrite, the tracked release evidence.
+After that gate passes, `tools/build_release.py` captures the manifest-listed
+files and verified manifest as an immutable snapshot, then constructs a
+fixed-metadata ZIP under the canonical versioned root. It stages and verifies
+the ZIP and both required sidecars before publishing them with detected-failure
+rollback. It consumes, but does not rewrite, the tracked release evidence. Byte
+identity is claimed only for identical snapshot bytes under the same supported
+Python/zlib toolchain. The three public path replacements are not claimed to be
+atomic across a power loss or uncatchable process exit.
 
 ## Interpretation boundary
 

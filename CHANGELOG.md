@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on *Keep a Changelog* and this repository uses semantic-style version tags when releases are made.
 
+## [Unreleased]
+
+### Fixed
+
+- Reject symbolic links and special filesystem entries before release readers
+  run, preventing external targets from entering trusted release evidence or a
+  package.
+- Verify every authoritative manifest field, canonical path, size and hash
+  rather than treating membership and per-file hashes as sufficient.
+- Build from a manifest-verified immutable snapshot under a stable archive root,
+  independent of the checkout directory name.
+- Stage and verify the ZIP and both required sidecars before publication, then
+  attempt complete prior-packet rollback after detected in-process failures.
+
 ## [2.2.0] - 2026-05-29
 
 ### Changed
@@ -21,7 +35,9 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Verified
 - Single-file and project smoke reports remain valid under schema `2.2.0`.
-- Browser scripts, Content Security Policy, resource-integrity manifest, file-reference audit, naming audit, final package audit, release manifest and deterministic packaging all pass.
+- Browser scripts, Content Security Policy, resource-integrity manifest,
+  file-reference audit, naming audit, final package audit, release manifest and
+  fixed-metadata packaging under the recorded toolchain all pass.
 
 ## [2.1.12] - 2026-05-28
 

@@ -31,7 +31,7 @@ The first command explicitly refreshes tracked release evidence after the
 runtime change. Inspect that diff before using the second, read-only command as
 the release gate.
 
-6. Build and archive the institutional ZIP:
+6. Build and archive the institutional release packet:
 
 ```bash
 python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_institutional.zip
@@ -42,7 +42,8 @@ python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_instituti
 Publish the following alongside the kit:
 
 - release ZIP;
-- SHA-256 hash of the ZIP;
+- generated ZIP SHA-256 sidecar;
+- generated ZIP package-audit sidecar;
 - `release/release-manifest.json`;
 - course-local calibration profile, if used;
 - student quick-start guide;

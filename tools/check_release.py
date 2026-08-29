@@ -43,8 +43,11 @@ from codeprobe_engine import api as cp_api  # noqa: E402
 from codeprobe_engine import metrics as cp_metrics  # noqa: E402
 from codeprobe_engine.release import (  # noqa: E402
     MANIFEST_NAME,
+    ReleaseSetError,
     atomic_write_bytes,
     atomic_write_text,
+    read_regular_file,
+    validate_release_set,
     verify_manifest,
     write_manifest,
 )
@@ -273,7 +276,8 @@ def check_final_audit(*, verify_persisted: bool = True) -> CheckResult:
                 return CheckResult("final-audit", False, "; ".join(errors[:10]))
         return CheckResult("final-audit", True, f"{report.get('file_count')} release-set files audited")
     detail_items = (
-        report.get("missing_required_paths")
+        report.get("release_set_errors")
+        or report.get("missing_required_paths")
         or report.get("forbidden_paths_present")
         or report.get("reference_errors")
         or report.get("naming_errors")
@@ -301,14 +305,23 @@ def check_final_package_audit() -> CheckResult:
     report = final_audit.build_audit(ROOT)
     if report.get("status") != "pass":
         details = []
-        for key in ("missing_required_paths", "forbidden_paths_present", "reference_errors", "naming_errors", "institutional_errors"):
+        for key in ("release_set_errors", "missing_required_paths", "forbidden_paths_present", "reference_errors", "naming_errors", "institutional_errors"):
             details.extend(str(item) for item in report.get(key, [])[:5])
         return CheckResult("final-package-audit", False, "; ".join(details[:10]) or "final package audit failed")
     return CheckResult("final-package-audit", True, "final naming-stable package audit passed")
 
 
+def check_release_set_safety(root: Path = ROOT) -> CheckResult:
+    """Reject unsafe filesystem entries before any other checker can read them."""
+    try:
+        paths = validate_release_set(root)
+    except ReleaseSetError as exc:
+        return CheckResult("release-set-safety", False, str(exc))
+    return CheckResult("release-set-safety", True, f"{len(paths)} regular release file(s); no symbolic links or special files")
+
+
 def check_manifest(root: Path = ROOT) -> CheckResult:
-    errors = verify_manifest(root)
+    errors = verify_manifest(root, app_version=engine.APP_VERSION)
     return CheckResult("release-manifest", not errors, "verified" if not errors else "; ".join(errors[:10]))
 
 
@@ -333,6 +346,10 @@ def diagnostic_output_is_outside_release_set(path: Path, root: Path = ROOT) -> b
 def refresh_release_evidence(root: Path = ROOT) -> CheckResult:
     """Refresh tracked release evidence only after a successful in-memory audit."""
     root = root.resolve()
+    try:
+        validate_release_set(root)
+    except ReleaseSetError as exc:
+        return CheckResult("release-evidence", False, f"not written because the release set is unsafe: {exc}")
     missing = [relative.as_posix() for relative in EVIDENCE_PATHS if not (root / relative).is_file()]
     if missing:
         return CheckResult(
@@ -347,8 +364,8 @@ def refresh_release_evidence(root: Path = ROOT) -> CheckResult:
     snapshots: dict[Path, bytes] = {}
     try:
         for relative in EVIDENCE_PATHS:
-            snapshots[relative] = (root / relative).read_bytes()
-    except OSError as exc:
+            snapshots[relative] = read_regular_file(root / relative, root=root)
+    except (OSError, ReleaseSetError) as exc:
         return CheckResult("release-evidence", False, f"not written because existing evidence could not be read: {exc}")
     try:
         final_audit.write_reports(root, report)
@@ -359,7 +376,7 @@ def refresh_release_evidence(root: Path = ROOT) -> CheckResult:
             errors.append("post-write final audit failed")
         else:
             errors.extend(final_audit.verify_reports(root, post_report))
-        errors.extend(verify_manifest(root))
+        errors.extend(verify_manifest(root, app_version=engine.APP_VERSION))
         if errors:
             raise RuntimeError("; ".join(errors[:10]))
     except Exception as exc:
@@ -384,7 +401,10 @@ def run_checks(
     verify_manifest_file: bool = True,
     verify_persisted_evidence: bool = True,
 ) -> list[CheckResult]:
-    checks = [check_python_compile()]
+    safety = check_release_set_safety()
+    if not safety.ok:
+        return [safety]
+    checks = [safety, check_python_compile()]
     if not skip_tests:
         checks.append(check_unittest_suite(verbose=verbose_tests))
     checks.extend([

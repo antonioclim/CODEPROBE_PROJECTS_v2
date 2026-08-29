@@ -1,6 +1,10 @@
 # Optional signed-release workflow
 
-CodeProbe does not require cryptographic signing, but institutions may want a signed release record for audit. The package provides deterministic file hashes through `release/release-manifest.json`; signing can be performed with institutional tools outside the kit.
+CodeProbe does not require cryptographic signing, but institutions may want a
+signed release record for audit. The package provides a strictly verified
+per-file membership, size and SHA-256 record through
+`release/release-manifest.json`; signing can be performed with institutional
+tools outside the kit.
 
 ## 1. Refresh evidence and run the read-only gate
 
@@ -11,7 +15,7 @@ python3 tools/check_release.py
 
 Inspect the evidence diff between these commands.
 
-## 2. Build the release ZIP
+## 2. Build the release packet
 
 ```bash
 python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
@@ -33,6 +37,11 @@ On macOS:
 shasum -a 256 -c CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
 ```
 
+The package-audit sidecar is a required member of the release packet. Retain
+`CodeProbe_Project_Kit_v2.2.0.zip.package_audit.json`; it records the
+same ZIP name and SHA-256 together with exact member and container accounting.
+The checksum is published last and is the packet readiness marker.
+
 ## 4. Sign with the institutional key
 
 Example using GnuPG:
@@ -40,6 +49,7 @@ Example using GnuPG:
 ```bash
 gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.2.0.zip
 gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
+gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.2.0.zip.package_audit.json
 gpg --detach-sign --armor release/release-manifest.json
 ```
 
@@ -51,6 +61,7 @@ Archive:
 
 - release ZIP;
 - ZIP SHA-256 file;
+- ZIP package-audit file;
 - detached signatures;
 - `release/release-manifest.json`;
 - course-local calibration profile, if used;

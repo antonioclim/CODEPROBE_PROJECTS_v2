@@ -30,7 +30,9 @@ Then check:
 - removed paths;
 - changed paths with largest deltas.
 
-A release is acceptable when the membership and hash manifest are coherent. A release is not acceptable merely because its ZIP size looks plausible.
+Strict manifest coherence is necessary but not sufficient: the complete
+read-only gate must pass and the ZIP and both required sidecars must agree. A
+release is not acceptable merely because its ZIP size looks plausible.
 
 ## Source-tree immutability invariant
 
@@ -41,6 +43,11 @@ the semantic results must agree, and a before/after inventory of the complete
 source tree, excluding `.git`, must be unchanged. Evidence generation is a
 separate explicit maintenance action through `--write-release-evidence`; the ZIP
 builder consumes that committed evidence rather than silently replacing it.
+Packaging uses the strictly verified manifest as an allowlist and captures all
+member bytes before ZIP construction. A file added or changed after capture
+cannot enter or alter that build. Symbolic links and special files outside the
+explicitly excluded VCS, cache, build and bytecode locations are rejected before
+any other release checker runs.
 The repository does not yet define a cross-platform `.gitattributes`
 normalisation policy, so line-ending and other content-changing checkout filters
 remain a separate release-hardening concern.
@@ -71,11 +78,29 @@ This means that the canonical v2.1.8 package was larger than v2.1.7 in this work
 
 ## Phase 9 correction
 
-Phase 9 adds deterministic ZIP construction, sidecar package-audit output and explicit GitHub/hosted-ZIP root normalisation. The root normalisation is intentionally conservative: CodeProbe strips a common top-level directory such as `repo-main/` only when every safe candidate file is under one non-source-like wrapper. It does not strip top-level source directories such as `src/`. `tools/build_release.py` now normalises ZIP member timestamps and writes two sidecars next to the generated package:
+Phase 9 adds fixed-metadata ZIP construction, sidecar package-audit output and explicit GitHub/hosted-ZIP root normalisation. The root normalisation is intentionally conservative: CodeProbe strips a common top-level directory such as `repo-main/` only when every safe candidate file is under one non-source-like wrapper. It does not strip top-level source directories such as `src/`. `tools/build_release.py` now normalises ZIP member timestamps and writes two sidecars next to the generated package:
 
 ```text
 <release>.zip.sha256.txt
 <release>.zip.package_audit.json
 ```
 
-The sidecar JSON records package-level size, member-level compressed and uncompressed sizes, CRC-32 values, total compressed bytes and ZIP container overhead. This is the defensible way to reconcile any future size discrepancy.
+The sidecar JSON records package-level size, member-level compressed and
+uncompressed sizes, CRC-32 values, total compressed bytes and ZIP container
+overhead. This provides stronger reconciliation evidence than visible ZIP size
+alone.
+
+Current packaging uses a stable versioned archive root rather than the checkout
+directory basename. It fixes member timestamps, Unix regular-file metadata and
+the compression level. The resulting ZIP is byte-identical across renamed
+checkouts when source bytes and the supported Python/zlib toolchain are the
+same. DEFLATE does not define a unique compressed bitstream across every
+possible compressor implementation, so broader cross-toolchain identity is not
+claimed.
+
+The ZIP and both sidecars are fully staged and verified before publication.
+Detected in-process publication failures trigger an attempt to restore the
+previous packet, with an incomplete rollback reported explicitly. This is not a
+multi-file atomicity or crash-recovery guarantee. An incomplete rollback retains
+its recovery directory; the checksum sidecar is published last and serves as
+the readiness marker.
