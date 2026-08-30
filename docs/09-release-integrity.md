@@ -48,9 +48,13 @@ member bytes before ZIP construction. A file added or changed after capture
 cannot enter or alter that build. Symbolic links and special files outside the
 explicitly excluded VCS, cache, build and bytecode locations are rejected before
 any other release checker runs.
-The repository does not yet define a cross-platform `.gitattributes`
-normalisation policy, so line-ending and other content-changing checkout filters
-remain a separate release-hardening concern.
+
+The repository-level `.gitattributes` policy fixes detected text files to LF,
+disables content-changing Git filters and substitutions and marks the current
+binary formats explicitly. CI verifies that `git add --renormalize --all` is a
+no-op, then compares the committed Git bytes with clean LF and forced-CRLF
+checkouts and an exact Git export. See
+`docs/16-ci-and-repository-controls.md` for the matrix and guarantee boundary.
 
 ## Canonical v2.1.8 package observed during Phase 9 audit
 

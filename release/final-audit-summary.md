@@ -2,19 +2,20 @@
 
 Version: CodeProbe v2.2.0
 Status: PASS
-Release-set files counted: 112
+Manifest-listed source files counted: 119 (release manifest excluded)
 
 ## Area counts
 
+- `.github`: 1
 - `app`: 12
 - `calibration`: 8
-- `docs`: 30
+- `docs`: 31
 - `educator`: 10
 - `release`: 4
-- `root`: 7
+- `root`: 8
 - `src`: 9
-- `tests`: 19
-- `tools`: 13
+- `tests`: 21
+- `tools`: 15
 
 ## Checks
 

@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 STANDARD_ROOT_FILES = {
     ".codeprobeignore.example",
+    ".gitattributes",
     ".gitignore",
     "00-kit-index.md",
     "CHANGELOG.md",
@@ -25,7 +26,7 @@ STANDARD_ROOT_FILES = {
     "LICENSE",
     "README.md",
 }
-EXPECTED_DIRS = {"app", "src", "tools", "docs", "educator", "calibration", "release", "tests"}
+EXPECTED_DIRS = {".github", "app", "src", "tools", "docs", "educator", "calibration", "release", "tests"}
 IGNORED_DIRS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"}
 RETIRED_FILES = {
     "KIT_INDEX.md",

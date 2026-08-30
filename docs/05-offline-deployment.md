@@ -41,19 +41,44 @@ Set:
 }
 ```
 
-## 4. Refresh evidence and run release validation
+## 4. Establish the missing provenance boundary
+
+The canonical source release currently rejects vendored runtime bytes and a
+production configuration that selects local mode. It does so because the
+repository has no authenticated inventory for the complete Pyodide
+distribution. The loader digest in step 2 is necessary but does not cover the
+WebAssembly and support files loaded later.
+
+Before presenting a local deployment as a validated CodeProbe release, add and
+review all of the following:
+
+- the exact upstream release source and its independently authenticated digest
+  or signature;
+- a complete canonical file inventory with sizes and SHA-256 values;
+- the applicable Pyodide and transitive licence notices;
+- a dependency-boundary check that verifies every deployed runtime file;
+- a live browser test using the local configuration with network access
+  disabled.
+
+This repository does not yet ship that attestation. A downstream deployment may
+stage the files for controlled local evaluation, but it must not describe the
+result as passing the canonical release gate.
+
+## 5. Refresh evidence after attestation support exists
+
+Once the complete inventory and its verifier have been introduced, refresh and
+check the tracked evidence:
 
 ```bash
 python3 tools/check_release.py --write-release-evidence
 python3 tools/check_release.py
 ```
 
-The first command explicitly refreshes the audit reports and release manifest
-after the local Pyodide files are added. Inspect the resulting diff. The second
-command is the canonical read-only release gate. Large Pyodide files will
-increase the ZIP size substantially.
+The first command explicitly refreshes the audit reports and release manifest.
+Inspect the resulting diff. The second command is the canonical read-only
+release gate. Large Pyodide files will increase the ZIP size substantially.
 
-## 5. Distribute the folder or a validated ZIP
+## 6. Distribute the folder or a validated ZIP
 
 A validated release ZIP can be produced with:
 

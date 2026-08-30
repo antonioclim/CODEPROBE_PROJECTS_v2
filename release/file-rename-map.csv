@@ -1,5 +1,7 @@
 current_path,previous_path,proposed_final_path,role,action,phase,area,risk_level,rationale
 .codeprobeignore.example,,.codeprobeignore.example,standard project file,keep,current,root,low,canonical current path
+.gitattributes,,.gitattributes,repository checkout policy,added_audit_phase4,audit-4,root,high,added during hostile audit Phase 4 to make checkout bytes deterministic
+.github/workflows/ci.yml,,.github/workflows/ci.yml,continuous-integration workflow,added_audit_phase4,audit-4,.github,high,added during hostile audit Phase 4 to enforce the required release gates
 .gitignore,,.gitignore,standard project file,keep,current,root,low,canonical current path
 00-kit-index.md,KIT_INDEX.md,00-kit-index.md,standard project file,completed_phase13,13,root,low,final naming-stable path; previous_path records migration source where applicable
 README.md,,README.md,standard project file,keep,current,root,low,canonical current path
@@ -42,6 +44,7 @@ docs/12-release-hash-sheet.md,,docs/12-release-hash-sheet.md,technical documenta
 docs/13-signed-release-workflow.md,,docs/13-signed-release-workflow.md,technical documentation or asset,keep,current,docs,medium,canonical current path
 docs/14-optimisation-roadmap.md,,docs/14-optimisation-roadmap.md,technical documentation or asset,keep,current,docs,medium,canonical current path
 docs/15-final-release-audit.md,,docs/15-final-release-audit.md,technical documentation or asset,added_phase13,13,docs,medium,final naming-stable path; previous_path records migration source where applicable
+docs/16-ci-and-repository-controls.md,,docs/16-ci-and-repository-controls.md,technical documentation or asset,added_audit_phase4,audit-4,docs,medium,added during hostile audit Phase 4 to define CI and repository controls
 docs/assets/interface-preview.png,,docs/assets/interface-preview.png,technical documentation or asset,keep,current,docs,medium,canonical current path
 docs/history/01-stabilisation.md,,docs/history/01-stabilisation.md,phase-history note,keep,current,docs,medium,canonical current path
 docs/history/02-parser-and-metrics.md,,docs/history/02-parser-and-metrics.md,phase-history note,keep,current,docs,medium,canonical current path
@@ -83,6 +86,7 @@ src/codeprobe_runtime.py,src/engine.py,src/codeprobe_runtime.py,browser-compatib
 tests/test_app_runtime_tools_paths.py,,tests/test_app_runtime_tools_paths.py,regression test,keep,current,tests,high,canonical current path
 tests/test_browser_security.py,,tests/test_browser_security.py,regression test,keep,current,tests,high,canonical current path
 tests/test_calibration_profiles.py,,tests/test_calibration_profiles.py,regression test,keep,current,tests,high,canonical current path
+tests/test_dependency_boundary.py,,tests/test_dependency_boundary.py,regression test,added_audit_phase4,audit-4,tests,high,added during hostile audit Phase 4 to guard dependency-boundary enforcement
 tests/test_documentation_resources.py,,tests/test_documentation_resources.py,regression test,keep,current,tests,high,canonical current path
 tests/test_dynamic_ui_review.py,,tests/test_dynamic_ui_review.py,regression test,keep,current,tests,high,canonical current path
 tests/test_false_positive_controls.py,,tests/test_false_positive_controls.py,regression test,keep,current,tests,high,canonical current path
@@ -97,6 +101,7 @@ tests/test_project_mode.py,,tests/test_project_mode.py,regression test,keep,curr
 tests/test_reference_integrity.py,,tests/test_reference_integrity.py,regression test,keep,current,tests,high,canonical current path
 tests/test_release_integrity.py,,tests/test_release_integrity.py,regression test,keep,current,tests,high,canonical current path
 tests/test_release_metadata.py,,tests/test_release_metadata.py,regression test,keep,current,tests,high,canonical current path
+tests/test_release_reproducibility.py,,tests/test_release_reproducibility.py,regression test,added_audit_phase4,audit-4,tests,high,added during hostile audit Phase 4 to guard clone and archive safety
 tests/test_report_schema.py,,tests/test_report_schema.py,regression test,keep,current,tests,high,canonical current path
 tests/test_runtime_smoke.py,,tests/test_runtime_smoke.py,regression test,keep,current,tests,high,canonical current path
 tools/README.md,,tools/README.md,command-line or release utility,keep,current,tools,high,canonical current path
@@ -105,9 +110,11 @@ tools/audit_institutional_pack.py,src/institutional_audit.py,tools/audit_institu
 tools/build_release.py,src/build_release.py,tools/build_release.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/calibrate_corpus.py,src/calibrate_corpus.py,tools/calibrate_corpus.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/calibrate_profile.py,src/calibrate_profile.py,tools/calibrate_profile.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
+tools/check_dependency_boundary.py,,tools/check_dependency_boundary.py,command-line or release utility,added_audit_phase4,audit-4,tools,high,added during hostile audit Phase 4 to verify the offline dependency contract
 tools/check_file_references.py,tools/check_references.py,tools/check_file_references.py,command-line or release utility,completed_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/check_naming.py,,tools/check_naming.py,command-line or release utility,added_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/check_release.py,src/release_check.py,tools/check_release.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
+tools/check_release_reproducibility.py,,tools/check_release_reproducibility.py,command-line or release utility,added_audit_phase4,audit-4,tools,high,added during hostile audit Phase 4 to compare Git exports and release packets
 tools/compare_releases.py,,tools/compare_releases.py,command-line or release utility,keep,current,tools,high,canonical current path
 tools/final_audit.py,,tools/final_audit.py,command-line or release utility,added_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/run_local_server.py,src/run_local_server.py,tools/run_local_server.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable

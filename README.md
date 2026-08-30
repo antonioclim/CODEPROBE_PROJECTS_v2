@@ -22,7 +22,8 @@ The active file inventory is `docs/00-file-catalogue.md`, the naming rules are `
 .
 ├── 00-kit-index.md
 ├── README.md, CHANGELOG.md, CONTRIBUTING.md, LICENSE
-├── .codeprobeignore.example, .gitignore
+├── .codeprobeignore.example, .gitattributes, .gitignore
+├── .github/      least-privilege continuous-integration workflow
 ├── app/          browser interface, CSS/JS assets, runtime config and Pyodide vendor placeholder
 ├── src/          browser-compatible runtime and maintainer support package
 ├── tools/        CLI analysis, calibration, local server, release and audit tools
@@ -63,7 +64,8 @@ Markdown files are analysed only as documentation-quality context in single-file
 |---|---|
 | Browser | Modern Chromium, Firefox or Safari-class browser |
 | Network | Internet access to the configured Pyodide CDN, or a local Pyodide copy configured in `app/runtime-config.json` |
-| Python | Optional; used for `tools/run_local_server.py`, CLI analysis, calibration and tests |
+| Python | 3.10–3.14 for the command-line tools, calibration and tests; optional for browser-only use |
+| Node.js | 24.20.0 in CI; used only to syntax-check the browser scripts |
 
 No build step is required.
 
@@ -71,7 +73,13 @@ No build step is required.
 
 Browser JavaScript and CSS are external resources. The HTML pages use a Content Security Policy without `unsafe-inline`; local CodeProbe browser assets carry SRI attributes and `app/resource-integrity.json` records their SHA-256 values.
 
-Pyodide loading is controlled by `app/runtime-config.json`. The default mode uses the CDN so the kit works immediately. For institutional deployments, copy Pyodide to `app/vendor/pyodide/v0.25.0/full/`, set `mode` to `local`, provide the real SHA-256 digest of `pyodide.js`, and set `require_integrity` to `true`. See `docs/04-browser-security.md` and `docs/05-offline-deployment.md`.
+Pyodide loading is controlled by `app/runtime-config.json`. The default mode uses the CDN so the kit works immediately. A local institutional deployment also needs a complete authenticated runtime inventory before it can pass the canonical release gate; hashing `pyodide.js` alone is insufficient. See `docs/04-browser-security.md` and `docs/05-offline-deployment.md`.
+
+The committed CI workflow validates Python 3.10–3.14, requires Node.js for
+JavaScript syntax checking and compares normalised checkouts, an exact Git
+archive and the complete three-file release packet. Its least-privilege design,
+immutable action pins and required repository settings are recorded in
+`docs/16-ci-and-repository-controls.md`.
 
 Browser report history is disabled by default. It stores reports, not source code, when explicitly enabled. The main interface includes **Clear privacy data**, which clears local report history, disables history and clears the current editor/project payload from the page state.
 

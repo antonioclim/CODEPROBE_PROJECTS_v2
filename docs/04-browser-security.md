@@ -63,7 +63,7 @@ By default, `app/runtime-config.json` uses the Pyodide CDN:
 }
 ```
 
-For high-assurance classroom use, use local mode instead:
+For stronger local control, use local mode instead:
 
 ```json
 {
@@ -77,7 +77,13 @@ For high-assurance classroom use, use local mode instead:
 }
 ```
 
-The digest must be computed from the exact `pyodide.js` file distributed to students. Do not copy a digest from another deployment or invent one.
+The configured digest covers the loader processed by the current browser loader;
+it does not authenticate or inventory every WebAssembly and support file fetched
+from the Pyodide `full/` directory. Compute it from the deployed `pyodide.js`
+rather than copying or inventing a value. A genuinely high-assurance deployment
+also needs independently authenticated upstream bytes, a complete local runtime
+inventory, licence review and a live browser test. The present repository does
+not claim that work is complete.
 
 ## Browser storage
 

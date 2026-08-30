@@ -36,6 +36,7 @@ if str(SRC) not in sys.path:
 
 import codeprobe_runtime as engine  # noqa: E402
 import audit_institutional_pack  # noqa: E402
+import check_dependency_boundary  # noqa: E402
 import check_file_references  # noqa: E402
 import final_audit  # noqa: E402
 import check_naming  # noqa: E402
@@ -81,13 +82,29 @@ def check_python_compile() -> CheckResult:
         return CheckResult("python-compile", False, str(exc))
 
 
+def check_dependency_policy() -> CheckResult:
+    errors = check_dependency_boundary.audit_dependency_boundary(ROOT)
+    if errors:
+        return CheckResult("dependency-boundary", False, "; ".join(errors[:10]))
+    return CheckResult(
+        "dependency-boundary",
+        True,
+        "declared offline boundary and immutable workflow pins verified; external Pyodide distribution not audited",
+    )
+
+
 def check_unittest_suite(verbose: bool = False) -> CheckResult:
     cmd = [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"]
     if verbose:
         cmd.append("-v")
     completed = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
-    lines = (completed.stdout + completed.stderr).strip().splitlines()
-    detail = lines[-1] if lines else "no unittest output"
+    output = completed.stdout + completed.stderr
+    lines = output.strip().splitlines()
+    count_match = re.search(r"^Ran (?P<count>[0-9]+) tests? in ", output, re.M)
+    if completed.returncode == 0 and count_match:
+        detail = f"{count_match.group('count')} test(s) passed"
+    else:
+        detail = lines[-1] if lines else "no unittest output"
     return CheckResult("unit-tests", completed.returncode == 0, detail)
 
 
@@ -123,9 +140,11 @@ def browser_script_files() -> list[Path]:
     return files
 
 
-def check_javascript_syntax() -> CheckResult:
+def check_javascript_syntax(*, require_node: bool = False) -> CheckResult:
     node = shutil.which("node")
     if not node:
+        if require_node:
+            return CheckResult("javascript-syntax", False, "Node.js is required but was not found")
         return CheckResult("javascript-syntax", True, "Node.js not available; skipped", skipped=True)
     try:
         checked = 0
@@ -274,7 +293,11 @@ def check_final_audit(*, verify_persisted: bool = True) -> CheckResult:
             errors = final_audit.verify_reports(ROOT, report)
             if errors:
                 return CheckResult("final-audit", False, "; ".join(errors[:10]))
-        return CheckResult("final-audit", True, f"{report.get('file_count')} release-set files audited")
+        return CheckResult(
+            "final-audit",
+            True,
+            f"{report.get('file_count')} manifest-listed source files audited; release manifest excluded",
+        )
     detail_items = (
         report.get("release_set_errors")
         or report.get("missing_required_paths")
@@ -397,6 +420,7 @@ def refresh_release_evidence(root: Path = ROOT) -> CheckResult:
 def run_checks(
     skip_tests: bool = False,
     verbose_tests: bool = False,
+    require_node: bool = False,
     write_manifest_file: bool = False,
     verify_manifest_file: bool = True,
     verify_persisted_evidence: bool = True,
@@ -408,7 +432,8 @@ def run_checks(
     if not skip_tests:
         checks.append(check_unittest_suite(verbose=verbose_tests))
     checks.extend([
-        check_javascript_syntax(),
+        check_dependency_policy(),
+        check_javascript_syntax(require_node=require_node),
         check_browser_security(),
         check_resource_integrity(),
         check_version_consistency(),
@@ -439,6 +464,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--skip-tests", action="store_true", help="Skip the unittest suite and run only fast checks.")
     parser.add_argument("--verbose-tests", action="store_true", help="Run unittest discovery with -v.")
     parser.add_argument(
+        "--require-node",
+        action="store_true",
+        help="Fail JavaScript syntax validation when Node.js is unavailable.",
+    )
+    parser.add_argument(
         "--write-release-evidence",
         "--write-manifest",
         dest="write_manifest",
@@ -452,7 +482,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if json_output is not None and not diagnostic_output_is_outside_release_set(json_output):
         parser.error("--json-out must be outside the release set; use dist/ or a path outside the checkout")
 
-    results = run_checks(skip_tests=args.skip_tests, verbose_tests=args.verbose_tests, write_manifest_file=args.write_manifest)
+    results = run_checks(
+        skip_tests=args.skip_tests,
+        verbose_tests=args.verbose_tests,
+        require_node=args.require_node,
+        write_manifest_file=args.write_manifest,
+    )
     for result in results:
         status = "SKIP" if result.skipped else ("PASS" if result.ok else "FAIL")
         print(f"[{status}] {result.name}: {result.detail}")

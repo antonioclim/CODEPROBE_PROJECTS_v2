@@ -1,6 +1,8 @@
 # 14 — Optimisation roadmap
 
-This roadmap records the completed generic hardening phases. Future work should be course-specific rather than another package-wide restructuring, unless new functionality requires it.
+This roadmap records the completed generic feature-hardening phases. A later
+hostile release audit added stricter manifest publication, checkout
+normalisation and CI controls without changing the scoring model.
 
 | Phase | Completed in | Main outcome |
 |---:|---|---|
@@ -20,7 +22,12 @@ This roadmap records the completed generic hardening phases. Future work should 
 
 ## Current status
 
-The generic kit is complete at v2.2.0. Its stable directories are `app/`, `src/`, `tools/`, `docs/`, `educator/`, `calibration/`, `release/` and `tests/`. The authoritative inventory is `docs/00-file-catalogue.md`; the machine-readable path record is `release/file-rename-map.csv`; the final release audit is `docs/15-final-release-audit.md`.
+The v2.2.0 feature layout is stable. Its package areas are `.github/`, `app/`,
+`src/`, `tools/`, `docs/`, `educator/`, `calibration/`, `release/` and `tests/`.
+The authoritative inventory is `docs/00-file-catalogue.md`; the machine-readable
+path record is `release/file-rename-map.csv`; the final release audit is
+`docs/15-final-release-audit.md`. Engineering gates do not establish scientific
+validity for the AI-style concern score.
 
 ## Remaining local work
 
@@ -29,4 +36,6 @@ The generic kit is complete at v2.2.0. Its stable directories are `app/`, `src/`
 - Tune `.codeprobeignore` examples to match each assignment structure.
 - Decide whether institutional deployment should use local Pyodide rather than the default CDN mode.
 - Sign the release externally if required by local policy.
+- Apply and verify the default-branch ruleset described in
+  `docs/16-ci-and-repository-controls.md` after its required check is available.
 - Review the manual-review protocol annually against course practice and emerging detector limitations.

@@ -6,6 +6,16 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ## [Unreleased]
 
+### Added
+
+- Add least-privilege GitHub Actions validation across Python 3.10–3.14, with
+  current stable Windows and macOS coverage and an aggregate check intended for
+  default-branch protection.
+- Add an LF checkout policy, an offline dependency-boundary check and an
+  automated Git-tree, checkout, archive and release-packet reproducibility gate.
+- Make vendored Pyodide bytes fail closed until a complete authenticated runtime
+  inventory and verifier are present.
+
 ### Fixed
 
 - Reject symbolic links and special filesystem entries before release readers
@@ -17,6 +27,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
   independent of the checkout directory name.
 - Stage and verify the ZIP and both required sidecars before publication, then
   attempt complete prior-packet rollback after detected in-process failures.
+- Normalise the historical CRLF file-rename map so a Windows checkout cannot
+  invalidate committed resource-integrity and release evidence.
 
 ## [2.2.0] - 2026-05-29
 

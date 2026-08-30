@@ -1,0 +1,11 @@
+* text=auto eol=lf -filter -ident -export-ignore -export-subst !working-tree-encoding
+
+*.data binary !eol
+*.dll binary !eol
+*.docx binary !eol
+*.dylib binary !eol
+*.png binary !eol
+*.so binary !eol
+*.wasm binary !eol
+*.whl binary !eol
+*.zip binary !eol

@@ -4,6 +4,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 
 ## Summary
 
+- `added_audit_phase4`: 7
 - `added_phase13`: 11
 - `completed_migration`: 30
 - `completed_phase13`: 4
@@ -14,6 +15,8 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | Current path | Previous path | Area | Role | Action | Phase | Risk |
 |---|---|---|---|---|---:|---|
 | `.codeprobeignore.example` | `—` | `root` | standard project file | `keep` | current | `low` |
+| `.gitattributes` | `—` | `root` | repository checkout policy | `added_audit_phase4` | audit-4 | `high` |
+| `.github/workflows/ci.yml` | `—` | `.github` | continuous-integration workflow | `added_audit_phase4` | audit-4 | `high` |
 | `.gitignore` | `—` | `root` | standard project file | `keep` | current | `low` |
 | `00-kit-index.md` | `KIT_INDEX.md` | `root` | standard project file | `completed_phase13` | 13 | `low` |
 | `README.md` | `—` | `root` | standard project file | `keep` | current | `low` |
@@ -56,6 +59,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `docs/13-signed-release-workflow.md` | `—` | `docs` | technical documentation or asset | `keep` | current | `medium` |
 | `docs/14-optimisation-roadmap.md` | `—` | `docs` | technical documentation or asset | `keep` | current | `medium` |
 | `docs/15-final-release-audit.md` | `—` | `docs` | technical documentation or asset | `added_phase13` | 13 | `medium` |
+| `docs/16-ci-and-repository-controls.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4` | audit-4 | `medium` |
 | `docs/assets/interface-preview.png` | `—` | `docs` | technical documentation or asset | `keep` | current | `medium` |
 | `docs/history/01-stabilisation.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
 | `docs/history/02-parser-and-metrics.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
@@ -97,6 +101,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tests/test_app_runtime_tools_paths.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_browser_security.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_calibration_profiles.py` | `—` | `tests` | regression test | `keep` | current | `high` |
+| `tests/test_dependency_boundary.py` | `—` | `tests` | regression test | `added_audit_phase4` | audit-4 | `high` |
 | `tests/test_documentation_resources.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_dynamic_ui_review.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_false_positive_controls.py` | `—` | `tests` | regression test | `keep` | current | `high` |
@@ -111,6 +116,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tests/test_reference_integrity.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_release_integrity.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_release_metadata.py` | `—` | `tests` | regression test | `keep` | current | `high` |
+| `tests/test_release_reproducibility.py` | `—` | `tests` | regression test | `added_audit_phase4` | audit-4 | `high` |
 | `tests/test_report_schema.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_runtime_smoke.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tools/README.md` | `—` | `tools` | command-line or release utility | `keep` | current | `high` |
@@ -119,9 +125,11 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tools/build_release.py` | `src/build_release.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/calibrate_corpus.py` | `src/calibrate_corpus.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/calibrate_profile.py` | `src/calibrate_profile.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
+| `tools/check_dependency_boundary.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4` | audit-4 | `high` |
 | `tools/check_file_references.py` | `tools/check_references.py` | `tools` | command-line or release utility | `completed_phase13` | 13 | `high` |
 | `tools/check_naming.py` | `—` | `tools` | command-line or release utility | `added_phase13` | 13 | `high` |
 | `tools/check_release.py` | `src/release_check.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
+| `tools/check_release_reproducibility.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4` | audit-4 | `high` |
 | `tools/compare_releases.py` | `—` | `tools` | command-line or release utility | `keep` | current | `high` |
 | `tools/final_audit.py` | `—` | `tools` | command-line or release utility | `added_phase13` | 13 | `high` |
 | `tools/run_local_server.py` | `src/run_local_server.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |

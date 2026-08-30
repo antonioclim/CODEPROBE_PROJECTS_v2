@@ -87,10 +87,25 @@ python3 tools/check_release.py
 This read-only gate validates Python syntax, the unit-test suite, external
 browser-script syntax where Node.js is available, browser CSP/SRI hygiene,
 resource-integrity metadata, version consistency, smoke reports and committed
-release evidence. If a deliberate change requires refreshed evidence, run
+release evidence. It also verifies the declared standard-library dependency
+boundary and immutable GitHub Action pins. CI invokes the gate with
+`--require-node`, so JavaScript syntax cannot be reported as skipped there. If a
+deliberate change requires refreshed evidence, run
 `python3 tools/check_release.py --write-release-evidence` only after the other
 checks pass. A change that modifies metric semantics, report shape or project
 filtering should add or update a regression test.
+
+Before proposing a release-boundary change, also run:
+
+```bash
+python3 -B tools/check_release_reproducibility.py
+```
+
+This standalone integration gate requires a clean Git commit. It compares
+normalised checkouts and an exact Git export, then requires their complete
+release packets to be byte-identical under the active Python/zlib toolchain.
+The GitHub Actions matrix and repository-control requirements are documented in
+`docs/16-ci-and-repository-controls.md`.
 
 
 ## Institutional release checks

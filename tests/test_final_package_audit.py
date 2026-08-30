@@ -133,6 +133,23 @@ class FinalPackageAuditTests(unittest.TestCase):
         refresh.assert_not_called()
         self.assertTrue(any(not result.ok for result in results))
 
+    def test_dependency_boundary_failure_is_part_of_the_canonical_gate(self) -> None:
+        with mock.patch.object(
+            check_release.check_dependency_boundary,
+            "audit_dependency_boundary",
+            return_value=["unapproved dependency fixture"],
+        ):
+            results = check_release.run_checks(
+                skip_tests=True,
+                verify_manifest_file=False,
+                verify_persisted_evidence=False,
+            )
+        dependency_result = next(
+            result for result in results if result.name == "dependency-boundary"
+        )
+        self.assertFalse(dependency_result.ok)
+        self.assertIn("unapproved dependency fixture", dependency_result.detail)
+
     def test_unsafe_release_set_stops_the_gate_before_other_readers(self) -> None:
         with mock.patch.object(
             check_release,
@@ -245,6 +262,28 @@ class FinalPackageAuditTests(unittest.TestCase):
                         check_release.main(["--json-out", str(target)])
         runner.assert_not_called()
         writer.assert_not_called()
+
+    def test_node_can_be_mandatory_in_ci_without_changing_local_default(self) -> None:
+        with mock.patch.object(check_release.shutil, "which", return_value=None):
+            local_result = check_release.check_javascript_syntax()
+            ci_result = check_release.check_javascript_syntax(require_node=True)
+        self.assertTrue(local_result.ok)
+        self.assertTrue(local_result.skipped)
+        self.assertFalse(ci_result.ok)
+        self.assertFalse(ci_result.skipped)
+        self.assertIn("required", ci_result.detail)
+
+    def test_unit_test_result_reports_the_discovered_count(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="",
+            stderr="-----\nRan 121 tests in 1.250s\n\nOK\n",
+        )
+        with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+            result = check_release.check_unittest_suite()
+        self.assertTrue(result.ok)
+        self.assertEqual(result.detail, "121 test(s) passed")
 
     def test_default_gate_leaves_complete_source_tree_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

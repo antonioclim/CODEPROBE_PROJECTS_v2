@@ -26,6 +26,8 @@ import codeprobe_runtime as engine  # noqa: E402
 from codeprobe_engine.release import ReleaseSetError, atomic_write_text, iter_release_files, read_regular_file  # noqa: E402
 
 REQUIRED_FINAL_PATHS = [
+    ".gitattributes",
+    ".github/workflows/ci.yml",
     "00-kit-index.md",
     "README.md",
     "app/index.html",
@@ -36,6 +38,8 @@ REQUIRED_FINAL_PATHS = [
     "app/resource-integrity.json",
     "src/codeprobe_runtime.py",
     "tools/check_release.py",
+    "tools/check_dependency_boundary.py",
+    "tools/check_release_reproducibility.py",
     "tools/build_release.py",
     "tools/check_file_references.py",
     "tools/check_naming.py",
@@ -45,6 +49,7 @@ REQUIRED_FINAL_PATHS = [
     "docs/00-file-catalogue.md",
     "docs/01-naming-policy.md",
     "docs/15-final-release-audit.md",
+    "docs/16-ci-and-repository-controls.md",
     "docs/history/13-final-audit.md",
 ]
 
@@ -139,7 +144,7 @@ def render_summary(report: dict) -> str:
         "",
         f"Version: CodeProbe v{report['app_version']}",
         f"Status: {report['status'].upper()}",
-        f"Release-set files counted: {report['file_count']}",
+        f"Manifest-listed source files counted: {report['file_count']} (release manifest excluded)",
         "",
         "## Area counts",
         "",
@@ -216,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     status = "pass" if report["status"] == "pass" and not artefact_errors else "fail"
     for error in artefact_errors:
         print(f"[FAIL] {error}")
-    print(f"final-audit: {status} ({report['file_count']} files)")
+    print(f"final-audit: {status} ({report['file_count']} manifest-listed source files)")
     return 0 if status == "pass" else 1
 
 

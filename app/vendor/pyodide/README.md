@@ -20,4 +20,8 @@ Then change `app/runtime-config.json` to:
 }
 ```
 
-Do not invent the digest. Compute it from the exact file distributed to students.
+Do not invent the digest. Compute it from the exact file distributed to
+students. The digest covers only the loader, not the complete Pyodide runtime.
+The canonical release gate therefore rejects vendored files until the repository
+contains and verifies a complete authenticated provenance inventory. Follow
+`docs/05-offline-deployment.md` before treating a local deployment as validated.

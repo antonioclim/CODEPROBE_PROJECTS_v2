@@ -38,6 +38,7 @@ This runs:
 - version-consistency checks;
 - file and project smoke analyses;
 - metric-inventory checks;
+- the standard-library dependency boundary and immutable workflow action pins;
 - exact verification of the committed audit reports and release manifest.
 
 After an intentional source change, refresh the tracked release evidence with:
@@ -65,6 +66,23 @@ Machine-readable results may be requested with `--json-out`, but that explicit
 diagnostic output must be placed under `dist/` or outside the checkout. The tool
 rejects destinations inside the release set because they would immediately make
 the committed manifest stale.
+
+### CI parity gate
+
+CI runs the canonical gate with `--require-node` across the supported Python
+matrix. It never uses `--write-release-evidence`: stale evidence must fail rather
+than be repaired by automation. A separate job runs:
+
+```bash
+python3 -B tools/check_release_reproducibility.py
+```
+
+That command requires a clean Git commit. It compares the committed tree with
+normalised LF and forced-CRLF checkouts and an exact Git export, then builds and
+compares the mandatory ZIP and both sidecars. It invokes the fast gate inside
+its isolated candidate trees to avoid recursively starting the full test suite.
+The exact workflow matrix and repository rules are defined in
+`docs/16-ci-and-repository-controls.md`.
 
 ## 3. Inspect `release/release-manifest.json`
 
@@ -129,7 +147,13 @@ Then verify manually:
 4. the exported JSON contains `engine_fingerprint`, `metric_config_digest` and `tool_metadata`;
 5. local report history remains opt-in;
 6. **Clear privacy data** clears the editor/report state and local history;
-7. if using offline deployment, `runtime-config.json` points to the local Pyodide path and contains the real loader digest.
+7. if using offline deployment, `runtime-config.json` points to the local
+   Pyodide path and contains the real loader digest;
+8. if using offline deployment, the complete local runtime matches its
+   authenticated file inventory and licence record;
+9. if using offline deployment, the inventory verifier passes and a live browser
+   test succeeds with network access disabled, as required by
+   `docs/05-offline-deployment.md`.
 
 ## 6. Archival recommendation
 
