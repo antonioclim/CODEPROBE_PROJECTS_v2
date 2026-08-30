@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 119,
-  "total_source_size_bytes": 1215673,
+  "total_source_size_bytes": 1219920,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "size_bytes": 17427,
-      "sha256": "dd8db1dc0c0bddc1c9fa583600f7fefb21d4a837446507b09018d95d2d1b4b54"
+      "size_bytes": 17593,
+      "sha256": "615c67cfde31987828f63542a9cbff61c554e63b4e4c702ea259ad220347d98f"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -467,8 +467,8 @@
     },
     {
       "path": "tests/test_final_package_audit.py",
-      "size_bytes": 16629,
-      "sha256": "74fb2c7e514fa482e4602bc66cbb150fb9ac8395b3eb0d2193daf05805431a97"
+      "size_bytes": 18465,
+      "sha256": "53dbb529791b2af6a2b2a1c309347893be9eb74888e72a050d911cfbf003150e"
     },
     {
       "path": "tests/test_final_release_audit.py",
@@ -507,8 +507,8 @@
     },
     {
       "path": "tests/test_release_metadata.py",
-      "size_bytes": 19826,
-      "sha256": "76fcdf3ea2dda28fa3760ddaf2712d6eabc3ecd714d41df4d37385dd26f2637c"
+      "size_bytes": 20550,
+      "sha256": "ab6ab5ced004f508963f8de87a45f3a1f18bfe2600a68f30cfe36bb95179dbb1"
     },
     {
       "path": "tests/test_release_reproducibility.py",
@@ -572,8 +572,8 @@
     },
     {
       "path": "tools/check_release.py",
-      "size_bytes": 21308,
-      "sha256": "b7d0da960ca144dbc46f45a5e77fe51a37295f8ccb1ef16c740f764e0760e266"
+      "size_bytes": 22829,
+      "sha256": "59fa3428a0f354ff4becc005ffb867789415d671dc2eb19efb013fe5cb50e6e1"
     },
     {
       "path": "tools/check_release_reproducibility.py",
@@ -601,5 +601,5 @@
       "sha256": "6cf4614f1a48d3bc963b9b80f1d2a6ed5080bd083a20804942d6b5c56d442f9b"
     }
   ],
-  "manifest_sha256": "469f581d722f44235eed98fec3d0dfb6d84c28b361591abbb942d388a274ea1e"
+  "manifest_sha256": "eefd7a022926198226e7c5b975e89c9869628eb8ae21ae45196278d15cfd55b4"
 }

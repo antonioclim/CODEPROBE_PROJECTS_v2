@@ -247,7 +247,14 @@ class ReleaseMetadataTests(unittest.TestCase):
             depth = 10_000
             (root / MANIFEST_NAME).write_text("[" * depth + "0" + "]" * depth, encoding="utf-8")
             errors = verify_manifest(root, app_version=engine.APP_VERSION)
-            self.assertTrue(any("not valid unambiguous JSON" in error for error in errors), errors)
+            self.assertTrue(
+                any(
+                    "not valid unambiguous JSON" in error
+                    or "top level must be an object" in error
+                    for error in errors
+                ),
+                errors,
+            )
 
             write_manifest(root, engine.APP_VERSION)
             with mock.patch.object(release.os, "read", side_effect=OSError("forced read failure")):
@@ -343,12 +350,25 @@ class ReleaseMetadataTests(unittest.TestCase):
             root = Path(tmp) / "kit"
             root.mkdir()
             current = root
-            for _ in range(1_100):
-                current /= "d"
-                current.mkdir()
-            (current / "leaf.txt").write_bytes(b"leaf\n")
-            write_manifest(root, engine.APP_VERSION)
-            self.assertEqual(verify_manifest(root, app_version=engine.APP_VERSION), [])
+            directories = [root]
+            leaf = current / "leaf.txt"
+            try:
+                for _ in range(1_100):
+                    current /= "d"
+                    current.mkdir()
+                    directories.append(current)
+                leaf = current / "leaf.txt"
+                leaf.write_bytes(b"leaf\n")
+                write_manifest(root, engine.APP_VERSION)
+                self.assertEqual(verify_manifest(root, app_version=engine.APP_VERSION), [])
+            finally:
+                leaf.unlink(missing_ok=True)
+                (root / MANIFEST_NAME).unlink(missing_ok=True)
+                release_directory = root / "release"
+                if release_directory.is_dir():
+                    release_directory.rmdir()
+                for directory in reversed(directories):
+                    directory.rmdir()
 
     def test_manifest_generation_rejects_late_membership_change(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -29,6 +29,9 @@ SRC = ROOT / "src"
 APP = ROOT / "app"
 TESTS = ROOT / "tests"
 TOOLS = ROOT / "tools"
+MAX_UNITTEST_FAILURE_IDENTIFIERS = 5
+MAX_UNITTEST_FAILURE_IDENTIFIER_CHARACTERS = 300
+MAX_UNITTEST_DETAIL_CHARACTERS = 1_024
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 if str(SRC) not in sys.path:
@@ -98,14 +101,47 @@ def check_unittest_suite(verbose: bool = False) -> CheckResult:
     if verbose:
         cmd.append("-v")
     completed = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
-    output = completed.stdout + completed.stderr
-    lines = output.strip().splitlines()
-    count_match = re.search(r"^Ran (?P<count>[0-9]+) tests? in ", output, re.M)
-    if completed.returncode == 0 and count_match:
-        detail = f"{count_match.group('count')} test(s) passed"
+    unittest_output = completed.stderr
+    lines = unittest_output.strip().splitlines()
+    count_matches = re.findall(r"^Ran (?P<count>[0-9]{1,9}) tests? in ", unittest_output, re.M)
+    pass_count_field = r"(?:skipped|expected failures)=[0-9]{1,9}"
+    pass_terminal = rf"OK(?: \({pass_count_field}(?:, {pass_count_field})?\))?"
+    terminal_success = bool(
+        lines
+        and re.fullmatch(pass_terminal, lines[-1])
+    )
+    success = completed.returncode == 0 and len(count_matches) == 1 and terminal_success
+    if success:
+        detail = f"{count_matches[0]} test(s) passed"
     else:
-        detail = lines[-1] if lines else "no unittest output"
-    return CheckResult("unit-tests", completed.returncode == 0, detail)
+        failure_count_field = (
+            r"(?:failures|errors|skipped|expected failures|unexpected successes)=[0-9]{1,9}"
+        )
+        failure_summary = re.search(
+            rf"^FAILED \((?P<counts>{failure_count_field}(?:, {failure_count_field}){{0,4}})\)$",
+            unittest_output,
+            re.M,
+        )
+        if failure_summary:
+            summary = f"FAILED ({failure_summary.group('counts')})"
+        elif completed.returncode == 0:
+            summary = "unittest output was not a recognised successful run"
+        else:
+            summary = f"unittest exited with code {completed.returncode}"
+        identifiers = list(dict.fromkeys(re.findall(
+            rf"^(?:FAIL|ERROR): [A-Za-z0-9_]{{1,100}} "
+            rf"\((?P<identifier>[A-Za-z0-9_.]{{1,{MAX_UNITTEST_FAILURE_IDENTIFIER_CHARACTERS}}})\)\s*$",
+            unittest_output,
+            re.M,
+        )))
+        identity_detail = (
+            "; failing tests: "
+            + "; ".join(identifiers[:MAX_UNITTEST_FAILURE_IDENTIFIERS])
+            if identifiers
+            else ""
+        )
+        detail = f"{summary}{identity_detail}"[:MAX_UNITTEST_DETAIL_CHARACTERS]
+    return CheckResult("unit-tests", success, detail)
 
 
 def extract_inline_scripts(html_path: Path) -> list[str]:

@@ -285,6 +285,48 @@ class FinalPackageAuditTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.detail, "121 test(s) passed")
 
+    def test_unit_test_failure_reports_bounded_identifiers_without_traceback(self) -> None:
+        headers = "".join(
+            f"ERROR: test_{index} (test_example.ExampleTests.test_{index})\n"
+            for index in range(7)
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="SECRET-STDOUT\n",
+            stderr=(
+                f"{headers}"
+                f"ERROR: test_long (test_example.{'a' * 2_000})\n"
+                "Traceback: SECRET-TRACEBACK\n"
+                "FAILED (token=123456)\n"
+            ),
+        )
+        with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+            result = check_release.check_unittest_suite()
+        self.assertFalse(result.ok)
+        self.assertIn("unittest exited with code 1", result.detail)
+        self.assertIn("test_example.ExampleTests.test_0", result.detail)
+        self.assertIn("test_example.ExampleTests.test_4", result.detail)
+        self.assertNotIn("test_example.ExampleTests.test_5", result.detail)
+        self.assertNotIn("token", result.detail)
+        self.assertNotIn("SECRET", result.detail)
+        self.assertLessEqual(
+            len(result.detail),
+            check_release.MAX_UNITTEST_DETAIL_CHARACTERS,
+        )
+
+    def test_unit_test_success_requires_a_recognised_terminal_summary(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="Ran 999 tests in 0.001s\nOK\n",
+            stderr="OK\n",
+        )
+        with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+            result = check_release.check_unittest_suite()
+        self.assertFalse(result.ok)
+        self.assertIn("not a recognised successful run", result.detail)
+
     def test_default_gate_leaves_complete_source_tree_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture_root = Path(tmp) / "kit"
