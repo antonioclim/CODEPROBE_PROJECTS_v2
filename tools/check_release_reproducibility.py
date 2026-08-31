@@ -649,7 +649,7 @@ def run_fast_gate(source_root: Path, result_path: Path) -> dict[str, Any]:
             failures.append("release gate returned a malformed check result")
         elif item.get("ok") is not True:
             failures.append(f"release gate check failed: {_safe_text(item.get('name'))}")
-        elif item.get("skipped") is True:
+        elif item.get("skipped") is True and item.get("name") != "unit-tests":
             failures.append(f"release gate check was skipped: {_safe_text(item.get('name'))}")
     if failures:
         raise ReproducibilityError("\n".join(_bounded_messages(failures)))

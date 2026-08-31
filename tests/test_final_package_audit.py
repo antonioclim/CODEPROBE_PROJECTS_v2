@@ -148,7 +148,7 @@ class FinalPackageAuditTests(unittest.TestCase):
             with mock.patch.object(
                 check_release,
                 "check_unittest_suite",
-                return_value=check_release.CheckResult("unit-tests", True, "244 test(s) passed"),
+                return_value=check_release.CheckResult("unit-tests", True, "245 test(s) passed"),
             ):
                 with mock.patch.object(check_release, "refresh_release_evidence") as refresh:
                     results = check_release.run_checks(
@@ -583,17 +583,17 @@ class FinalPackageAuditTests(unittest.TestCase):
             args=[],
             returncode=0,
             stdout="",
-            stderr="-----\nRan 244 tests in 1.250s\n\nOK\n",
+            stderr="-----\nRan 245 tests in 1.250s\n\nOK\n",
         )
         with mock.patch.object(check_release.subprocess, "run", return_value=completed):
             result = check_release.check_unittest_suite()
         self.assertTrue(result.ok)
-        self.assertEqual(result.detail, "244 test(s) passed")
+        self.assertEqual(result.detail, "245 test(s) passed")
 
     def test_empty_or_fully_skipped_suite_cannot_pass(self) -> None:
         cases = (
             "Ran 0 tests in 0.001s\n\nOK\n",
-            "Ran 244 tests in 0.001s\n\nOK (skipped=244)\n",
+            "Ran 245 tests in 0.001s\n\nOK (skipped=245)\n",
         )
         for stderr in cases:
             with self.subTest(stderr=stderr):
@@ -673,7 +673,7 @@ class FinalPackageAuditTests(unittest.TestCase):
             args=[],
             returncode=0,
             stdout="",
-            stderr="Ran 244 tests in 0.001s\n\nOK\n",
+            stderr="Ran 245 tests in 0.001s\n\nOK\n",
         )
         ambient = {
             "PYTHONHASHSEED": "314159",

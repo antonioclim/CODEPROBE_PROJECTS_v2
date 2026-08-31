@@ -209,6 +209,35 @@ class ReleaseReproducibilityUnitTests(unittest.TestCase):
         command = runner.call_args.args[0]
         self.assertEqual(command[:4], [sys.executable, "-I", "-S", "-B"])
 
+    def test_fast_gate_allows_only_the_declared_unit_test_skip(self) -> None:
+        allowed = {
+            "app_version": "1.0",
+            "results": [
+                {"name": "unit-tests", "ok": True, "skipped": True},
+                {"name": "release-manifest", "ok": True, "skipped": False},
+            ],
+        }
+        with mock.patch.object(reproducibility, "run_command"):
+            with mock.patch.object(reproducibility, "load_unique_json", return_value=allowed):
+                self.assertEqual(
+                    reproducibility.run_fast_gate(Path("source"), Path("result.json")),
+                    allowed,
+                )
+
+        forbidden = {
+            "app_version": "1.0",
+            "results": [
+                {"name": "javascript-syntax", "ok": True, "skipped": True},
+            ],
+        }
+        with mock.patch.object(reproducibility, "run_command"):
+            with mock.patch.object(reproducibility, "load_unique_json", return_value=forbidden):
+                with self.assertRaisesRegex(
+                    reproducibility.ReproducibilityError,
+                    "javascript-syntax",
+                ):
+                    reproducibility.run_fast_gate(Path("source"), Path("result.json"))
+
     def test_builder_child_disables_site_initialisation(self) -> None:
         commands: list[list[object]] = []
 
