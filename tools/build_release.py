@@ -413,20 +413,6 @@ def _fingerprint(path: Path) -> tuple[int, int, int, int, int, str] | None:
     if not stat.S_ISREG(before.st_mode):
         raise PublicationError(f"release output changed to an unsafe entry: {path}")
     content, after = read_regular_file_with_metadata(path)
-    if (
-        before.st_dev,
-        before.st_ino,
-        before.st_size,
-        before.st_mtime_ns,
-        before.st_ctime_ns,
-    ) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-    ):
-        raise PublicationError(f"release output changed while it was fingerprinted: {path}")
     return (
         after.st_dev,
         after.st_ino,
@@ -452,20 +438,6 @@ def _snapshot_prior_targets(
         if not stat.S_ISREG(metadata.st_mode):
             raise PublicationError(f"release output changed to an unsafe entry: {target}")
         content, metadata_after = read_regular_file_with_metadata(target)
-        if (
-            metadata.st_dev,
-            metadata.st_ino,
-            metadata.st_size,
-            metadata.st_mtime_ns,
-            metadata.st_ctime_ns,
-        ) != (
-            metadata_after.st_dev,
-            metadata_after.st_ino,
-            metadata_after.st_size,
-            metadata_after.st_mtime_ns,
-            metadata_after.st_ctime_ns,
-        ):
-            raise PublicationError(f"release output changed while its backup was captured: {target}")
         metadata = metadata_after
         backup = backup_dir / str(index)
         mode = stat.S_IMODE(metadata.st_mode)

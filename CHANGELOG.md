@@ -31,6 +31,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
   snapshots without the deprecated creation-time field and retain size, last-
   write and supported-mode checks. Clean a failed pre-rename temporary file only
   when its separate pathname identity is still proven.
+- Derive publisher backup and rollback fingerprints from the same coherent open-
+  file snapshot instead of recomparing incompatible Windows path metadata.
 - Canonicalise hostile-test fixture roots and pin the seven approved browser
   resource paths independently of the implementation allowlist.
 - Make the standalone final audit reject a stale release manifest and remove a

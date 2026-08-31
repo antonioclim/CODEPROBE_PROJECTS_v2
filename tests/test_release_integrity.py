@@ -262,6 +262,39 @@ class ReleaseIntegrityTests(unittest.TestCase):
             self.assertEqual(old, {target: target.read_bytes() for target in targets.all()})
             self.assertFalse(any(".staging-" in path.name or path.name.endswith(".publish.lock") for path in parent.iterdir()))
 
+    def test_packet_fingerprint_uses_coherent_descriptor_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "release.zip"
+            content = b"packet\n"
+            target.write_bytes(content)
+            path_metadata = target.lstat()
+            descriptor_metadata = mock.Mock(
+                st_dev=path_metadata.st_dev + 1,
+                st_ino=path_metadata.st_ino + 1,
+                st_size=len(content),
+                st_mtime_ns=path_metadata.st_mtime_ns,
+                st_mode=path_metadata.st_mode,
+            )
+
+            with mock.patch.object(
+                build_release,
+                "read_regular_file_with_metadata",
+                return_value=(content, descriptor_metadata),
+            ):
+                fingerprint = build_release._fingerprint(target)
+
+            self.assertEqual(
+                fingerprint,
+                (
+                    descriptor_metadata.st_dev,
+                    descriptor_metadata.st_ino,
+                    len(content),
+                    descriptor_metadata.st_mtime_ns,
+                    stat.S_IMODE(descriptor_metadata.st_mode),
+                    hashlib.sha256(content).hexdigest(),
+                ),
+            )
+
     def test_commit_failure_restores_complete_prior_packet(self):
         for failure_position in (1, 2, 3):
             with self.subTest(failure_position=failure_position), tempfile.TemporaryDirectory(
