@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 118,
-  "total_source_size_bytes": 1421854,
+  "total_source_size_bytes": 1423044,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "size_bytes": 18869,
-      "sha256": "c901f4fa4f7c948f4c39d7ca058b6281d1c450e6895ea7f75437a777ac56f3cf"
+      "size_bytes": 18903,
+      "sha256": "e0d78cdf72b4af8dc44ca08eb887c9afb25875a383b3143966b5b1c27bba2bcf"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -402,8 +402,8 @@
     },
     {
       "path": "src/codeprobe_engine/release.py",
-      "size_bytes": 34659,
-      "sha256": "d52c90d99a7a64a63269e3e8bccb2948395a470ba40d7ad05800ff774e62bf95"
+      "size_bytes": 35815,
+      "sha256": "f2dd6fe9b3f03ae5f61b5281d50a5012c2432772d5b858779064764470808a95"
     },
     {
       "path": "src/codeprobe_engine/version.py",
@@ -596,5 +596,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "21d90b43733afca844da671503f17a743e2a7afdc6ccab7091887a666313dd33"
+  "manifest_sha256": "877feb1d5335231be0a4af441cb71963325d0dcd4abed7e0a98d47ad98149255"
 }

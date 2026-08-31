@@ -105,6 +105,7 @@ def atomic_write_bytes(
     selected_mode = previous_mode if mode is None else mode
     temporary_path: Path | None = None
     temporary_identity: tuple[int, int] | None = None
+    temporary_path_identity: tuple[int, int] | None = None
     replace_attempted = False
     try:
         with tempfile.NamedTemporaryFile(
@@ -116,6 +117,8 @@ def atomic_write_bytes(
             temporary_path = Path(handle.name)
             created = os.fstat(handle.fileno())
             temporary_identity = (created.st_dev, created.st_ino)
+            created_path = temporary_path.lstat()
+            temporary_path_identity = (created_path.st_dev, created_path.st_ino)
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
@@ -146,11 +149,16 @@ def atomic_write_bytes(
                 chunks.append(chunk)
             metadata = os.fstat(descriptor)
             path_metadata = _validate_no_symlink_ancestry(temporary_path, None)
+            path_matches_descriptor = _path_opens_same_file(
+                temporary_path,
+                descriptor,
+                None,
+            )
         finally:
             os.close(descriptor)
         actual_content = b"".join(chunks)
         if (
-            not _same_file_object(path_metadata, metadata)
+            not path_matches_descriptor
             or path_metadata.st_size != metadata.st_size
             or not _mode_matches(path_metadata.st_mode, metadata.st_mode)
             or actual_content != content
@@ -183,8 +191,8 @@ def atomic_write_bytes(
                     else:
                         installed_identity = (installed.st_dev, installed.st_ino)
                 if (
-                    temporary_identity == current_identity
-                    and installed_identity != temporary_identity
+                    temporary_path_identity == current_identity
+                    and installed_identity != temporary_path_identity
                 ):
                     try:
                         temporary_path.unlink()
@@ -219,16 +227,38 @@ def _stat_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
     )
 
 
-def _same_file_object(left: os.stat_result, right: os.stat_result) -> bool:
-    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
-
-
 def _mode_matches(left_mode: int, right_mode: int) -> bool:
     left = stat.S_IMODE(left_mode)
     right = stat.S_IMODE(right_mode)
     if os.name == "nt":
         return bool(left & stat.S_IWRITE) == bool(right & stat.S_IWRITE)
     return left == right
+
+
+def _path_opens_same_file(path: Path, descriptor: int, root: Path | None) -> bool:
+    """Compare a pathname with an open file using two descriptor snapshots.
+
+    Windows can expose path and descriptor identity through different native
+    structures. Opening the current path and using ``sameopenfile`` avoids a
+    cross-representation comparison while still detecting a swapped path.
+    """
+    try:
+        verification_descriptor = _open_regular_for_read(path, root)
+    except OSError:
+        return False
+    try:
+        metadata = os.fstat(verification_descriptor)
+        return stat.S_ISREG(metadata.st_mode) and os.path.sameopenfile(
+            descriptor,
+            verification_descriptor,
+        )
+    except OSError:
+        return False
+    finally:
+        try:
+            os.close(verification_descriptor)
+        except OSError:
+            pass
 
 
 def _relative_parts_below_root(path: Path, root: Path) -> tuple[str, ...]:
@@ -316,8 +346,9 @@ def read_regular_file_with_metadata(
             raise ReleaseSetError(f"release entry is not a regular file: {_safe_text(path)}")
         path_opened = _validate_no_symlink_ancestry(path, root)
         if (
-            not _same_file_object(path_before, before)
-            or not _same_file_object(path_opened, before)
+            _stat_identity(path_before) != _stat_identity(path_opened)
+            or not _mode_matches(path_before.st_mode, path_opened.st_mode)
+            or not _path_opens_same_file(path, descriptor, root)
         ):
             raise ReleaseSetError(f"release file changed before read: {_safe_text(path)}")
         chunks: list[bytes] = []
@@ -327,6 +358,13 @@ def read_regular_file_with_metadata(
                 break
             chunks.append(chunk)
         after = os.fstat(descriptor)
+        try:
+            path_after = _validate_no_symlink_ancestry(path, root)
+        except ReleaseSetError as exc:
+            raise ReleaseSetError(
+                f"release file changed during read: {_safe_text(path)}: {_safe_text(exc)}"
+            ) from exc
+        path_matches_after = _path_opens_same_file(path, descriptor, root)
     except ReleaseSetError:
         raise
     except OSError as exc:
@@ -336,18 +374,12 @@ def read_regular_file_with_metadata(
             os.close(descriptor)
         except OSError:
             pass
-    try:
-        path_after = _validate_no_symlink_ancestry(path, root)
-    except ReleaseSetError as exc:
-        raise ReleaseSetError(f"release file changed during read: {_safe_text(path)}: {_safe_text(exc)}") from exc
     if (
         _stat_identity(before) != _stat_identity(after)
         or not _mode_matches(before.st_mode, after.st_mode)
         or _stat_identity(path_before) != _stat_identity(path_after)
         or not _mode_matches(path_before.st_mode, path_after.st_mode)
-        or not _same_file_object(path_after, after)
-        or path_after.st_size != after.st_size
-        or not _mode_matches(path_after.st_mode, after.st_mode)
+        or not path_matches_after
     ):
         raise ReleaseSetError(f"release file changed during read: {_safe_text(path)}")
     return b"".join(chunks), after
