@@ -264,7 +264,9 @@ class ReleaseIntegrityTests(unittest.TestCase):
 
     def test_commit_failure_restores_complete_prior_packet(self):
         for failure_position in (1, 2, 3):
-            with self.subTest(failure_position=failure_position), tempfile.TemporaryDirectory() as tmp:
+            with self.subTest(failure_position=failure_position), tempfile.TemporaryDirectory(
+                ignore_cleanup_errors=True
+            ) as tmp:
                 parent = Path(tmp)
                 root = self.make_release_fixture(parent, "kit")
                 output = parent / "release.zip"

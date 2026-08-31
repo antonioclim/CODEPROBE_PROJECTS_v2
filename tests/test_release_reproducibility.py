@@ -143,7 +143,7 @@ class ReleaseReproducibilityUnitTests(unittest.TestCase):
                 )
 
     def test_packet_verification_rejects_stored_members(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
             packet = reproducibility.PacketPaths(
                 root / reproducibility.PACKET_BASENAME,
