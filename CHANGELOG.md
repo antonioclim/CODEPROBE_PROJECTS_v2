@@ -33,6 +33,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
   when its separate pathname identity is still proven.
 - Derive publisher backup and rollback fingerprints from the same coherent open-
   file snapshot instead of recomparing incompatible Windows path metadata.
+- Reuse that coherent reader in the reproducibility inventory and packet checks,
+  removing a divergent Windows-sensitive file reader.
 - Canonicalise hostile-test fixture roots and pin the seven approved browser
   resource paths independently of the implementation allowlist.
 - Make the standalone final audit reject a stale release manifest and remove a

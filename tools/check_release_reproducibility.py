@@ -39,6 +39,12 @@ from typing import Any, Mapping, Sequence
 sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.append(str(SRC))
+
+from codeprobe_engine.release import ReleaseSetError, read_regular_file  # noqa: E402
+
 ACTIVE_ENVIRONMENT_VARIABLE = "CODEPROBE_REPRO_GATE_ACTIVE"
 MANIFEST_PATH = "release/release-manifest.json"
 PACKET_BASENAME = "release.zip"
@@ -295,61 +301,14 @@ def read_git_snapshot(repository: Path, commit: str) -> GitSnapshot:
     return GitSnapshot(dict(sorted(entries.items())), dict(sorted(contents.items())))
 
 
-def _stat_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
-    return (
-        metadata.st_dev,
-        metadata.st_ino,
-        metadata.st_size,
-        metadata.st_mtime_ns,
-        metadata.st_ctime_ns,
-    )
-
-
 def read_stable_regular_file(path: Path) -> bytes:
     """Read a regular file while detecting replacement or mutation."""
     try:
-        before_path = path.lstat()
-    except OSError as exc:
-        raise ReproducibilityError(f"cannot inspect {_safe_text(path)}: {_safe_text(exc)}") from exc
-    if not stat.S_ISREG(before_path.st_mode):
-        raise ReproducibilityError(f"entry is not a regular file: {_safe_text(path)}")
-    flags = os.O_RDONLY
-    if hasattr(os, "O_BINARY"):
-        flags |= os.O_BINARY
-    if hasattr(os, "O_CLOEXEC"):
-        flags |= os.O_CLOEXEC
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise ReproducibilityError(f"cannot open {_safe_text(path)} safely: {_safe_text(exc)}") from exc
-    try:
-        before_descriptor = os.fstat(descriptor)
-        if not stat.S_ISREG(before_descriptor.st_mode):
-            raise ReproducibilityError(f"entry changed to a non-regular file: {_safe_text(path)}")
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(descriptor, 1024 * 1024)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        after_descriptor = os.fstat(descriptor)
-    except OSError as exc:
-        raise ReproducibilityError(f"cannot read {_safe_text(path)}: {_safe_text(exc)}") from exc
-    finally:
-        os.close(descriptor)
-    try:
-        after_path = path.lstat()
-    except OSError as exc:
-        raise ReproducibilityError(f"file changed during reading: {_safe_text(path)}: {_safe_text(exc)}") from exc
-    if (
-        _stat_identity(before_path) != _stat_identity(before_descriptor)
-        or _stat_identity(before_descriptor) != _stat_identity(after_descriptor)
-        or _stat_identity(after_descriptor) != _stat_identity(after_path)
-    ):
-        raise ReproducibilityError(f"file changed during reading: {_safe_text(path)}")
-    return b"".join(chunks)
+        return read_regular_file(path)
+    except (OSError, ReleaseSetError) as exc:
+        raise ReproducibilityError(
+            f"cannot read stable regular file {_safe_text(path)}: {_safe_text(exc)}"
+        ) from exc
 
 
 def inventory_tree(root: Path, *, exclude_git: bool = True) -> dict[str, TreeEntry]:
