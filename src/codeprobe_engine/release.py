@@ -150,8 +150,9 @@ def atomic_write_bytes(
             os.close(descriptor)
         actual_content = b"".join(chunks)
         if (
-            _stat_identity(path_metadata) != _stat_identity(metadata)
-            or stat.S_IMODE(path_metadata.st_mode) != stat.S_IMODE(metadata.st_mode)
+            not _same_file_object(path_metadata, metadata)
+            or path_metadata.st_size != metadata.st_size
+            or not _mode_matches(path_metadata.st_mode, metadata.st_mode)
             or actual_content != content
         ):
             raise ReleaseSetError("atomic-write temporary file changed during preparation")
@@ -169,10 +170,22 @@ def atomic_write_bytes(
         temporary_path = None
         return receipt
     except BaseException:
-        if temporary_path is not None and not replace_attempted:
+        if temporary_path is not None:
             try:
                 current = temporary_path.lstat()
-                if temporary_identity == (current.st_dev, current.st_ino):
+                current_identity = (current.st_dev, current.st_ino)
+                installed_identity: tuple[int, int] | None = None
+                if replace_attempted:
+                    try:
+                        installed = path.lstat()
+                    except OSError:
+                        pass
+                    else:
+                        installed_identity = (installed.st_dev, installed.st_ino)
+                if (
+                    temporary_identity == current_identity
+                    and installed_identity != temporary_identity
+                ):
                     try:
                         temporary_path.unlink()
                     except PermissionError:
@@ -191,13 +204,31 @@ def atomic_write_text(path: Path, content: str) -> AtomicWriteReceipt:
 
 
 def _stat_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
+    # Windows still exposes creation time through the deprecated st_ctime_ns
+    # field. Path-based and descriptor-based queries can report that field
+    # differently even for the same unchanged file, so it is not a portable
+    # change detector there. Size, last-write time and file identity remain the
+    # stable comparison boundary; supported mode bits are compared separately.
+    change_time_ns = 0 if os.name == "nt" else metadata.st_ctime_ns
     return (
         metadata.st_dev,
         metadata.st_ino,
         metadata.st_size,
         metadata.st_mtime_ns,
-        metadata.st_ctime_ns,
+        change_time_ns,
     )
+
+
+def _same_file_object(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def _mode_matches(left_mode: int, right_mode: int) -> bool:
+    left = stat.S_IMODE(left_mode)
+    right = stat.S_IMODE(right_mode)
+    if os.name == "nt":
+        return bool(left & stat.S_IWRITE) == bool(right & stat.S_IWRITE)
+    return left == right
 
 
 def _relative_parts_below_root(path: Path, root: Path) -> tuple[str, ...]:
@@ -283,8 +314,11 @@ def read_regular_file_with_metadata(
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ReleaseSetError(f"release entry is not a regular file: {_safe_text(path)}")
-        _validate_no_symlink_ancestry(path, root)
-        if (path_before.st_dev, path_before.st_ino) != (before.st_dev, before.st_ino):
+        path_opened = _validate_no_symlink_ancestry(path, root)
+        if (
+            not _same_file_object(path_before, before)
+            or not _same_file_object(path_opened, before)
+        ):
             raise ReleaseSetError(f"release file changed before read: {_safe_text(path)}")
         chunks: list[bytes] = []
         while True:
@@ -308,9 +342,12 @@ def read_regular_file_with_metadata(
         raise ReleaseSetError(f"release file changed during read: {_safe_text(path)}: {_safe_text(exc)}") from exc
     if (
         _stat_identity(before) != _stat_identity(after)
-        or stat.S_IMODE(before.st_mode) != stat.S_IMODE(after.st_mode)
-        or _stat_identity(path_after) != _stat_identity(after)
-        or stat.S_IMODE(path_after.st_mode) != stat.S_IMODE(after.st_mode)
+        or not _mode_matches(before.st_mode, after.st_mode)
+        or _stat_identity(path_before) != _stat_identity(path_after)
+        or not _mode_matches(path_before.st_mode, path_after.st_mode)
+        or not _same_file_object(path_after, after)
+        or path_after.st_size != after.st_size
+        or not _mode_matches(path_after.st_mode, after.st_mode)
     ):
         raise ReleaseSetError(f"release file changed during read: {_safe_text(path)}")
     return b"".join(chunks), after

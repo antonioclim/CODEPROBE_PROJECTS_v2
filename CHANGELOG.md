@@ -27,6 +27,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 - Capture evidence bytes and metadata from one verified file descriptor, record
   candidate ownership before a potentially ambiguous rename and apply rollback
   metadata while the private temporary file is still open.
+- Compare Windows path and descriptor snapshots without the deprecated creation-
+  time field, while retaining file identity, size, last-write and supported-mode
+  checks and cleaning a failed pre-rename temporary file only when ownership is
+  still proven.
 - Canonicalise hostile-test fixture roots and pin the seven approved browser
   resource paths independently of the implementation allowlist.
 - Make the standalone final audit reject a stale release manifest and remove a

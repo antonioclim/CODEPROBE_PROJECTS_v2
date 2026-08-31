@@ -169,6 +169,16 @@ class ReleaseMetadataTests(unittest.TestCase):
             self.assertEqual(target.read_bytes(), b"original\n")
             self.assertEqual({path.name for path in directory.iterdir()}, before)
 
+            with mock.patch.object(
+                Path,
+                "replace",
+                side_effect=OSError("forced pre-rename failure"),
+            ):
+                with self.assertRaisesRegex(OSError, "forced pre-rename failure"):
+                    release.atomic_write_bytes(target, b"replacement\n")
+            self.assertEqual(target.read_bytes(), b"original\n")
+            self.assertEqual({path.name for path in directory.iterdir()}, before)
+
             real_replace = Path.replace
             reoccupied: list[Path] = []
 
@@ -236,6 +246,44 @@ class ReleaseMetadataTests(unittest.TestCase):
                 )
             finally:
                 os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+
+    def test_windows_stat_identity_ignores_only_deprecated_creation_time(self):
+        stable = mock.Mock(
+            st_dev=1,
+            st_ino=2,
+            st_size=3,
+            st_mtime_ns=4,
+            st_ctime_ns=5,
+        )
+        different_creation_time = mock.Mock(
+            st_dev=1,
+            st_ino=2,
+            st_size=3,
+            st_mtime_ns=4,
+            st_ctime_ns=6,
+        )
+        different_last_write = mock.Mock(
+            st_dev=1,
+            st_ino=2,
+            st_size=3,
+            st_mtime_ns=7,
+            st_ctime_ns=5,
+        )
+
+        with mock.patch.object(release.os, "name", "nt"):
+            self.assertEqual(
+                release._stat_identity(stable),
+                release._stat_identity(different_creation_time),
+            )
+            self.assertNotEqual(
+                release._stat_identity(stable),
+                release._stat_identity(different_last_write),
+            )
+        with mock.patch.object(release.os, "name", "posix"):
+            self.assertNotEqual(
+                release._stat_identity(stable),
+                release._stat_identity(different_creation_time),
+            )
 
     def test_manifest_verifier_rejects_every_authoritative_metadata_tamper(self):
         mutations = {
