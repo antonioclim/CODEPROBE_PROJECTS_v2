@@ -78,6 +78,15 @@ class ReleaseIntegrityTests(unittest.TestCase):
                         build_release._fsync_file_metadata(path)
             self.assertEqual(captured.exception.errno, errno.EIO)
 
+    def test_windows_file_metadata_sync_ignores_only_unsupported_capability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "packet.zip"
+            path.write_bytes(b"packet")
+            unsupported = OSError(errno.EINVAL, "metadata flush unsupported")
+            with mock.patch.object(build_release.os, "name", "nt"):
+                with mock.patch.object(build_release.os, "fsync", side_effect=unsupported):
+                    build_release._fsync_file_metadata(path)
+
     def _zip_with(self, path: Path, members: dict[str, bytes]) -> None:
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for name, payload in members.items():

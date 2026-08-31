@@ -13,6 +13,7 @@ if __name__ == "__main__" and not (
     )
 
 import argparse
+import errno
 import json
 import os
 import re
@@ -255,9 +256,18 @@ def _fsync_file_metadata(path: Path) -> None:
         flags |= os.O_BINARY
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
-    descriptor = os.open(path, flags)
     try:
-        os.fsync(descriptor)
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        if os.name == "nt" and exc.errno in {errno.EACCES, errno.EBADF, errno.EINVAL}:
+            return
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as exc:
+            if os.name != "nt" or exc.errno not in {errno.EACCES, errno.EBADF, errno.EINVAL}:
+                raise
     finally:
         os.close(descriptor)
 
