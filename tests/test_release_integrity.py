@@ -311,6 +311,10 @@ class ReleaseIntegrityTests(unittest.TestCase):
             build_release.publish_release(root, output, app_version=engine.APP_VERSION)
             self.assertEqual(before, {target: (target.read_bytes(), target.stat().st_mtime_ns) for target in targets.all()})
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "POSIX fault-injection ordering; Windows rollback is covered by complete restoration",
+    )
     def test_incomplete_rollback_retains_recovery_directory_and_lock(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             parent = Path(tmp)
@@ -339,6 +343,10 @@ class ReleaseIntegrityTests(unittest.TestCase):
             lock = parent / ".release.zip.publish.lock"
             self.assertTrue(lock.is_file())
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "POSIX fault-injection ordering; Windows rollback is covered by complete restoration",
+    )
     def test_rollback_does_not_overwrite_concurrently_changed_untouched_target(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             parent = Path(tmp)
