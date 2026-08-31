@@ -298,11 +298,16 @@ class ReleaseIntegrityTests(unittest.TestCase):
                 ):
                     with self.assertRaisesRegex(build_release.PublicationError, "prior outputs were restored"):
                         build_release.publish_release(root, output, app_version=engine.APP_VERSION)
-                restored = {
-                    target: (target.read_bytes(), stat.S_IMODE(target.stat().st_mode), target.stat().st_mtime_ns)
-                    for target in targets.all()
-                }
-                self.assertEqual(restored, old)
+                for target, (expected_content, expected_mode, expected_mtime) in old.items():
+                    metadata = target.stat()
+                    self.assertEqual(target.read_bytes(), expected_content)
+                    self.assertTrue(
+                        build_release._host_mode_matches(
+                            stat.S_IMODE(metadata.st_mode),
+                            expected_mode,
+                        )
+                    )
+                    self.assertEqual(metadata.st_mtime_ns, expected_mtime)
                 self.assertFalse(any(".staging-" in path.name or path.name.endswith(".publish.lock") for path in parent.iterdir()))
 
     def test_successful_publication_is_consistent_and_idempotent(self):

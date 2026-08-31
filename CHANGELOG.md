@@ -24,6 +24,11 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 - Prepare the complete prospective evidence set before replacement, verify
   detected-failure rollback of bytes and supported metadata and restore before
   propagating an interrupt.
+- Capture evidence bytes and metadata from one verified file descriptor, record
+  candidate ownership before a potentially ambiguous rename and apply rollback
+  metadata while the private temporary file is still open.
+- Canonicalise hostile-test fixture roots and pin the seven approved browser
+  resource paths independently of the implementation allowlist.
 - Make the standalone final audit reject a stale release manifest and remove a
   superseded static reference-audit file that was not generated or verified.
 - Validate the browser resource-integrity schema, inventory, paths, sizes,

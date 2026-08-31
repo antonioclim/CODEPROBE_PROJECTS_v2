@@ -42,8 +42,8 @@ TOOLS = ROOT / "tools"
 MAX_UNITTEST_FAILURE_IDENTIFIERS = 5
 MAX_UNITTEST_FAILURE_IDENTIFIER_CHARACTERS = 300
 MAX_UNITTEST_DETAIL_CHARACTERS = 1_024
-MIN_UNITTEST_DISCOVERED = 245
-MIN_UNITTEST_EXECUTED = 240
+MIN_UNITTEST_DISCOVERED = 247
+MIN_UNITTEST_EXECUTED = 242
 RESOURCE_INTEGRITY_SCHEMA = "codeprobe-browser-resource-integrity/v1"
 REQUIRED_RESOURCE_ASSETS = {
     "codeprobe.css",
@@ -68,12 +68,14 @@ import check_naming  # noqa: E402
 from codeprobe_engine import api as cp_api  # noqa: E402
 from codeprobe_engine import metrics as cp_metrics  # noqa: E402
 from codeprobe_engine.release import (  # noqa: E402
+    AtomicWriteReceipt,
     MANIFEST_NAME,
     ReleaseSetError,
     atomic_write_bytes,
     atomic_write_text,
     build_release_manifest,
     read_regular_file,
+    read_regular_file_with_metadata,
     sha256_bytes,
     validate_release_set,
     verify_manifest,
@@ -547,10 +549,7 @@ def capture_release_tree(
     for path, relative in zip(paths, captured_names):
         if relative in excluded:
             continue
-        content = read_regular_file(path, root=root)
-        metadata = path.lstat()
-        if not stat.S_ISREG(metadata.st_mode):
-            raise ReleaseSetError(f"release entry changed to a non-regular file: {relative}")
+        content, metadata = read_regular_file_with_metadata(path, root=root)
         snapshot[relative] = (
             stat.S_IMODE(metadata.st_mode),
             len(content),
@@ -594,8 +593,7 @@ def check_release_tree_stability(
 
 
 def _capture_evidence(path: Path, *, root: Path) -> EvidenceSnapshot:
-    content = read_regular_file(path, root=root)
-    metadata = path.lstat()
+    content, metadata = read_regular_file_with_metadata(path, root=root)
     mode = stat.S_IMODE(metadata.st_mode)
     return EvidenceSnapshot(
         content=content,
@@ -623,25 +621,58 @@ def _mode_matches(actual: int, expected: int) -> bool:
     return actual == expected
 
 
+def _fingerprint_matches(
+    actual: tuple[int, int, int, int, int, str],
+    expected: tuple[int, int, int, int, int, str],
+) -> bool:
+    return (
+        actual[:4] == expected[:4]
+        and _mode_matches(actual[4], expected[4])
+        and actual[5] == expected[5]
+    )
+
+
+def _ownership_matches(
+    current: tuple[int, int, int, int, int, str],
+    candidate: AtomicWriteReceipt,
+) -> bool:
+    return (
+        current[:3] == candidate[:3]
+        and _mode_matches(current[4], candidate[3])
+        and current[5] == candidate[4]
+    )
+
+
+def _snapshot_matches(restored: EvidenceSnapshot, expected: EvidenceSnapshot) -> bool:
+    return (
+        restored.content == expected.content
+        and _mode_matches(restored.mode, expected.mode)
+        and restored.mtime_ns == expected.mtime_ns
+    )
+
+
 def _restore_evidence(
     path: Path,
     snapshot: EvidenceSnapshot,
     *,
     root: Path,
 ) -> None:
-    atomic_write_bytes(path, snapshot.content)
-    os.chmod(path, snapshot.mode)
-    os.utime(
-        path,
-        ns=(snapshot.atime_ns, snapshot.mtime_ns),
-        follow_symlinks=False,
-    )
+    try:
+        atomic_write_bytes(
+            path,
+            snapshot.content,
+            mode=snapshot.mode,
+            times_ns=(snapshot.atime_ns, snapshot.mtime_ns),
+        )
+    except BaseException:
+        # A rename can succeed even when its caller receives an interruption
+        # or an ambiguous I/O error. Accept it only after complete verification.
+        restored = _capture_evidence(path, root=root)
+        if _snapshot_matches(restored, snapshot):
+            return
+        raise
     restored = _capture_evidence(path, root=root)
-    if (
-        restored.content != snapshot.content
-        or not _mode_matches(restored.mode, snapshot.mode)
-        or restored.mtime_ns != snapshot.mtime_ns
-    ):
+    if not _snapshot_matches(restored, snapshot):
         raise OSError("restored evidence bytes or metadata do not match the prior state")
 
 
@@ -664,7 +695,11 @@ def refresh_release_evidence(
     """Refresh the complete evidence set with verified detected-failure rollback."""
     root = root.resolve()
     try:
-        validate_release_set(root)
+        initial_paths = validate_release_set(root)
+        initial_members = tuple(
+            path.relative_to(root).as_posix()
+            for path in initial_paths
+        )
     except ReleaseSetError as exc:
         return CheckResult("release-evidence", False, f"not written because the release set is unsafe: {exc}")
     missing = [relative.as_posix() for relative in EVIDENCE_PATHS if not (root / relative).is_file()]
@@ -727,21 +762,38 @@ def refresh_release_evidence(
         return CheckResult("release-evidence", False, f"not written because evidence preparation failed: {exc}")
 
     attempted: list[Path] = []
-    committed: dict[Path, tuple[int, int, int, int, int, str]] = {}
+    replacement_candidates: dict[Path, AtomicWriteReceipt] = {}
     try:
         for relative, content in generated.items():
             for pending in EVIDENCE_PATHS:
                 if pending in attempted:
                     continue
-                if _evidence_fingerprint(root / pending, root=root) != snapshots[pending].fingerprint:
+                if not _fingerprint_matches(
+                    _evidence_fingerprint(root / pending, root=root),
+                    snapshots[pending].fingerprint,
+                ):
                     raise RuntimeError(
                         f"tracked evidence changed concurrently before replacement: {pending.as_posix()}"
                     )
             attempted.append(relative)
-            atomic_write_bytes(root / relative, content)
-            if read_regular_file(root / relative, root=root) != content:
+
+            def remember_candidate(
+                receipt: AtomicWriteReceipt,
+                selected: Path = relative,
+            ) -> None:
+                replacement_candidates[selected] = receipt
+
+            installed = atomic_write_bytes(
+                root / relative,
+                content,
+                prepared_receipt=remember_candidate,
+            )
+            replacement_candidates[relative] = installed
+            if not _ownership_matches(
+                _evidence_fingerprint(root / relative, root=root),
+                installed,
+            ):
                 raise RuntimeError(f"evidence replacement did not persist: {relative.as_posix()}")
-            committed[relative] = _evidence_fingerprint(root / relative, root=root)
 
         post_report = final_audit.build_audit(root)
         errors = []
@@ -766,9 +818,12 @@ def refresh_release_evidence(
             path = root / relative
             try:
                 current = _evidence_fingerprint(path, root=root)
-                if current == snapshots[relative].fingerprint:
+                if _fingerprint_matches(current, snapshots[relative].fingerprint):
                     continue
-                if relative not in committed or current != committed[relative]:
+                if relative not in replacement_candidates or not _ownership_matches(
+                    current,
+                    replacement_candidates[relative],
+                ):
                     rollback_errors.append(
                         f"{relative.as_posix()}: changed concurrently and was not overwritten"
                     )
@@ -781,11 +836,7 @@ def refresh_release_evidence(
         for relative, snapshot in snapshots.items():
             try:
                 restored = _capture_evidence(root / relative, root=root)
-                if (
-                    restored.content != snapshot.content
-                    or not _mode_matches(restored.mode, snapshot.mode)
-                    or restored.mtime_ns != snapshot.mtime_ns
-                ):
+                if not _snapshot_matches(restored, snapshot):
                     rollback_errors.append(
                         f"{relative.as_posix()}: prior bytes or metadata were not restored"
                     )
@@ -793,6 +844,18 @@ def refresh_release_evidence(
                 rollback_errors.append(
                     f"{relative.as_posix()}: rollback verification raised {type(verify_exc).__name__}"
                 )
+        try:
+            current_members = tuple(
+                path.relative_to(root).as_posix()
+                for path in validate_release_set(root)
+            )
+            if current_members != initial_members:
+                rollback_errors.append("release membership was not restored")
+        except BaseException as membership_exc:
+            rollback_errors.append(
+                "rollback release-membership verification raised "
+                f"{type(membership_exc).__name__}"
+            )
         if rollback_errors:
             detail = "; ".join(rollback_errors[:3])
             if not isinstance(exc, Exception):
@@ -923,7 +986,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         payload = {"app_version": engine.APP_VERSION, "results": [result.__dict__ for result in results]}
         try:
             atomic_write_text(json_output, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-        except OSError as exc:
+        except (OSError, ReleaseSetError) as exc:
             print(f"[FAIL] diagnostic-output: {exc}")
             return 1
 

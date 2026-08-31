@@ -53,11 +53,12 @@ python3 -I -S -B tools/check_release.py --write-release-evidence
 
 The refresh is attempted only after every mandatory check, including the unit
 tests, runs and passes. The complete prospective evidence set is prepared before
-the first replacement, each evidence file uses atomic replacement, the manifest
-is written last and post-write verification must pass. A detected generation
-failure triggers verified restoration of the previous bytes, supported mode and
-modification time. If restoration encounters an I/O error or a concurrent
-change, the command reports that rollback is incomplete. `--write-manifest` remains a compatibility
+the first replacement. Each evidence file uses atomic replacement with its
+candidate receipt recorded before the rename, the manifest is written last and
+post-write verification must pass. A detected generation failure triggers
+verified restoration of the previous bytes, supported mode and modification
+time. If restoration encounters an I/O error or a concurrent change, the
+command reports that rollback is incomplete. `--write-manifest` remains a compatibility
 alias, but it is not the canonical spelling. Missing tracked audit artefacts are
 treated as a fail-closed condition rather than bootstrapped from an incomplete
 release set.

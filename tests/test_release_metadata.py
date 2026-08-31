@@ -4,6 +4,7 @@ import json
 import hashlib
 import os
 import shutil
+import stat
 import sys
 import tempfile
 import unittest
@@ -167,6 +168,74 @@ class ReleaseMetadataTests(unittest.TestCase):
                     release.atomic_write_bytes(target, b"replacement\n")
             self.assertEqual(target.read_bytes(), b"original\n")
             self.assertEqual({path.name for path in directory.iterdir()}, before)
+
+            real_replace = Path.replace
+            reoccupied: list[Path] = []
+
+            def replace_and_reoccupy(source: Path, destination: Path):
+                result = real_replace(source, destination)
+                source.mkdir()
+                reoccupied.append(source)
+                return result
+
+            restored_mtime = 1_700_000_000_000_000_000
+            with mock.patch.object(Path, "replace", new=replace_and_reoccupy):
+                receipt = release.atomic_write_bytes(
+                    target,
+                    b"replacement\n",
+                    times_ns=(restored_mtime, restored_mtime),
+                )
+            self.assertEqual(target.read_bytes(), b"replacement\n")
+            self.assertTrue(reoccupied[0].is_dir())
+            self.assertEqual(receipt[2], len(b"replacement\n"))
+            installed, metadata = release.read_regular_file_with_metadata(target)
+            self.assertEqual(
+                receipt,
+                (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                    metadata.st_size,
+                    stat.S_IMODE(metadata.st_mode),
+                    hashlib.sha256(installed).hexdigest(),
+                ),
+            )
+            self.assertEqual(metadata.st_mtime_ns, restored_mtime)
+            reoccupied[0].rmdir()
+
+            ambiguous_receipts = []
+            actor_paths: list[Path] = []
+
+            def replace_reoccupy_and_raise(source: Path, destination: Path):
+                real_replace(source, destination)
+                source.write_bytes(b"concurrent writer\n")
+                actor_paths.append(source)
+                raise OSError("ambiguous replacement result")
+
+            with mock.patch.object(Path, "replace", new=replace_reoccupy_and_raise):
+                with self.assertRaisesRegex(OSError, "ambiguous replacement result"):
+                    release.atomic_write_bytes(
+                        target,
+                        b"ambiguous\n",
+                        prepared_receipt=ambiguous_receipts.append,
+                    )
+            self.assertEqual(target.read_bytes(), b"ambiguous\n")
+            self.assertEqual(actor_paths[0].read_bytes(), b"concurrent writer\n")
+            self.assertEqual(len(ambiguous_receipts), 1)
+            actor_paths[0].unlink()
+
+            os.chmod(target, stat.S_IREAD)
+            try:
+                before_read_only = {path.name for path in directory.iterdir()}
+                with mock.patch.object(release.os, "name", "nt"):
+                    with self.assertRaisesRegex(PermissionError, "read-only on Windows"):
+                        release.atomic_write_bytes(target, b"must not replace\n")
+                self.assertEqual(target.read_bytes(), b"ambiguous\n")
+                self.assertEqual(
+                    {path.name for path in directory.iterdir()},
+                    before_read_only,
+                )
+            finally:
+                os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
 
     def test_manifest_verifier_rejects_every_authoritative_metadata_tamper(self):
         mutations = {
@@ -414,6 +483,26 @@ class ReleaseMetadataTests(unittest.TestCase):
                     with self.assertRaisesRegex(ReleaseSetError, "not a regular file"):
                         release.read_regular_file(source, root=root)
             reader.assert_not_called()
+
+            source.unlink()
+            saved.rename(source)
+            real_validate = release._validate_no_symlink_ancestry
+            validation_calls = 0
+
+            def mutate_before_final_path_check(path: Path, selected_root: Path | None):
+                nonlocal validation_calls
+                validation_calls += 1
+                if validation_calls == 3:
+                    path.write_bytes(b"changed after descriptor read\n")
+                return real_validate(path, selected_root)
+
+            with mock.patch.object(
+                release,
+                "_validate_no_symlink_ancestry",
+                side_effect=mutate_before_final_path_check,
+            ):
+                with self.assertRaisesRegex(ReleaseSetError, "changed during read"):
+                    release.read_regular_file(source, root=root)
 
     def test_deep_release_tree_is_enumerated_without_python_recursion(self):
         with tempfile.TemporaryDirectory() as tmp:

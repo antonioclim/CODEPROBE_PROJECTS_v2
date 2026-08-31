@@ -11,7 +11,7 @@ import unicodedata
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
 MANIFEST_NAME = "release/release-manifest.json"
 MANIFEST_SCHEMA = "codeprobe-release-manifest/v1"
@@ -30,6 +30,8 @@ TOP_LEVEL_FIELDS = {
     "manifest_sha256",
 }
 FILE_FIELDS = {"path", "size_bytes", "sha256"}
+FileFingerprint = tuple[int, int, int, int, int, str]
+AtomicWriteReceipt = tuple[int, int, int, int, str]
 
 
 class ReleaseSetError(ValueError):
@@ -70,11 +72,40 @@ def sha256_file(path: Path) -> str:
     return sha256_bytes(read_regular_file(path))
 
 
-def atomic_write_bytes(path: Path, content: bytes) -> None:
-    """Replace ``path`` with ``content`` without exposing a partial file."""
+def atomic_write_bytes(
+    path: Path,
+    content: bytes,
+    *,
+    mode: int | None = None,
+    times_ns: tuple[int, int] | None = None,
+    prepared_receipt: Callable[[AtomicWriteReceipt], None] | None = None,
+) -> AtomicWriteReceipt:
+    """Replace ``path`` atomically and return the installed file fingerprint.
+
+    Optional metadata is applied while the private temporary file is still
+    open, before its atomic replacement. ``prepared_receipt`` lets a rollback
+    owner record the candidate before an operating-system rename can report an
+    ambiguous failure.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    previous_mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+    try:
+        previous = path.lstat()
+    except FileNotFoundError:
+        previous_mode = 0o644
+    else:
+        if not stat.S_ISREG(previous.st_mode):
+            raise ReleaseSetError(
+                f"atomic-write target is not a regular file: {_safe_text(path)}"
+            )
+        previous_mode = stat.S_IMODE(previous.st_mode)
+        if os.name == "nt" and not (previous_mode & stat.S_IWRITE):
+            raise PermissionError(
+                f"atomic-write target is read-only on Windows: {_safe_text(path)}"
+            )
+    selected_mode = previous_mode if mode is None else mode
     temporary_path: Path | None = None
+    temporary_identity: tuple[int, int] | None = None
+    replace_attempted = False
     try:
         with tempfile.NamedTemporaryFile(
             mode="wb",
@@ -83,19 +114,80 @@ def atomic_write_bytes(path: Path, content: bytes) -> None:
             delete=False,
         ) as handle:
             temporary_path = Path(handle.name)
+            created = os.fstat(handle.fileno())
+            temporary_identity = (created.st_dev, created.st_ino)
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(temporary_path, previous_mode)
+
+        descriptor = _open_regular_for_read(temporary_path, None)
+        try:
+            opened = os.fstat(descriptor)
+            if (opened.st_dev, opened.st_ino) != temporary_identity:
+                raise ReleaseSetError("atomic-write temporary file changed before metadata preparation")
+            if times_ns is not None:
+                if os.utime in os.supports_fd:
+                    os.utime(descriptor, ns=times_ns)
+                else:
+                    # Windows finalises last-write time only after writing
+                    # handles close. Its pathname API is used while a verified
+                    # read handle remains open and cooperative quiescence is
+                    # required for the destination directory.
+                    os.utime(temporary_path, ns=times_ns)
+            if os.chmod in os.supports_fd:
+                os.chmod(descriptor, selected_mode)
+            else:
+                os.chmod(temporary_path, selected_mode)
+            chunks: list[bytes] = []
+            while True:
+                chunk = os.read(descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            metadata = os.fstat(descriptor)
+            path_metadata = _validate_no_symlink_ancestry(temporary_path, None)
+        finally:
+            os.close(descriptor)
+        actual_content = b"".join(chunks)
+        if (
+            _stat_identity(path_metadata) != _stat_identity(metadata)
+            or stat.S_IMODE(path_metadata.st_mode) != stat.S_IMODE(metadata.st_mode)
+            or actual_content != content
+        ):
+            raise ReleaseSetError("atomic-write temporary file changed during preparation")
+        receipt: AtomicWriteReceipt = (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            stat.S_IMODE(metadata.st_mode),
+            sha256_bytes(actual_content),
+        )
+        if prepared_receipt is not None:
+            prepared_receipt(receipt)
+        replace_attempted = True
         temporary_path.replace(path)
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+        temporary_path = None
+        return receipt
+    except BaseException:
+        if temporary_path is not None and not replace_attempted:
+            try:
+                current = temporary_path.lstat()
+                if temporary_identity == (current.st_dev, current.st_ino):
+                    try:
+                        temporary_path.unlink()
+                    except PermissionError:
+                        os.chmod(temporary_path, stat.S_IWRITE)
+                        temporary_path.unlink()
+            except OSError:
+                # Preserve the primary failure. The refresh caller separately
+                # verifies that rollback restored the original release set.
+                pass
+        raise
 
 
-def atomic_write_text(path: Path, content: str) -> None:
+def atomic_write_text(path: Path, content: str) -> AtomicWriteReceipt:
     """UTF-8 text variant of :func:`atomic_write_bytes`."""
-    atomic_write_bytes(path, content.encode("utf-8"))
+    return atomic_write_bytes(path, content.encode("utf-8"))
 
 
 def _stat_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
@@ -172,8 +264,12 @@ def _open_regular_for_read(path: Path, root: Path | None) -> int:
         os.close(directory_descriptor)
 
 
-def read_regular_file(path: Path, *, root: Path | None = None) -> bytes:
-    """Read one regular file without following a final symlink.
+def read_regular_file_with_metadata(
+    path: Path,
+    *,
+    root: Path | None = None,
+) -> tuple[bytes, os.stat_result]:
+    """Read one regular file and return coherent descriptor metadata.
 
     Metadata is checked before and after the read. This turns a concurrent source
     mutation into a controlled validation failure rather than a mixed snapshot.
@@ -210,12 +306,20 @@ def read_regular_file(path: Path, *, root: Path | None = None) -> bytes:
         path_after = _validate_no_symlink_ancestry(path, root)
     except ReleaseSetError as exc:
         raise ReleaseSetError(f"release file changed during read: {_safe_text(path)}: {_safe_text(exc)}") from exc
-    if _stat_identity(before) != _stat_identity(after) or (
-        path_after.st_dev,
-        path_after.st_ino,
-    ) != (after.st_dev, after.st_ino):
+    if (
+        _stat_identity(before) != _stat_identity(after)
+        or stat.S_IMODE(before.st_mode) != stat.S_IMODE(after.st_mode)
+        or _stat_identity(path_after) != _stat_identity(after)
+        or stat.S_IMODE(path_after.st_mode) != stat.S_IMODE(after.st_mode)
+    ):
         raise ReleaseSetError(f"release file changed during read: {_safe_text(path)}")
-    return b"".join(chunks)
+    return b"".join(chunks), after
+
+
+def read_regular_file(path: Path, *, root: Path | None = None) -> bytes:
+    """Read one stable regular file without following a final symlink."""
+    content, _metadata = read_regular_file_with_metadata(path, root=root)
+    return content
 
 
 def _walk_release_files(root: Path, directory: Path) -> Iterable[Path]:

@@ -11,6 +11,15 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 APP = ROOT / "app"
+EXPECTED_RESOURCE_ASSETS = {
+    "codeprobe.css",
+    "project.css",
+    "pyodide-loader.js",
+    "codeprobe-ui.js",
+    "project-ui.js",
+    "runtime-config.json",
+    "../src/codeprobe_runtime.py",
+}
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
 
@@ -67,13 +76,14 @@ class BrowserSecurityTests(unittest.TestCase):
 
     def test_canonical_resource_check_rejects_size_and_path_forgery(self):
         with tempfile.TemporaryDirectory() as tmp:
-            fixture_root = Path(tmp) / "kit"
+            fixture_root = Path(tmp).resolve() / "kit"
             fixture_app = fixture_root / "app"
             fixture_src = fixture_root / "src"
             fixture_app.mkdir(parents=True)
             fixture_src.mkdir()
             assets = []
-            for index, relative in enumerate(sorted(check_release.REQUIRED_RESOURCE_ASSETS)):
+            self.assertEqual(check_release.REQUIRED_RESOURCE_ASSETS, EXPECTED_RESOURCE_ASSETS)
+            for index, relative in enumerate(sorted(EXPECTED_RESOURCE_ASSETS)):
                 path = (fixture_app / relative).resolve()
                 path.parent.mkdir(parents=True, exist_ok=True)
                 content = f"asset-{index}\n".encode("ascii")

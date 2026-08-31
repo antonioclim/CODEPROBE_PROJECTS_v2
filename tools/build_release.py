@@ -42,6 +42,7 @@ from codeprobe_engine.release import (  # noqa: E402
     ReleaseSetError,
     ReleaseSnapshotEntry,
     read_regular_file,
+    read_regular_file_with_metadata,
     read_verified_release_snapshot,
     sha256_bytes,
     sha256_file,
@@ -233,7 +234,8 @@ def _write_bytes_fsynced(
         os.fsync(handle.fileno())
     os.chmod(path, mode)
     if times_ns is not None:
-        os.utime(path, ns=times_ns, follow_symlinks=False)
+        # This path was exclusively created in the private stage directory.
+        os.utime(path, ns=times_ns)
     _fsync_file_metadata(path)
 
 
@@ -410,8 +412,7 @@ def _fingerprint(path: Path) -> tuple[int, int, int, int, int, str] | None:
         return None
     if not stat.S_ISREG(before.st_mode):
         raise PublicationError(f"release output changed to an unsafe entry: {path}")
-    content = read_regular_file(path)
-    after = path.lstat()
+    content, after = read_regular_file_with_metadata(path)
     if (
         before.st_dev,
         before.st_ino,
@@ -450,8 +451,7 @@ def _snapshot_prior_targets(
             continue
         if not stat.S_ISREG(metadata.st_mode):
             raise PublicationError(f"release output changed to an unsafe entry: {target}")
-        content = read_regular_file(target)
-        metadata_after = target.lstat()
+        content, metadata_after = read_regular_file_with_metadata(target)
         if (
             metadata.st_dev,
             metadata.st_ino,
@@ -504,13 +504,13 @@ def _verify_prior_state(priors: dict[Path, PriorTarget]) -> list[str]:
             if metadata is None or not stat.S_ISREG(metadata.st_mode):
                 errors.append(f"prior target was not restored: {target}")
                 continue
-            content = read_regular_file(target)
+            content, metadata = read_regular_file_with_metadata(target)
         except BaseException as exc:
             errors.append(f"cannot verify restored target {target}: {exc}")
             continue
         if (
             content != prior.content
-            or stat.S_IMODE(metadata.st_mode) != prior.mode
+            or not _host_mode_matches(stat.S_IMODE(metadata.st_mode), prior.mode)
             or metadata.st_mtime_ns != prior.mtime_ns
         ):
             errors.append(f"prior target metadata or bytes differ after rollback: {target}")
