@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 119,
-  "total_source_size_bytes": 1364305,
+  "total_source_size_bytes": 1364581,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -502,8 +502,8 @@
     },
     {
       "path": "tests/test_release_integrity.py",
-      "size_bytes": 20254,
-      "sha256": "02827f01ec26045d47148cf249ef12123672c6ad99809c1a1c0133579269dab8"
+      "size_bytes": 20344,
+      "sha256": "045cc93da214e5294d66f0b70b330013fcfb730e390365ea21c40b5a8d26d437"
     },
     {
       "path": "tests/test_release_metadata.py",
@@ -542,8 +542,8 @@
     },
     {
       "path": "tools/build_release.py",
-      "size_bytes": 27595,
-      "sha256": "a4000fddb8a511f6a88f73f0c25ac63d66a2412a60ef64d00c0a6a3b8ebc617b"
+      "size_bytes": 27781,
+      "sha256": "a795ad38188c4b2061aa92a912daa47128cba130dd1603611f80ebb805e367de"
     },
     {
       "path": "tools/calibrate_corpus.py",
@@ -601,5 +601,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "f316ebc2bbf3f333dfcce1b09033676929e668aeee51ed1dc3c18af9ee43ca71"
+  "manifest_sha256": "780205092bf4dae7592756f7a1014e35199a4f2bea3a10f8d2d52d12aec81708"
 }

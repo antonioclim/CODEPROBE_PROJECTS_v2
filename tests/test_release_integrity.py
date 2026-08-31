@@ -287,7 +287,11 @@ class ReleaseIntegrityTests(unittest.TestCase):
                         raise OSError(f"forced replacement failure {failure_position}")
                     real_replace(source, destination)
 
-                with mock.patch.object(build_release.os, "replace", side_effect=fail_selected_commit):
+                with mock.patch.object(
+                    build_release,
+                    "_commit_staged_target",
+                    side_effect=fail_selected_commit,
+                ):
                     with self.assertRaisesRegex(build_release.PublicationError, "prior outputs were restored"):
                         build_release.publish_release(root, output, app_version=engine.APP_VERSION)
                 restored = {

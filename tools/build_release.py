@@ -556,6 +556,11 @@ def _rollback(
     return errors
 
 
+def _commit_staged_target(source: Path, destination: Path) -> None:
+    """Install one staged packet member at its final destination."""
+    os.replace(source, destination)
+
+
 @contextmanager
 def _publication_lock(parent: Path, basename: str):
     lock_path = parent / f".{basename}.publish.lock"
@@ -672,7 +677,7 @@ def publish_release(
             try:
                 for final_target in targets.ordered_for_commit():
                     attempted_targets.add(final_target)
-                    os.replace(staged_by_final[final_target], final_target)
+                    _commit_staged_target(staged_by_final[final_target], final_target)
                 _fsync_directory(parent)
                 for final_target, expected_content in expected_final.items():
                     if read_regular_file(final_target) != expected_content:
