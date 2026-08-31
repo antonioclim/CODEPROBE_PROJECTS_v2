@@ -312,7 +312,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
             self.assertEqual(before, {target: (target.read_bytes(), target.stat().st_mtime_ns) for target in targets.all()})
 
     def test_incomplete_rollback_retains_recovery_directory_and_lock(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             parent = Path(tmp)
             root = self.make_release_fixture(parent, "kit")
             output = parent / "release.zip"
@@ -338,11 +338,9 @@ class ReleaseIntegrityTests(unittest.TestCase):
             self.assertTrue(caught.exception.recovery_path.is_dir())
             lock = parent / ".release.zip.publish.lock"
             self.assertTrue(lock.is_file())
-            build_release._remove_stage(caught.exception.recovery_path)
-            lock.unlink()
 
     def test_rollback_does_not_overwrite_concurrently_changed_untouched_target(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             parent = Path(tmp)
             root = self.make_release_fixture(parent, "kit")
             output = parent / "release.zip"
@@ -366,8 +364,6 @@ class ReleaseIntegrityTests(unittest.TestCase):
                     build_release.publish_release(root, output, app_version=engine.APP_VERSION)
             self.assertEqual(targets.checksum_path.read_bytes(), b"concurrent owner update\n")
             self.assertTrue(caught.exception.recovery_path.is_dir())
-            build_release._remove_stage(caught.exception.recovery_path)
-            (parent / ".release.zip.publish.lock").unlink()
 
     def test_source_change_after_snapshot_cannot_enter_staged_zip(self):
         with tempfile.TemporaryDirectory() as tmp:
