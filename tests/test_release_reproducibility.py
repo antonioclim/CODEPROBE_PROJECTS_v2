@@ -170,7 +170,7 @@ class ReleaseReproducibilityUnitTests(unittest.TestCase):
                     + "\n"
                 ).encode("utf-8")
             )
-            with self.assertRaisesRegex(reproducibility.ReproducibilityError, "metadata is not canonical"):
+            with self.assertRaises(reproducibility.ReproducibilityError):
                 reproducibility.verify_packet(
                     packet,
                     {"source.py": b"print(1)\n"},

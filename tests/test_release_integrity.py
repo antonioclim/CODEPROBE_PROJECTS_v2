@@ -336,7 +336,10 @@ class ReleaseIntegrityTests(unittest.TestCase):
                         build_release.publish_release(root, output, app_version=engine.APP_VERSION)
             self.assertIsNotNone(caught.exception.recovery_path)
             self.assertTrue(caught.exception.recovery_path.is_dir())
-            self.assertTrue((parent / ".release.zip.publish.lock").is_file())
+            lock = parent / ".release.zip.publish.lock"
+            self.assertTrue(lock.is_file())
+            build_release._remove_stage(caught.exception.recovery_path)
+            lock.unlink()
 
     def test_rollback_does_not_overwrite_concurrently_changed_untouched_target(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -363,6 +366,8 @@ class ReleaseIntegrityTests(unittest.TestCase):
                     build_release.publish_release(root, output, app_version=engine.APP_VERSION)
             self.assertEqual(targets.checksum_path.read_bytes(), b"concurrent owner update\n")
             self.assertTrue(caught.exception.recovery_path.is_dir())
+            build_release._remove_stage(caught.exception.recovery_path)
+            (parent / ".release.zip.publish.lock").unlink()
 
     def test_source_change_after_snapshot_cannot_enter_staged_zip(self):
         with tempfile.TemporaryDirectory() as tmp:
