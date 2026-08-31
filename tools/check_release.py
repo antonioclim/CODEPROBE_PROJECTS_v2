@@ -149,8 +149,9 @@ def check_unittest_suite(verbose: bool = False) -> CheckResult:
         else:
             summary = f"unittest exited with code {completed.returncode}"
         identifiers = list(dict.fromkeys(re.findall(
-            rf"^(?:FAIL|ERROR): [A-Za-z0-9_]{{1,100}} "
-            rf"\((?P<identifier>[A-Za-z0-9_.]{{1,{MAX_UNITTEST_FAILURE_IDENTIFIER_CHARACTERS}}})\)\s*$",
+            rf"^(?:FAIL|ERROR): [^()\r\n]{{1,200}} "
+            rf"\((?P<identifier>[A-Za-z0-9_.]{{1,{MAX_UNITTEST_FAILURE_IDENTIFIER_CHARACTERS}}})\)"
+            rf"(?: [^\r\n]{{0,500}})?\s*$",
             unittest_output,
             re.M,
         )))

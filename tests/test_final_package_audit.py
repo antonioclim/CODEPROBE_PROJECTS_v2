@@ -417,6 +417,24 @@ class FinalPackageAuditTests(unittest.TestCase):
             check_release.MAX_UNITTEST_DETAIL_CHARACTERS,
         )
 
+    def test_unit_test_failure_extracts_identifier_from_subtest_header_only(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "ERROR: test_case (test_example.ExampleTests.test_case) "
+                "(secret='must-not-leak')\n"
+                "Traceback: SECRET-TRACEBACK\n"
+                "FAILED (errors=1)\n"
+            ),
+        )
+        with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+            result = check_release.check_unittest_suite()
+        self.assertIn("test_example.ExampleTests.test_case", result.detail)
+        self.assertNotIn("must-not-leak", result.detail)
+        self.assertNotIn("SECRET", result.detail)
+
     def test_unit_test_success_requires_a_recognised_terminal_summary(self) -> None:
         completed = subprocess.CompletedProcess(
             args=[],
