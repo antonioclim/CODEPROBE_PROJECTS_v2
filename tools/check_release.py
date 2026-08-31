@@ -201,7 +201,21 @@ def check_unittest_suite(verbose: bool = False) -> CheckResult:
             if identifiers
             else ""
         )
-        detail = f"{summary}{identity_detail}"[:MAX_UNITTEST_DETAIL_CHARACTERS]
+        exception_types = list(dict.fromkeys(re.findall(
+            r"^(?:[A-Za-z_][A-Za-z0-9_]*\.)*"
+            r"(?P<exception>[A-Za-z_][A-Za-z0-9_]*(?:Error|Exception)):",
+            unittest_output,
+            re.M,
+        )))
+        exception_detail = (
+            "; exception types: "
+            + ", ".join(exception_types[:MAX_UNITTEST_FAILURE_IDENTIFIERS])
+            if exception_types
+            else ""
+        )
+        detail = (
+            f"{summary}{identity_detail}{exception_detail}"
+        )[:MAX_UNITTEST_DETAIL_CHARACTERS]
     return CheckResult("unit-tests", success, detail)
 
 

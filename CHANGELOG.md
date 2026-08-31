@@ -38,8 +38,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 - Validate the browser resource-integrity schema, inventory, paths, sizes,
   hashes and HTML SRI values without accepting out-of-checkout resources.
 - Keep deep-tree and hostile-manifest regressions stable across the supported
-  Python range and report bounded failing-test identifiers without traceback
-  content.
+  Python range and report bounded failing-test identifiers and exception types
+  without traceback or exception-message content.
 - Reject symbolic links and special filesystem entries before release readers
   run, preventing external targets from entering trusted release evidence or a
   package.

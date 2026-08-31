@@ -796,6 +796,7 @@ class FinalPackageAuditTests(unittest.TestCase):
                 f"{headers}"
                 f"ERROR: test_long (test_example.{'a' * 2_000})\n"
                 "Traceback: SECRET-TRACEBACK\n"
+                "ValueError: SECRET-EXCEPTION-MESSAGE\n"
                 "FAILED (token=123456)\n"
             ),
         )
@@ -808,6 +809,7 @@ class FinalPackageAuditTests(unittest.TestCase):
         self.assertNotIn("test_example.ExampleTests.test_5", result.detail)
         self.assertNotIn("token", result.detail)
         self.assertNotIn("SECRET", result.detail)
+        self.assertIn("exception types: ValueError", result.detail)
         self.assertLessEqual(
             len(result.detail),
             check_release.MAX_UNITTEST_DETAIL_CHARACTERS,
