@@ -18,6 +18,16 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Require the mandatory unit-test floor before tracked release evidence can be
+  refreshed and bind that refresh to the non-evidence tree verified by the
+  preceding gate.
+- Prepare the complete prospective evidence set before replacement, verify
+  detected-failure rollback of bytes and supported metadata and restore before
+  propagating an interrupt.
+- Make the standalone final audit reject a stale release manifest and remove a
+  superseded static reference-audit file that was not generated or verified.
+- Validate the browser resource-integrity schema, inventory, paths, sizes,
+  hashes and HTML SRI values without accepting out-of-checkout resources.
 - Keep deep-tree and hostile-manifest regressions stable across the supported
   Python range and report bounded failing-test identifiers without traceback
   content.

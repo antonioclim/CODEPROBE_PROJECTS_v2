@@ -31,7 +31,13 @@ import audit_institutional_pack  # noqa: E402
 import check_file_references  # noqa: E402
 import check_naming  # noqa: E402
 import codeprobe_runtime as engine  # noqa: E402
-from codeprobe_engine.release import ReleaseSetError, atomic_write_text, iter_release_files, read_regular_file  # noqa: E402
+from codeprobe_engine.release import (  # noqa: E402
+    ReleaseSetError,
+    atomic_write_text,
+    iter_release_files,
+    read_regular_file,
+    verify_manifest,
+)
 
 REQUIRED_FINAL_PATHS = [
     ".gitattributes",
@@ -152,7 +158,7 @@ def render_summary(report: dict) -> str:
         "",
         f"Version: CodeProbe v{report['app_version']}",
         f"Status: {report['status'].upper()}",
-        f"Manifest-listed source files counted: {report['file_count']} (release manifest excluded)",
+        f"Release-set source files counted: {report['file_count']} (release manifest excluded)",
         "",
         "## Area counts",
         "",
@@ -226,10 +232,15 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root)
     report = build_audit(root)
     artefact_errors = verify_reports(root, report)
-    status = "pass" if report["status"] == "pass" and not artefact_errors else "fail"
-    for error in artefact_errors:
+    manifest_errors = verify_manifest(root, app_version=engine.APP_VERSION)
+    status = (
+        "pass"
+        if report["status"] == "pass" and not artefact_errors and not manifest_errors
+        else "fail"
+    )
+    for error in (artefact_errors + manifest_errors)[:20]:
         print(f"[FAIL] {error}")
-    print(f"final-audit: {status} ({report['file_count']} manifest-listed source files)")
+    print(f"final-audit: {status} ({report['file_count']} release-set source files)")
     return 0 if status == "pass" else 1
 
 

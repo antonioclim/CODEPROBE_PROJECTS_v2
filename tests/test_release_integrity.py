@@ -275,8 +275,10 @@ class ReleaseIntegrityTests(unittest.TestCase):
                 fixed_mtime = 1_700_000_000_000_000_000
                 for index, target in enumerate(targets.all()):
                     target.write_bytes(f"old-{index}\n".encode("ascii"))
-                    os.chmod(target, 0o640)
-                    os.utime(target, ns=(fixed_mtime, fixed_mtime))
+                    if os.name != "nt":
+                        # Windows does not implement arbitrary POSIX permission bits.
+                        os.chmod(target, 0o640)
+                        os.utime(target, ns=(fixed_mtime, fixed_mtime))
                     old[target] = (target.read_bytes(), stat.S_IMODE(target.stat().st_mode), target.stat().st_mtime_ns)
 
                 real_replace = os.replace

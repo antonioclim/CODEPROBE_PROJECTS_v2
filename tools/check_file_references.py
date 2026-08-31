@@ -12,6 +12,7 @@ import argparse
 import csv
 import json
 import re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Sequence
@@ -152,7 +153,22 @@ def check_resource_integrity_manifest(root: Path) -> List[ReferenceProblem]:
         if not isinstance(ref, str) or not ref:
             problems.append(ReferenceProblem("app/resource-integrity.json", str(ref), "asset lacks a usable path"))
             continue
-        if not (root / "app" / ref).is_file():
+        candidate = root / "app" / ref
+        resolved = candidate.resolve()
+        if not _inside(resolved, root.resolve()):
+            problems.append(
+                ReferenceProblem(
+                    "app/resource-integrity.json",
+                    ref,
+                    "asset resolves outside package root",
+                )
+            )
+            continue
+        try:
+            metadata = candidate.lstat()
+        except OSError:
+            metadata = None
+        if metadata is None or stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
             problems.append(ReferenceProblem("app/resource-integrity.json", ref, "asset file does not exist relative to app/"))
     return problems
 

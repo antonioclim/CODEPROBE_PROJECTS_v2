@@ -23,8 +23,8 @@ This option uses the Pyodide source configured in `app/runtime-config.json`. In 
 5. Run:
 
 ```bash
-python3 tools/check_release.py --write-release-evidence
-python3 tools/check_release.py
+python3 -I -S -B tools/check_release.py --write-release-evidence
+python3 -I -S -B tools/check_release.py
 ```
 
 The first command explicitly refreshes tracked release evidence after the
@@ -34,7 +34,7 @@ the release gate.
 6. Build and archive the institutional release packet:
 
 ```bash
-python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_institutional.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_institutional.zip
 ```
 
 ## Minimum publication packet

@@ -81,7 +81,7 @@ Avoid any change that uploads analysed code, reports or filenames to an external
 Before proposing or distributing a release candidate, run:
 
 ```bash
-python3 tools/check_release.py
+python3 -I -S -B tools/check_release.py
 ```
 
 This read-only gate validates Python syntax, the unit-test suite, external
@@ -91,14 +91,14 @@ release evidence. It also verifies the declared standard-library dependency
 boundary and immutable GitHub Action pins. CI invokes the gate with
 `--require-node`, so JavaScript syntax cannot be reported as skipped there. If a
 deliberate change requires refreshed evidence, run
-`python3 tools/check_release.py --write-release-evidence` only after the other
+`python3 -I -S -B tools/check_release.py --write-release-evidence` only after the other
 checks pass. A change that modifies metric semantics, report shape or project
 filtering should add or update a regression test.
 
 Before proposing a release-boundary change, also run:
 
 ```bash
-python3 -B tools/check_release_reproducibility.py
+python3 -I -S -B tools/check_release_reproducibility.py
 ```
 
 This standalone integration gate requires a clean Git commit. It compares
@@ -114,7 +114,7 @@ Before proposing a packaged release, run:
 
 ```bash
 python3 tools/audit_institutional_pack.py
-python3 tools/check_release.py
+python3 -I -S -B tools/check_release.py
 ```
 
 Do not remove or weaken the student, instructor, review and deployment guidance unless the course policy is updated at the same time.

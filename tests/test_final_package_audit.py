@@ -24,6 +24,8 @@ import check_release  # noqa: E402
 import final_audit  # noqa: E402
 from codeprobe_engine.release import ReleaseSetError  # noqa: E402
 
+NESTED_GATE_ENV = "CODEPROBE_NESTED_CANONICAL_GATE"
+
 
 class FinalPackageAuditTests(unittest.TestCase):
     def symlink_or_skip(
@@ -143,14 +145,32 @@ class FinalPackageAuditTests(unittest.TestCase):
     def test_failed_validation_does_not_refresh_release_evidence(self) -> None:
         forced_failure = check_release.CheckResult("smoke-reports", False, "forced regression failure")
         with mock.patch.object(check_release, "check_smoke_reports", return_value=forced_failure):
-            with mock.patch.object(check_release, "refresh_release_evidence") as refresh:
-                results = check_release.run_checks(
-                    skip_tests=True,
-                    write_manifest_file=True,
-                    verify_manifest_file=False,
-                )
+            with mock.patch.object(
+                check_release,
+                "check_unittest_suite",
+                return_value=check_release.CheckResult("unit-tests", True, "244 test(s) passed"),
+            ):
+                with mock.patch.object(check_release, "refresh_release_evidence") as refresh:
+                    results = check_release.run_checks(
+                        write_manifest_file=True,
+                        verify_manifest_file=False,
+                    )
         refresh.assert_not_called()
         self.assertTrue(any(not result.ok for result in results))
+
+    def test_skipped_tests_cannot_authorise_evidence_refresh(self) -> None:
+        with mock.patch.object(check_release, "refresh_release_evidence") as refresh:
+            results = check_release.run_checks(
+                skip_tests=True,
+                write_manifest_file=True,
+                verify_manifest_file=False,
+                verify_persisted_evidence=False,
+            )
+        refresh.assert_not_called()
+        evidence = next(result for result in results if result.name == "release-evidence")
+        self.assertFalse(evidence.ok)
+        self.assertFalse(evidence.skipped)
+        self.assertIn("mandatory check was skipped", evidence.detail)
 
     def test_dependency_boundary_failure_is_part_of_the_canonical_gate(self) -> None:
         with mock.patch.object(
@@ -294,13 +314,11 @@ class FinalPackageAuditTests(unittest.TestCase):
             report = final_audit.build_audit(ROOT)
             with mock.patch.object(final_audit, "build_audit", return_value=report):
                 with mock.patch.object(check_release, "read_regular_file", side_effect=OSError("forced read failure")):
-                    with mock.patch.object(final_audit, "write_reports") as report_writer:
-                        with mock.patch.object(check_release, "write_manifest") as manifest_writer:
-                            result = check_release.refresh_release_evidence(fixture_root)
+                    with mock.patch.object(check_release, "atomic_write_bytes") as writer:
+                        result = check_release.refresh_release_evidence(fixture_root)
             self.assertFalse(result.ok)
             self.assertIn("existing evidence could not be read", result.detail)
-            report_writer.assert_not_called()
-            manifest_writer.assert_not_called()
+            writer.assert_not_called()
 
     def test_missing_evidence_is_not_bootstrapped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -317,31 +335,187 @@ class FinalPackageAuditTests(unittest.TestCase):
             auditor.assert_not_called()
             report_writer.assert_not_called()
 
-    def test_refresh_reports_incomplete_rollback_without_raising(self) -> None:
+    def test_refresh_refuses_source_mutation_after_validation_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            fixture_root = Path(tmp)
-            for relative in check_release.EVIDENCE_PATHS:
+            fixture_root = Path(tmp) / "kit"
+            source = fixture_root / "source.txt"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"validated\n")
+            for relative in check_release.EVIDENCE_PATHS[:2]:
                 path = fixture_root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"existing\n")
+            from codeprobe_engine.release import write_manifest
+
+            write_manifest(fixture_root, "2.2.0")
+            expected = check_release.capture_release_tree(
+                fixture_root,
+                exclude_evidence=True,
+            )
+            source.write_bytes(b"changed after validation\n")
+            report = final_audit.build_audit(ROOT)
+            with mock.patch.object(final_audit, "build_audit", return_value=report):
+                with mock.patch.object(check_release, "atomic_write_bytes") as writer:
+                    result = check_release.refresh_release_evidence(
+                        fixture_root,
+                        expected_source=expected,
+                    )
+            self.assertFalse(result.ok)
+            self.assertIn("changed during validation", result.detail)
+            writer.assert_not_called()
+
+    def test_partial_refresh_restores_all_evidence_bytes_and_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_root = Path(tmp)
+            original: dict[Path, tuple[bytes, int, int]] = {}
+            for index, relative in enumerate(check_release.EVIDENCE_PATHS):
+                path = fixture_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(f"existing-{index}\n".encode("ascii"))
+                if os.name != "nt":
+                    os.chmod(path, 0o600)
+                    timestamp = 1_700_000_000_000_000_000 + index * 1_000_000_000
+                    os.utime(path, ns=(timestamp, timestamp))
+                metadata = path.stat()
+                original[relative] = (
+                    path.read_bytes(),
+                    stat.S_IMODE(metadata.st_mode),
+                    metadata.st_mtime_ns,
+                )
             report = final_audit.build_audit(ROOT)
             real_atomic_write = check_release.atomic_write_bytes
-            calls = 0
+            original_contents = {value[0] for value in original.values()}
 
-            def fail_second_restore(path: Path, content: bytes) -> None:
-                nonlocal calls
-                calls += 1
-                if calls == 2:
-                    raise OSError("forced rollback failure")
+            for failure_position in (2, 3):
+                with self.subTest(failure_position=failure_position):
+                    generated_calls = 0
+
+                    def fail_selected_commit(path: Path, content: bytes) -> None:
+                        nonlocal generated_calls
+                        if content not in original_contents:
+                            generated_calls += 1
+                            if generated_calls == failure_position:
+                                raise OSError("forced evidence commit failure")
+                        real_atomic_write(path, content)
+
+                    with mock.patch.object(final_audit, "build_audit", return_value=report):
+                        with mock.patch.object(
+                            check_release,
+                            "atomic_write_bytes",
+                            side_effect=fail_selected_commit,
+                        ):
+                            result = check_release.refresh_release_evidence(fixture_root)
+                    self.assertFalse(result.ok)
+                    self.assertIn("was rolled back", result.detail)
+                    restored = {
+                        relative: (
+                            (fixture_root / relative).read_bytes(),
+                            stat.S_IMODE((fixture_root / relative).stat().st_mode),
+                            (fixture_root / relative).stat().st_mtime_ns,
+                        )
+                        for relative in check_release.EVIDENCE_PATHS
+                    }
+                    self.assertEqual(restored, original)
+
+    def test_silent_restore_failure_is_reported_as_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_root = Path(tmp)
+            originals: dict[Path, bytes] = {}
+            for index, relative in enumerate(check_release.EVIDENCE_PATHS):
+                path = fixture_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                content = f"existing-{index}\n".encode("ascii")
+                path.write_bytes(content)
+                originals[relative] = content
+            report = final_audit.build_audit(ROOT)
+            real_atomic_write = check_release.atomic_write_bytes
+            generated_calls = 0
+
+            def fail_commit_and_ignore_restore(path: Path, content: bytes) -> None:
+                nonlocal generated_calls
+                relative = path.relative_to(fixture_root)
+                if content == originals[relative]:
+                    return
+                generated_calls += 1
+                if generated_calls == 2:
+                    raise OSError("forced evidence commit failure")
                 real_atomic_write(path, content)
 
             with mock.patch.object(final_audit, "build_audit", return_value=report):
-                with mock.patch.object(final_audit, "write_reports", side_effect=OSError("forced refresh failure")):
-                    with mock.patch.object(check_release, "atomic_write_bytes", side_effect=fail_second_restore):
-                        result = check_release.refresh_release_evidence(fixture_root)
+                with mock.patch.object(
+                    check_release,
+                    "atomic_write_bytes",
+                    side_effect=fail_commit_and_ignore_restore,
+                ):
+                    result = check_release.refresh_release_evidence(fixture_root)
             self.assertFalse(result.ok)
             self.assertIn("rollback incomplete", result.detail)
-            self.assertEqual(calls, len(check_release.EVIDENCE_PATHS))
+
+    def test_post_write_verification_failure_restores_complete_evidence_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_root = Path(tmp)
+            originals: dict[Path, bytes] = {}
+            for index, relative in enumerate(check_release.EVIDENCE_PATHS):
+                path = fixture_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                content = f"existing-{index}\n".encode("ascii")
+                path.write_bytes(content)
+                originals[relative] = content
+            report = final_audit.build_audit(ROOT)
+            with mock.patch.object(final_audit, "build_audit", return_value=report):
+                with mock.patch.object(
+                    final_audit,
+                    "verify_reports",
+                    return_value=["forced post-write mismatch"],
+                ):
+                    result = check_release.refresh_release_evidence(fixture_root)
+            self.assertFalse(result.ok)
+            self.assertIn("was rolled back", result.detail)
+            self.assertEqual(
+                originals,
+                {
+                    relative: (fixture_root / relative).read_bytes()
+                    for relative in check_release.EVIDENCE_PATHS
+                },
+            )
+
+    def test_interrupt_after_partial_refresh_restores_then_propagates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_root = Path(tmp)
+            originals: dict[Path, bytes] = {}
+            for index, relative in enumerate(check_release.EVIDENCE_PATHS):
+                path = fixture_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                content = f"existing-{index}\n".encode("ascii")
+                path.write_bytes(content)
+                originals[relative] = content
+            report = final_audit.build_audit(ROOT)
+            real_atomic_write = check_release.atomic_write_bytes
+            generated_calls = 0
+
+            def interrupt_second_commit(path: Path, content: bytes) -> None:
+                nonlocal generated_calls
+                if content not in originals.values():
+                    generated_calls += 1
+                    if generated_calls == 2:
+                        raise KeyboardInterrupt
+                real_atomic_write(path, content)
+
+            with mock.patch.object(final_audit, "build_audit", return_value=report):
+                with mock.patch.object(
+                    check_release,
+                    "atomic_write_bytes",
+                    side_effect=interrupt_second_commit,
+                ):
+                    with self.assertRaises(KeyboardInterrupt):
+                        check_release.refresh_release_evidence(fixture_root)
+            self.assertEqual(
+                originals,
+                {
+                    relative: (fixture_root / relative).read_bytes()
+                    for relative in check_release.EVIDENCE_PATHS
+                },
+            )
 
     def test_final_audit_cli_is_check_only_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -349,11 +523,40 @@ class FinalPackageAuditTests(unittest.TestCase):
             report = final_audit.build_audit(ROOT)
             final_audit.write_reports(ROOT, report, output_dir=fixture_root / "release")
             with mock.patch.object(final_audit, "build_audit", return_value=report):
-                with mock.patch.object(final_audit, "write_reports") as writer:
-                    with contextlib.redirect_stdout(io.StringIO()):
-                        exit_code = final_audit.main(["--root", str(fixture_root)])
+                with mock.patch.object(final_audit, "verify_manifest", return_value=[]):
+                    with mock.patch.object(final_audit, "write_reports") as writer:
+                        with contextlib.redirect_stdout(io.StringIO()):
+                            exit_code = final_audit.main(["--root", str(fixture_root)])
             self.assertEqual(exit_code, 0)
             writer.assert_not_called()
+
+    def test_final_audit_cli_rejects_a_stale_manifest(self) -> None:
+        report = final_audit.build_audit(ROOT)
+        with mock.patch.object(final_audit, "build_audit", return_value=report):
+            with mock.patch.object(final_audit, "verify_reports", return_value=[]):
+                with mock.patch.object(
+                    final_audit,
+                    "verify_manifest",
+                    return_value=["hash mismatch: docs/example.md"],
+                ):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        exit_code = final_audit.main(["--root", str(ROOT)])
+        self.assertEqual(exit_code, 1)
+
+    def test_release_tree_snapshot_detects_content_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_root = Path(tmp) / "kit"
+            (fixture_root / "docs").mkdir(parents=True)
+            source = fixture_root / "docs" / "source.txt"
+            source.write_bytes(b"before\n")
+            from codeprobe_engine.release import write_manifest
+
+            write_manifest(fixture_root, "2.2.0")
+            snapshot = check_release.capture_release_tree(fixture_root)
+            source.write_bytes(b"after\n")
+            result = check_release.check_release_tree_stability(snapshot, fixture_root)
+        self.assertFalse(result.ok)
+        self.assertIn("docs/source.txt", result.detail)
 
     def test_json_output_inside_release_set_is_rejected_before_checks(self) -> None:
         target = ROOT / "release" / "check-results.json"
@@ -380,12 +583,30 @@ class FinalPackageAuditTests(unittest.TestCase):
             args=[],
             returncode=0,
             stdout="",
-            stderr="-----\nRan 121 tests in 1.250s\n\nOK\n",
+            stderr="-----\nRan 244 tests in 1.250s\n\nOK\n",
         )
         with mock.patch.object(check_release.subprocess, "run", return_value=completed):
             result = check_release.check_unittest_suite()
         self.assertTrue(result.ok)
-        self.assertEqual(result.detail, "121 test(s) passed")
+        self.assertEqual(result.detail, "244 test(s) passed")
+
+    def test_empty_or_fully_skipped_suite_cannot_pass(self) -> None:
+        cases = (
+            "Ran 0 tests in 0.001s\n\nOK\n",
+            "Ran 244 tests in 0.001s\n\nOK (skipped=244)\n",
+        )
+        for stderr in cases:
+            with self.subTest(stderr=stderr):
+                completed = subprocess.CompletedProcess(
+                    args=[],
+                    returncode=0,
+                    stdout="",
+                    stderr=stderr,
+                )
+                with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+                    result = check_release.check_unittest_suite()
+                self.assertFalse(result.ok)
+                self.assertIn("execution floor not met", result.detail)
 
     def test_unit_test_failure_reports_bounded_identifiers_without_traceback(self) -> None:
         headers = "".join(
@@ -452,7 +673,7 @@ class FinalPackageAuditTests(unittest.TestCase):
             args=[],
             returncode=0,
             stdout="",
-            stderr="Ran 1 test in 0.001s\n\nOK\n",
+            stderr="Ran 244 tests in 0.001s\n\nOK\n",
         )
         ambient = {
             "PYTHONHASHSEED": "314159",
@@ -474,6 +695,7 @@ class FinalPackageAuditTests(unittest.TestCase):
             environment,
         )
 
+    @unittest.skipIf(os.environ.get(NESTED_GATE_ENV) == "1", "outer canonical-gate regression")
     def test_default_gate_leaves_complete_source_tree_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture_root = Path(tmp) / "kit"
@@ -482,25 +704,13 @@ class FinalPackageAuditTests(unittest.TestCase):
                 fixture_root,
                 ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"),
             )
-            refresh = subprocess.run(
-                [
-                    sys.executable,
-                    "-I",
-                    "-S",
-                    "-B",
-                    "tools/check_release.py",
-                    "--skip-tests",
-                    "--write-release-evidence",
-                ],
-                cwd=fixture_root,
-                text=True,
-                capture_output=True,
-            )
-            self.assertEqual(refresh.returncode, 0, refresh.stdout + refresh.stderr)
             before = self.snapshot_tree(fixture_root)
+            environment = os.environ.copy()
+            environment[NESTED_GATE_ENV] = "1"
             gate = subprocess.run(
-                [sys.executable, "-I", "-S", "-B", "tools/check_release.py", "--skip-tests"],
+                [sys.executable, "-I", "-S", "-B", "tools/check_release.py"],
                 cwd=fixture_root,
+                env=environment,
                 text=True,
                 capture_output=True,
             )

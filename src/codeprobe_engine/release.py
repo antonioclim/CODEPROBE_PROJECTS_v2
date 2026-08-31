@@ -11,7 +11,7 @@ import unicodedata
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 MANIFEST_NAME = "release/release-manifest.json"
 MANIFEST_SCHEMA = "codeprobe-release-manifest/v1"
@@ -334,17 +334,39 @@ def build_release_manifest(
     *,
     app_version: str,
     schema_version: str = MANIFEST_SCHEMA,
+    content_overrides: Mapping[str, bytes] | None = None,
 ) -> Dict[str, Any]:
-    """Create a deterministic manifest from stable regular-file snapshots."""
+    """Create a deterministic manifest from stable regular-file snapshots.
+
+    ``content_overrides`` supports a fully prepared evidence transaction: the
+    named existing members are hashed from their prospective bytes while their
+    live counterparts are still checked for stability during the snapshot.
+    """
     if schema_version != MANIFEST_SCHEMA:
         raise ValueError(f"schema_version must be {MANIFEST_SCHEMA!r}")
     root = root.resolve()
+    overrides = dict(content_overrides or {})
+    for relative, content in overrides.items():
+        path_problem = _path_error(relative)
+        if path_problem:
+            raise ValueError(f"invalid manifest content override {_safe_text(relative)!r}: {path_problem}")
+        if not isinstance(content, bytes):
+            raise TypeError(f"manifest content override must be bytes: {_safe_text(relative)}")
     files: List[Dict[str, Any]] = []
+    live_fingerprints: dict[str, tuple[int, str]] = {}
     for path in iter_release_files(root):
         relative = path.relative_to(root).as_posix()
-        content = read_regular_file(path, root=root)
+        live_content = read_regular_file(path, root=root)
+        live_fingerprints[relative] = (len(live_content), sha256_bytes(live_content))
+        content = overrides.get(relative, live_content)
         files.append({"path": relative, "size_bytes": len(content), "sha256": sha256_bytes(content)})
     captured_paths = tuple(item["path"] for item in files)
+    unknown_overrides = sorted(set(overrides) - set(captured_paths))
+    if unknown_overrides:
+        raise ValueError(
+            "manifest content override does not name an existing release member: "
+            + ", ".join(_safe_text(value) for value in unknown_overrides)
+        )
     current_files = tuple(iter_release_files(root))
     current_paths = tuple(path.relative_to(root).as_posix() for path in current_files)
     if current_paths != captured_paths:
@@ -352,7 +374,8 @@ def build_release_manifest(
     current_by_path = {path.relative_to(root).as_posix(): path for path in current_files}
     for item in files:
         content = read_regular_file(current_by_path[item["path"]], root=root)
-        if len(content) != item["size_bytes"] or sha256_bytes(content) != item["sha256"]:
+        expected_size, expected_hash = live_fingerprints[item["path"]]
+        if len(content) != expected_size or sha256_bytes(content) != expected_hash:
             raise ReleaseSetError(
                 f"release file changed while the manifest snapshot was captured: {_safe_text(item['path'])}"
             )

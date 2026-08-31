@@ -72,7 +72,6 @@ educator/09-project-kit-notice.md,PROJECT_KIT_NOTICE.md,educator/09-project-kit-
 release/file-rename-map.csv,release/rename-map.csv,release/file-rename-map.csv,release evidence,completed_phase13,13,release,high,final naming-stable path; previous_path records migration source where applicable
 release/final-audit-report.json,,release/final-audit-report.json,release evidence,added_phase13,13,release,medium,final naming-stable path; previous_path records migration source where applicable
 release/final-audit-summary.md,,release/final-audit-summary.md,release evidence,added_phase13,13,release,medium,final naming-stable path; previous_path records migration source where applicable
-release/final-reference-audit.json,,release/final-reference-audit.json,release evidence,added_phase13,13,release,medium,final release reference and naming audit status for v2.2.0
 release/release-manifest.json,RELEASE_MANIFEST.json,release/release-manifest.json,release evidence,completed_phase13,13,release,low,final naming-stable path; previous_path records migration source where applicable
 src/codeprobe_engine/README.md,,src/codeprobe_engine/README.md,maintainer engine support module,keep,current,src,high,canonical current path
 src/codeprobe_engine/__init__.py,,src/codeprobe_engine/__init__.py,maintainer engine support module,keep,current,src,high,canonical current path

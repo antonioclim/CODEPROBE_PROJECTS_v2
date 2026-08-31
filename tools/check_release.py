@@ -25,6 +25,7 @@ import os
 import py_compile
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -41,6 +42,18 @@ TOOLS = ROOT / "tools"
 MAX_UNITTEST_FAILURE_IDENTIFIERS = 5
 MAX_UNITTEST_FAILURE_IDENTIFIER_CHARACTERS = 300
 MAX_UNITTEST_DETAIL_CHARACTERS = 1_024
+MIN_UNITTEST_DISCOVERED = 244
+MIN_UNITTEST_EXECUTED = 240
+RESOURCE_INTEGRITY_SCHEMA = "codeprobe-browser-resource-integrity/v1"
+REQUIRED_RESOURCE_ASSETS = {
+    "codeprobe.css",
+    "project.css",
+    "pyodide-loader.js",
+    "codeprobe-ui.js",
+    "project-ui.js",
+    "runtime-config.json",
+    "../src/codeprobe_runtime.py",
+}
 if str(SRC) not in sys.path:
     sys.path.append(str(SRC))
 if str(TOOLS) not in sys.path:
@@ -59,10 +72,11 @@ from codeprobe_engine.release import (  # noqa: E402
     ReleaseSetError,
     atomic_write_bytes,
     atomic_write_text,
+    build_release_manifest,
     read_regular_file,
+    sha256_bytes,
     validate_release_set,
     verify_manifest,
-    write_manifest,
 )
 
 
@@ -130,9 +144,22 @@ def check_unittest_suite(verbose: bool = False) -> CheckResult:
         lines
         and re.fullmatch(pass_terminal, lines[-1])
     )
-    success = completed.returncode == 0 and len(count_matches) == 1 and terminal_success
+    discovered = int(count_matches[0]) if len(count_matches) == 1 else 0
+    skipped_matches = re.findall(r"skipped=(?P<count>[0-9]{1,9})", lines[-1] if lines else "")
+    skipped = int(skipped_matches[0]) if len(skipped_matches) == 1 else 0
+    executed = max(0, discovered - skipped)
+    floor_met = (
+        discovered >= MIN_UNITTEST_DISCOVERED
+        and executed >= MIN_UNITTEST_EXECUTED
+    )
+    success = (
+        completed.returncode == 0
+        and len(count_matches) == 1
+        and terminal_success
+        and floor_met
+    )
     if success:
-        detail = f"{count_matches[0]} test(s) passed"
+        detail = f"{discovered} test(s) passed"
     else:
         failure_count_field = (
             r"(?:failures|errors|skipped|expected failures|unexpected successes)=[0-9]{1,9}"
@@ -144,6 +171,17 @@ def check_unittest_suite(verbose: bool = False) -> CheckResult:
         )
         if failure_summary:
             summary = f"FAILED ({failure_summary.group('counts')})"
+        elif (
+            completed.returncode == 0
+            and len(count_matches) == 1
+            and terminal_success
+            and not floor_met
+        ):
+            summary = (
+                "unittest execution floor not met: "
+                f"discovered {discovered}, executed {executed}; "
+                f"required {MIN_UNITTEST_DISCOVERED}/{MIN_UNITTEST_EXECUTED}"
+            )
         elif completed.returncode == 0:
             summary = "unittest output was not a recognised successful run"
         else:
@@ -192,7 +230,15 @@ def browser_script_files() -> list[Path]:
             if src.startswith(("http://", "https://", "//")):
                 continue
             path = (html.parent / src).resolve()
-            if path.is_file() and path.suffix.lower() == ".js" and path not in files:
+            try:
+                path.relative_to(APP.resolve())
+            except ValueError as exc:
+                raise ReleaseSetError(
+                    f"{html.name} script reference resolves outside app/: {src}"
+                ) from exc
+            if not path.is_file():
+                raise ReleaseSetError(f"{html.name} script is missing: {src}")
+            if path.suffix.lower() == ".js" and path not in files:
                 files.append(path)
     return files
 
@@ -216,7 +262,7 @@ def check_javascript_syntax(*, require_node: bool = False) -> CheckResult:
 
 
 def _sri_for_file(path: Path) -> str:
-    digest = hashlib.sha256(path.read_bytes()).digest()
+    digest = hashlib.sha256(read_regular_file(path, root=ROOT)).digest()
     return "sha256-" + base64.b64encode(digest).decode("ascii")
 
 
@@ -240,8 +286,24 @@ def check_browser_security() -> CheckResult:
             target = target_match.group("target")
             if target.startswith(("http://", "https://", "//")):
                 continue
-            if target.endswith((".js", ".css")) and "integrity=" not in attrs:
-                errors.append(f"{html.name} references {target} without SRI")
+            if target.endswith((".js", ".css")):
+                path = (html.parent / target).resolve()
+                try:
+                    path.relative_to(APP.resolve())
+                except ValueError:
+                    errors.append(f"{html.name} reference resolves outside app/: {target}")
+                    continue
+                integrity_match = re.search(
+                    r"\bintegrity\s*=\s*[\"'](?P<value>[^\"']+)[\"']",
+                    attrs,
+                    re.I,
+                )
+                if not integrity_match:
+                    errors.append(f"{html.name} references {target} without SRI")
+                elif not path.is_file():
+                    errors.append(f"{html.name} references missing resource {target}")
+                elif integrity_match.group("value") != _sri_for_file(path):
+                    errors.append(f"{html.name} has stale SRI for {target}")
     if errors:
         return CheckResult("browser-security", False, "; ".join(errors[:10]))
     return CheckResult("browser-security", True, "CSP, inline-code and local SRI checks passed")
@@ -252,26 +314,73 @@ def check_resource_integrity() -> CheckResult:
     if not manifest_path.exists():
         return CheckResult("browser-resource-integrity", False, "app/resource-integrity.json is missing")
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+            result: dict[str, object] = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError(f"duplicate JSON key: {key}")
+                result[key] = value
+            return result
+
+        manifest = json.loads(
+            read_regular_file(manifest_path, root=ROOT).decode("utf-8"),
+            object_pairs_hook=unique_object,
+        )
         errors: list[str] = []
-        for item in manifest.get("assets", []):
-            relative = item.get("path")
-            if not isinstance(relative, str):
-                errors.append("manifest item without path")
+        if not isinstance(manifest, dict):
+            return CheckResult("browser-resource-integrity", False, "manifest top level must be an object")
+        if set(manifest) != {"schema", "note", "assets"}:
+            errors.append("manifest must contain exactly schema, note and assets")
+        if manifest.get("schema") != RESOURCE_INTEGRITY_SCHEMA:
+            errors.append(f"manifest schema must be {RESOURCE_INTEGRITY_SCHEMA}")
+        if not isinstance(manifest.get("note"), str) or not manifest.get("note", "").strip():
+            errors.append("manifest note must be a non-empty string")
+        assets = manifest.get("assets")
+        if not isinstance(assets, list):
+            return CheckResult("browser-resource-integrity", False, "; ".join(errors + ["manifest assets must be an array"]))
+        seen: set[str] = set()
+        seen_portable: set[str] = set()
+        for index, item in enumerate(assets):
+            if not isinstance(item, dict):
+                errors.append(f"manifest assets[{index}] must be an object")
                 continue
-            path = APP / relative
-            if not path.is_file():
+            if set(item) != {"path", "size_bytes", "sha256_hex", "sri_sha256"}:
+                errors.append(f"manifest assets[{index}] has an invalid field set")
+            relative = item.get("path")
+            if not isinstance(relative, str) or relative not in REQUIRED_RESOURCE_ASSETS:
+                errors.append(f"manifest assets[{index}] has an unapproved path")
+                continue
+            portable = relative.casefold()
+            if relative in seen or portable in seen_portable:
+                errors.append(f"duplicate asset path: {relative}")
+                continue
+            seen.add(relative)
+            seen_portable.add(portable)
+            path = (APP / relative).resolve()
+            try:
+                path.relative_to(ROOT.resolve())
+            except ValueError:
+                errors.append(f"asset resolves outside the checkout: {relative}")
+                continue
+            try:
+                content = read_regular_file(path, root=ROOT)
+            except (OSError, ReleaseSetError):
                 errors.append(f"missing asset: {relative}")
                 continue
-            actual_hex = hashlib.sha256(path.read_bytes()).hexdigest()
+            if type(item.get("size_bytes")) is not int or item.get("size_bytes") != len(content):
+                errors.append(f"size mismatch: {relative}")
+            actual_hex = hashlib.sha256(content).hexdigest()
             if item.get("sha256_hex") != actual_hex:
                 errors.append(f"sha256 mismatch: {relative}")
-            actual_sri = _sri_for_file(path)
+            actual_sri = "sha256-" + base64.b64encode(hashlib.sha256(content).digest()).decode("ascii")
             if item.get("sri_sha256") != actual_sri:
                 errors.append(f"SRI mismatch: {relative}")
+        missing_assets = sorted(REQUIRED_RESOURCE_ASSETS - seen)
+        if missing_assets:
+            errors.append("required assets missing: " + ", ".join(missing_assets))
         if errors:
             return CheckResult("browser-resource-integrity", False, "; ".join(errors[:10]))
-        return CheckResult("browser-resource-integrity", True, f"{len(manifest.get('assets', []))} asset(s) verified")
+        return CheckResult("browser-resource-integrity", True, f"{len(assets)} asset(s) verified")
     except Exception as exc:  # pragma: no cover - failure path reported by CLI
         return CheckResult("browser-resource-integrity", False, str(exc))
 
@@ -353,7 +462,7 @@ def check_final_audit(*, verify_persisted: bool = True) -> CheckResult:
         return CheckResult(
             "final-audit",
             True,
-            f"{report.get('file_count')} manifest-listed source files audited; release manifest excluded",
+            f"{report.get('file_count')} release-set source files audited; manifest verified separately",
         )
     detail_items = (
         report.get("release_set_errors")
@@ -412,6 +521,130 @@ EVIDENCE_PATHS = (
 )
 
 
+@dataclass(frozen=True)
+class EvidenceSnapshot:
+    content: bytes
+    mode: int
+    atime_ns: int
+    mtime_ns: int
+    fingerprint: tuple[int, int, int, int, int, str]
+
+
+ReleaseTreeSnapshot = dict[str, tuple[int, int, str]]
+
+
+def capture_release_tree(
+    root: Path = ROOT,
+    *,
+    exclude_evidence: bool = False,
+) -> ReleaseTreeSnapshot:
+    """Capture stable release membership, mode, size and content hashes."""
+    root = root.resolve()
+    excluded = {relative.as_posix() for relative in EVIDENCE_PATHS} if exclude_evidence else set()
+    paths = validate_release_set(root)
+    captured_names = tuple(path.relative_to(root).as_posix() for path in paths)
+    snapshot: ReleaseTreeSnapshot = {}
+    for path, relative in zip(paths, captured_names):
+        if relative in excluded:
+            continue
+        content = read_regular_file(path, root=root)
+        metadata = path.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ReleaseSetError(f"release entry changed to a non-regular file: {relative}")
+        snapshot[relative] = (
+            stat.S_IMODE(metadata.st_mode),
+            len(content),
+            sha256_bytes(content),
+        )
+    current_names = tuple(
+        path.relative_to(root).as_posix() for path in validate_release_set(root)
+    )
+    if current_names != captured_names:
+        raise ReleaseSetError("release membership changed while the tree snapshot was captured")
+    return snapshot
+
+
+def check_release_tree_stability(
+    expected: ReleaseTreeSnapshot,
+    root: Path = ROOT,
+    *,
+    exclude_evidence: bool = False,
+) -> CheckResult:
+    """Require the release tree to remain identical to a prior snapshot."""
+    try:
+        current = capture_release_tree(root, exclude_evidence=exclude_evidence)
+    except (OSError, ReleaseSetError) as exc:
+        return CheckResult("release-tree-stability", False, str(exc))
+    if current == expected:
+        return CheckResult(
+            "release-tree-stability",
+            True,
+            f"{len(current)} release member(s) remained unchanged",
+        )
+    changed = sorted(set(expected) ^ set(current))
+    changed.extend(
+        path for path in sorted(set(expected) & set(current))
+        if expected[path] != current[path]
+    )
+    return CheckResult(
+        "release-tree-stability",
+        False,
+        "release tree changed during validation: " + ", ".join(changed[:10]),
+    )
+
+
+def _capture_evidence(path: Path, *, root: Path) -> EvidenceSnapshot:
+    content = read_regular_file(path, root=root)
+    metadata = path.lstat()
+    mode = stat.S_IMODE(metadata.st_mode)
+    return EvidenceSnapshot(
+        content=content,
+        mode=mode,
+        atime_ns=metadata.st_atime_ns,
+        mtime_ns=metadata.st_mtime_ns,
+        fingerprint=(
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            mode,
+            sha256_bytes(content),
+        ),
+    )
+
+
+def _evidence_fingerprint(path: Path, *, root: Path) -> tuple[int, int, int, int, int, str]:
+    return _capture_evidence(path, root=root).fingerprint
+
+
+def _mode_matches(actual: int, expected: int) -> bool:
+    if os.name == "nt":
+        return bool(actual & stat.S_IWRITE) == bool(expected & stat.S_IWRITE)
+    return actual == expected
+
+
+def _restore_evidence(
+    path: Path,
+    snapshot: EvidenceSnapshot,
+    *,
+    root: Path,
+) -> None:
+    atomic_write_bytes(path, snapshot.content)
+    os.chmod(path, snapshot.mode)
+    os.utime(
+        path,
+        ns=(snapshot.atime_ns, snapshot.mtime_ns),
+        follow_symlinks=False,
+    )
+    restored = _capture_evidence(path, root=root)
+    if (
+        restored.content != snapshot.content
+        or not _mode_matches(restored.mode, snapshot.mode)
+        or restored.mtime_ns != snapshot.mtime_ns
+    ):
+        raise OSError("restored evidence bytes or metadata do not match the prior state")
+
+
 def diagnostic_output_is_outside_release_set(path: Path, root: Path = ROOT) -> bool:
     """Return whether an explicit diagnostic output avoids the release set."""
     root = root.resolve()
@@ -423,8 +656,12 @@ def diagnostic_output_is_outside_release_set(path: Path, root: Path = ROOT) -> b
     return bool(relative.parts) and relative.parts[0] == "dist"
 
 
-def refresh_release_evidence(root: Path = ROOT) -> CheckResult:
-    """Refresh tracked release evidence only after a successful in-memory audit."""
+def refresh_release_evidence(
+    root: Path = ROOT,
+    *,
+    expected_source: ReleaseTreeSnapshot | None = None,
+) -> CheckResult:
+    """Refresh the complete evidence set with verified detected-failure rollback."""
     root = root.resolve()
     try:
         validate_release_set(root)
@@ -441,15 +678,71 @@ def refresh_release_evidence(root: Path = ROOT) -> CheckResult:
     if report.get("status") != "pass":
         return CheckResult("release-evidence", False, "not written because the final audit failed")
 
-    snapshots: dict[Path, bytes] = {}
     try:
+        if expected_source is not None:
+            stability = check_release_tree_stability(
+                expected_source,
+                root,
+                exclude_evidence=True,
+            )
+            if not stability.ok:
+                return CheckResult(
+                    "release-evidence",
+                    False,
+                    f"not written because {stability.detail}",
+                )
+
+        report_bytes = final_audit.render_report(report).encode("utf-8")
+        summary_bytes = final_audit.render_summary(report).encode("utf-8")
+        prospective = {
+            EVIDENCE_PATHS[0].as_posix(): report_bytes,
+            EVIDENCE_PATHS[1].as_posix(): summary_bytes,
+        }
+        manifest = build_release_manifest(
+            root,
+            app_version=engine.APP_VERSION,
+            content_overrides=prospective,
+        )
+        manifest_bytes = (
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+        ).encode("utf-8")
+        generated = {
+            EVIDENCE_PATHS[0]: report_bytes,
+            EVIDENCE_PATHS[1]: summary_bytes,
+            EVIDENCE_PATHS[2]: manifest_bytes,
+        }
+        if final_audit.build_audit(root) != report:
+            return CheckResult(
+                "release-evidence",
+                False,
+                "not written because the final audit inputs changed during preparation",
+            )
+
+        snapshots: dict[Path, EvidenceSnapshot] = {}
         for relative in EVIDENCE_PATHS:
-            snapshots[relative] = read_regular_file(root / relative, root=root)
+            snapshots[relative] = _capture_evidence(root / relative, root=root)
     except (OSError, ReleaseSetError) as exc:
         return CheckResult("release-evidence", False, f"not written because existing evidence could not be read: {exc}")
+    except (TypeError, ValueError) as exc:
+        return CheckResult("release-evidence", False, f"not written because evidence preparation failed: {exc}")
+
+    attempted: list[Path] = []
+    committed: dict[Path, tuple[int, int, int, int, int, str]] = {}
     try:
-        final_audit.write_reports(root, report)
-        write_manifest(root, engine.APP_VERSION)
+        for relative, content in generated.items():
+            for pending in EVIDENCE_PATHS:
+                if pending in attempted:
+                    continue
+                if _evidence_fingerprint(root / pending, root=root) != snapshots[pending].fingerprint:
+                    raise RuntimeError(
+                        f"tracked evidence changed concurrently before replacement: {pending.as_posix()}"
+                    )
+            attempted.append(relative)
+            atomic_write_bytes(root / relative, content)
+            if read_regular_file(root / relative, root=root) != content:
+                raise RuntimeError(f"evidence replacement did not persist: {relative.as_posix()}")
+            committed[relative] = _evidence_fingerprint(root / relative, root=root)
+
         post_report = final_audit.build_audit(root)
         errors = []
         if post_report.get("status") != "pass":
@@ -457,21 +750,68 @@ def refresh_release_evidence(root: Path = ROOT) -> CheckResult:
         else:
             errors.extend(final_audit.verify_reports(root, post_report))
         errors.extend(verify_manifest(root, app_version=engine.APP_VERSION))
+        if expected_source is not None:
+            stability = check_release_tree_stability(
+                expected_source,
+                root,
+                exclude_evidence=True,
+            )
+            if not stability.ok:
+                errors.append(stability.detail)
         if errors:
             raise RuntimeError("; ".join(errors[:10]))
-    except Exception as exc:
+    except BaseException as exc:
         rollback_errors: list[str] = []
-        for relative, content in snapshots.items():
+        for relative in reversed(attempted):
             path = root / relative
             try:
-                atomic_write_bytes(path, content)
-            except OSError as rollback_exc:
-                rollback_errors.append(f"{relative.as_posix()}: {rollback_exc}")
+                current = _evidence_fingerprint(path, root=root)
+                if current == snapshots[relative].fingerprint:
+                    continue
+                if relative not in committed or current != committed[relative]:
+                    rollback_errors.append(
+                        f"{relative.as_posix()}: changed concurrently and was not overwritten"
+                    )
+                    continue
+                _restore_evidence(path, snapshots[relative], root=root)
+            except BaseException as rollback_exc:
+                rollback_errors.append(
+                    f"{relative.as_posix()}: {type(rollback_exc).__name__}"
+                )
+        for relative, snapshot in snapshots.items():
+            try:
+                restored = _capture_evidence(root / relative, root=root)
+                if (
+                    restored.content != snapshot.content
+                    or not _mode_matches(restored.mode, snapshot.mode)
+                    or restored.mtime_ns != snapshot.mtime_ns
+                ):
+                    rollback_errors.append(
+                        f"{relative.as_posix()}: prior bytes or metadata were not restored"
+                    )
+            except BaseException as verify_exc:
+                rollback_errors.append(
+                    f"{relative.as_posix()}: rollback verification raised {type(verify_exc).__name__}"
+                )
         if rollback_errors:
             detail = "; ".join(rollback_errors[:3])
-            return CheckResult("release-evidence", False, f"refresh failed; rollback incomplete ({detail}): {exc}")
+            if not isinstance(exc, Exception):
+                raise RuntimeError(
+                    f"evidence refresh was interrupted and rollback is incomplete ({detail})"
+                ) from exc
+            return CheckResult(
+                "release-evidence",
+                False,
+                f"refresh failed; rollback incomplete ({detail}): {exc}",
+            )
+        if not isinstance(exc, Exception):
+            raise
         return CheckResult("release-evidence", False, f"refresh failed and was rolled back: {exc}")
-    return CheckResult("release-evidence", True, "audit reports and release manifest refreshed with atomic file replacement")
+    return CheckResult(
+        "release-evidence",
+        True,
+        "prepared audit reports and manifest committed with verified rollback protection",
+    )
 
 
 def run_checks(
@@ -485,9 +825,17 @@ def run_checks(
     safety = check_release_set_safety()
     if not safety.ok:
         return [safety]
+    try:
+        initial_source = capture_release_tree(exclude_evidence=write_manifest_file)
+    except (OSError, ReleaseSetError) as exc:
+        return [safety, CheckResult("release-tree-snapshot", False, str(exc))]
     dependency = check_dependency_policy()
     checks = [safety, dependency, check_python_compile()]
-    if not skip_tests:
+    if skip_tests:
+        checks.append(
+            CheckResult("unit-tests", True, "explicitly skipped", skipped=True)
+        )
+    else:
         if dependency.ok:
             checks.append(check_unittest_suite(verbose=verbose_tests))
         else:
@@ -510,17 +858,29 @@ def run_checks(
         check_naming_policy(),
         check_final_audit(verify_persisted=verify_persisted_evidence and not write_manifest_file),
     ])
-    prerequisites_ok = all(result.ok for result in checks)
+    stability = check_release_tree_stability(
+        initial_source,
+        exclude_evidence=write_manifest_file,
+    )
+    checks.append(stability)
+    prerequisites_ok = all(result.ok and not result.skipped for result in checks)
     if write_manifest_file:
         if prerequisites_ok:
-            checks.append(refresh_release_evidence())
+            checks.append(
+                refresh_release_evidence(expected_source=initial_source)
+            )
         else:
-            checks.append(CheckResult(
-                "release-evidence",
-                True,
-                "not written because an earlier validation check failed",
-                skipped=True,
-            ))
+            skipped_mandatory = any(result.skipped for result in checks)
+            checks.append(
+                CheckResult(
+                    "release-evidence",
+                    not skipped_mandatory,
+                    "not written because a mandatory check was skipped"
+                    if skipped_mandatory
+                    else "not written because an earlier validation check failed",
+                    skipped=not skipped_mandatory,
+                )
+            )
     if verify_manifest_file or write_manifest_file:
         checks.append(check_manifest())
     return checks

@@ -87,7 +87,6 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `release/file-rename-map.csv` | `release/rename-map.csv` | `release` | release evidence | `completed_phase13` | 13 | `high` |
 | `release/final-audit-report.json` | `—` | `release` | release evidence | `added_phase13` | 13 | `medium` |
 | `release/final-audit-summary.md` | `—` | `release` | release evidence | `added_phase13` | 13 | `medium` |
-| `release/final-reference-audit.json` | `—` | `release` | release evidence | `added_phase13` | 13 | `medium` |
 | `release/release-manifest.json` | `RELEASE_MANIFEST.json` | `release` | release evidence | `completed_phase13` | 13 | `low` |
 | `src/codeprobe_engine/README.md` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
 | `src/codeprobe_engine/__init__.py` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |

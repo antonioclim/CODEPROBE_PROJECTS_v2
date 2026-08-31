@@ -121,6 +121,41 @@ class ReleaseMetadataTests(unittest.TestCase):
             write_manifest(fixture_root, engine.APP_VERSION)
             self.assertFalse(verify_manifest(fixture_root, app_version=engine.APP_VERSION))
 
+    def test_manifest_can_hash_prospective_evidence_without_mutating_live_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.make_manifest_fixture(Path(tmp))
+            evidence = root / "docs" / "alpha.txt"
+            before = evidence.read_bytes()
+            prospective = b"prospective audit evidence\n"
+            manifest = build_release_manifest(
+                root,
+                app_version=engine.APP_VERSION,
+                content_overrides={"docs/alpha.txt": prospective},
+            )
+            entry = next(
+                item for item in manifest["files"]
+                if item["path"] == "docs/alpha.txt"
+            )
+            self.assertEqual(entry["size_bytes"], len(prospective))
+            self.assertEqual(entry["sha256"], hashlib.sha256(prospective).hexdigest())
+            self.assertEqual(evidence.read_bytes(), before)
+
+    def test_manifest_rejects_unknown_or_nonbyte_content_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.make_manifest_fixture(Path(tmp))
+            with self.assertRaisesRegex(ValueError, "existing release member"):
+                build_release_manifest(
+                    root,
+                    app_version=engine.APP_VERSION,
+                    content_overrides={"missing.txt": b"missing\n"},
+                )
+            with self.assertRaisesRegex(TypeError, "must be bytes"):
+                build_release_manifest(
+                    root,
+                    app_version=engine.APP_VERSION,
+                    content_overrides={"source.txt": "not bytes"},  # type: ignore[dict-item]
+                )
+
     def test_atomic_write_cleans_up_after_sync_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
