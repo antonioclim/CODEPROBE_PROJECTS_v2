@@ -2,7 +2,7 @@
 
 Version: CodeProbe v2.2.0
 Status: PASS
-Manifest-listed source files counted: 119 (release manifest excluded)
+Release-set source files counted: 118 (release manifest excluded)
 
 ## Area counts
 
@@ -11,7 +11,7 @@ Manifest-listed source files counted: 119 (release manifest excluded)
 - `calibration`: 8
 - `docs`: 31
 - `educator`: 10
-- `release`: 4
+- `release`: 3
 - `root`: 8
 - `src`: 9
 - `tests`: 21

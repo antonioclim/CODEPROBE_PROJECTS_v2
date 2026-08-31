@@ -2,8 +2,8 @@
   "schema_version": "codeprobe-release-manifest/v1",
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
-  "file_count": 119,
-  "total_source_size_bytes": 1364663,
+  "file_count": 118,
+  "total_source_size_bytes": 1397645,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -32,13 +32,13 @@
     },
     {
       "path": "CHANGELOG.md",
-      "size_bytes": 17593,
-      "sha256": "615c67cfde31987828f63542a9cbff61c554e63b4e4c702ea259ad220347d98f"
+      "size_bytes": 18252,
+      "sha256": "13a9d807a4e96f92117d751099658c4da717e0e215cbdba686473a8fb6935b21"
     },
     {
       "path": "CONTRIBUTING.md",
-      "size_bytes": 5170,
-      "sha256": "a1414648d070a47046f6b686358ba14cf865abd02c9a8c368007b29748394d52"
+      "size_bytes": 5203,
+      "sha256": "1fb194bf5d6bee5d5995179d60aa8599f5d7ab9ba3fc5c7617e85fbd88fa9734"
     },
     {
       "path": "LICENSE",
@@ -152,8 +152,8 @@
     },
     {
       "path": "docs/00-file-catalogue.md",
-      "size_bytes": 15105,
-      "sha256": "4b0ac5b0f3076e57849760376a6fbccb7a1ca74e45cca360b506c309e0599ec4"
+      "size_bytes": 14991,
+      "sha256": "49544cc9e431a4fb1bab52d5e2e395120399979f9ed0b7171e2b2905696c9b73"
     },
     {
       "path": "docs/01-naming-policy.md",
@@ -192,8 +192,8 @@
     },
     {
       "path": "docs/08-release-process.md",
-      "size_bytes": 8292,
-      "sha256": "cbd8a0a4d3e7754a1cc89a926427be69599439d34f1adee3b4cff5f0ef239e6f"
+      "size_bytes": 8478,
+      "sha256": "47ddb67bb5943e229faccca41e012c0a97e62e2ee5abc532683b14b711ea3b92"
     },
     {
       "path": "docs/09-release-integrity.md",
@@ -347,8 +347,8 @@
     },
     {
       "path": "educator/08-deployment-one-page.md",
-      "size_bytes": 1728,
-      "sha256": "7db8fa563281e8fcb3c68e4efd148e5e608f616d1ea0932820708238b4a49ea9"
+      "size_bytes": 1755,
+      "sha256": "54069707d285e57c9790cfc3a55f3d356e4ccfa1bdda04a0a877ba17c711188b"
     },
     {
       "path": "educator/09-project-kit-notice.md",
@@ -357,23 +357,18 @@
     },
     {
       "path": "release/file-rename-map.csv",
-      "size_bytes": 20629,
-      "sha256": "c5e2e3a0197e203b3522f6ec1e8a7c3d9109bb3ea525c5f2dc5eef994dc63071"
+      "size_bytes": 20450,
+      "sha256": "632a608632c67c1a26cd1b5d1f690787470aed201b12732b8c0b81e2d2514c9e"
     },
     {
       "path": "release/final-audit-report.json",
       "size_bytes": 1854,
-      "sha256": "d84ff6f4865ca65d273f87e9ebb81dfdfef72d3c64884c6636ebd87d55cc5684"
+      "sha256": "31f8dbd76962bdecbf7d8dce55a96afc0a662141cf54f1916f4a19fc7534ef27"
     },
     {
       "path": "release/final-audit-summary.md",
-      "size_bytes": 565,
-      "sha256": "836a329d3b947f4bac4a0726778e8cce8a05715e0789f832258c2e55f48c10d9"
-    },
-    {
-      "path": "release/final-reference-audit.json",
-      "size_bytes": 387,
-      "sha256": "d4a6d45e478dc2808724b38be06d72d4724a2a7762d8adc36cf30ae04ac6d41d"
+      "size_bytes": 561,
+      "sha256": "0cc00bbdbb733884faa2422e5ba6b1176e6561b79c220b0ba6fdf1b11a40c865"
     },
     {
       "path": "src/codeprobe_engine/README.md",
@@ -407,8 +402,8 @@
     },
     {
       "path": "src/codeprobe_engine/release.py",
-      "size_bytes": 27428,
-      "sha256": "3982e8e41b4b12d249441432953ad73d72755f91464ae4a7dac83cf3cde63856"
+      "size_bytes": 28699,
+      "sha256": "c1c4d91c8c7229da83555fdcefa75bbcedbacd39d7a1894884e476be66879cbc"
     },
     {
       "path": "src/codeprobe_engine/version.py",
@@ -427,8 +422,8 @@
     },
     {
       "path": "tests/test_browser_security.py",
-      "size_bytes": 3420,
-      "sha256": "9673e7cefea41c9fef7d4df87f0f6cd5b4135a0a9660673331aa6287c6aee57c"
+      "size_bytes": 7340,
+      "sha256": "da2190fbd625613904584bbb486d55577c38cf66099a26e668edfa386535236f"
     },
     {
       "path": "tests/test_calibration_profiles.py",
@@ -467,8 +462,8 @@
     },
     {
       "path": "tests/test_final_package_audit.py",
-      "size_bytes": 24284,
-      "sha256": "623b0ba50a77dbfa7a1365b3855e2c6b8baa8065cda573d43ceccadae67fbbdc"
+      "size_bytes": 34457,
+      "sha256": "5bb8b0c20c1c5b19a630187d0f037c1bfbcf84109ed2edb97628393d54b8a010"
     },
     {
       "path": "tests/test_final_release_audit.py",
@@ -497,18 +492,18 @@
     },
     {
       "path": "tests/test_reference_integrity.py",
-      "size_bytes": 2157,
-      "sha256": "b32475fdc40fc294efb32e3e3a4dd020444a40526a72ea5cb39f8adf55529d9e"
+      "size_bytes": 2938,
+      "sha256": "4d6bf676bdd27b76a74d8f6a72c87f3ec75269ceb68c4ed1b6f61573de85d290"
     },
     {
       "path": "tests/test_release_integrity.py",
-      "size_bytes": 20400,
-      "sha256": "db87eadc7073aa6418b038c8af27005f262345707046372fd931c7cc66a8ea58"
+      "size_bytes": 20534,
+      "sha256": "9f066c8ff6941919d1f67e46e8d14daf1cac9b6d065e67d7e0a24e240e6d0eab"
     },
     {
       "path": "tests/test_release_metadata.py",
-      "size_bytes": 21963,
-      "sha256": "db9ea4f0d27f7ab3bd1f17f3c63cfebb14831460b3a874b81465fe64fe4e7a0d"
+      "size_bytes": 23634,
+      "sha256": "9dfe493f830eadf770a27025ce5c5dd87c83379fb08148d175259a43291b5a9e"
     },
     {
       "path": "tests/test_release_reproducibility.py",
@@ -562,8 +557,8 @@
     },
     {
       "path": "tools/check_file_references.py",
-      "size_bytes": 10503,
-      "sha256": "cc4b7ea31c5159a131adb619b66a1d3cf42cb4a59489812fcb1acd729e0b8182"
+      "size_bytes": 11054,
+      "sha256": "01ff0381f7b7c5fd718a499e982a1482be6c6687ac346c89ce371584f697b43a"
     },
     {
       "path": "tools/check_naming.py",
@@ -572,8 +567,8 @@
     },
     {
       "path": "tools/check_release.py",
-      "size_bytes": 23594,
-      "sha256": "3e91488972a486506496cdcd3cca3907f0d5e1bcb4d9a1af2bc4c0450a4dfddd"
+      "size_bytes": 37663,
+      "sha256": "e8106a80d84fa52eb924c6a3abdbdd1ee4d22ccccee7dc83aedd40c9b657dcb8"
     },
     {
       "path": "tools/check_release_reproducibility.py",
@@ -587,8 +582,8 @@
     },
     {
       "path": "tools/final_audit.py",
-      "size_bytes": 8657,
-      "sha256": "50d9b1130e85dd0e65352515a1dfd1a8587c33964178b4bbe85478ee3e060420"
+      "size_bytes": 8848,
+      "sha256": "d7b0876113dcdbb6f7fa60134543a88a52e93bc739922f75a8070100d6750a52"
     },
     {
       "path": "tools/run_local_server.py",
@@ -601,5 +596,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "29629164b24a3da72fd99b15ba38b7d62b51d4b4b5fe73fb6089420ba6e0fce0"
+  "manifest_sha256": "65b1d2f1b223383afb2d5342ece25d0a6f6d27c09d253249721bb9ded4f19198"
 }
