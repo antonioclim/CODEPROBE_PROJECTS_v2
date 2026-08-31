@@ -16,9 +16,17 @@ hints, use ``tools/calibrate_profile.py`` with a JSON or CSV manifest instead.
 
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__" and not (
+    sys.flags.isolated and sys.flags.no_site
+):
+    raise SystemExit(
+        "this command requires isolated, site-free Python; rerun it with -I -S -B"
+    )
+
 import argparse
 import json
-import sys
 import re
 import tempfile
 from pathlib import Path
@@ -30,7 +38,7 @@ SRC = ROOT / "src"
 TOOLS = ROOT / "tools"
 for _path in (SRC, TOOLS):
     if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
+        sys.path.append(str(_path))
 
 import calibrate_profile
 import codeprobe_runtime as engine

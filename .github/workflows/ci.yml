@@ -111,7 +111,7 @@ jobs:
           EXPECTED_PYTHON_MACHINE: ${{ matrix.python_machine }}
         run: |
           set -euo pipefail
-          python - <<'PY'
+          python -I -S - <<'PY'
           import os
           import platform
           import zlib
@@ -151,7 +151,7 @@ jobs:
 
       - name: Run the canonical read-only gate
         shell: bash
-        run: python -B tools/check_release.py --require-node
+        run: python -I -S -B tools/check_release.py --require-node
 
       - name: Confirm that validation left a clean checkout
         if: ${{ always() }}
@@ -207,7 +207,7 @@ jobs:
           EXPECTED_PYTHON_MACHINE: x86_64
         run: |
           set -euo pipefail
-          python - <<'PY'
+          python -I -S - <<'PY'
           import os
           import platform
           import zlib
@@ -247,11 +247,11 @@ jobs:
 
       - name: Run the canonical read-only gate
         shell: bash
-        run: python -B tools/check_release.py --require-node
+        run: python -I -S -B tools/check_release.py --require-node
 
       - name: Verify checkout, archive and packet reproducibility
         shell: bash
-        run: python -B tools/check_release_reproducibility.py
+        run: python -I -S -B tools/check_release_reproducibility.py
 
       - name: Confirm that reproducibility checks left a clean checkout
         if: ${{ always() }}

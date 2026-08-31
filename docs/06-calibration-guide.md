@@ -50,7 +50,7 @@ Paths are resolved relative to the manifest location unless `--root` is supplied
 Directory-output form:
 
 ```bash
-python3 tools/calibrate_profile.py \
+python3 -I -S -B tools/calibrate_profile.py \
   --manifest calibration/01-corpus-manifest-template.json \
   --out-dir calibration/profiles/intro-python-2026 \
   --target-fpr 10
@@ -59,7 +59,7 @@ python3 tools/calibrate_profile.py \
 Explicit-output form:
 
 ```bash
-python3 tools/calibrate_profile.py \
+python3 -I -S -B tools/calibrate_profile.py \
   --manifest calibration/01-corpus-manifest-template.csv \
   --profile-id intro-python-2026-v1 \
   --label "Intro Python 2026 project profile" \
@@ -77,7 +77,7 @@ python3 tools/calibrate_profile.py \
 Paste the generated JSON into the browser field **Calibration profile (optional JSON)**, or use it through the CLI:
 
 ```bash
-python3 tools/analyze_project.py \
+python3 -I -S -B tools/analyze_project.py \
   --folder path/to/submission \
   --calibration-profile calibration/profiles/intro-python-2026-profile.json \
   --json-out report.json \

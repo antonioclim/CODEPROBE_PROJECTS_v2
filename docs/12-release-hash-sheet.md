@@ -10,13 +10,13 @@ recorded outside the ZIP after packaging.
 Refresh intentionally after an accepted source change:
 
 ```bash
-python3 tools/check_release.py --write-release-evidence
+python3 -I -S -B tools/check_release.py --write-release-evidence
 ```
 
 Inspect the evidence diff, then run the canonical read-only gate:
 
 ```bash
-python3 tools/check_release.py
+python3 -I -S -B tools/check_release.py
 ```
 
 ## Final ZIP hash

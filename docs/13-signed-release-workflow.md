@@ -9,8 +9,8 @@ tools outside the kit.
 ## 1. Refresh evidence and run the read-only gate
 
 ```bash
-python3 tools/check_release.py --write-release-evidence
-python3 tools/check_release.py
+python3 -I -S -B tools/check_release.py --write-release-evidence
+python3 -I -S -B tools/check_release.py
 ```
 
 Inspect the evidence diff between these commands.
@@ -18,7 +18,7 @@ Inspect the evidence diff between these commands.
 ## 2. Build the release packet
 
 ```bash
-python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
 ```
 
 ## 3. Verify the generated ZIP hash sidecar
@@ -80,5 +80,5 @@ On macOS, replace the first command with
 After extraction, run:
 
 ```bash
-python3 tools/validate_release.py --skip-tests
+python3 -I -S -B tools/validate_release.py --skip-tests
 ```

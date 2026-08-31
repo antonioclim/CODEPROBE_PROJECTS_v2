@@ -59,11 +59,36 @@ no declared dependency graph to inspect; running them against the hosted runner
 would audit CI tooling rather than CodeProbe.
 
 `tools/check_dependency_boundary.py` instead verifies the present offline
-contract: no undeclared package manifest, no third-party Python import, no
-unapproved literal browser-runtime location and no mutable GitHub Action
-reference. It also checks the consistency of the declared Pyodide version and
-paths. The narrow workflow parser rejects YAML forms that it cannot prove safe;
-it is a regression policy, not a substitute for reviewing executable changes.
+contract: no undeclared package manifest or PEP 723 dependency block, no
+third-party Python import, no standard-library shadow module, no unapproved or
+missing source-tree entry, no vendored dependency tree, no package-manager
+reference in executable workflow fields, no unapproved literal or simply
+constructed browser-runtime location and no mutable GitHub Action reference.
+Remote executable HTML attributes are forbidden and CSP source lists accept
+only the repository's exact local keywords, schemes and Pyodide origin. The
+check also verifies the consistency of the declared Pyodide version and paths.
+The Python check performs bounded, scope-aware static evaluation of constant
+child-process commands. The browser and workflow checks recognise deliberately
+narrow lexical forms and reject security-sensitive YAML or JavaScript forms
+that they cannot prove safe. These controls are regression policy, not semantic
+parsers for arbitrary Python, JavaScript or shell and not a substitute for
+reviewing executable changes.
+
+CI's inline toolchain probes use `python -I -S -`. Repository release tools and
+their child gate, builder and unittest commands use the canonical
+`python -I -S -B` invocation. Isolated mode and disabled automatic `site`
+initialisation keep ambient import paths, site-packages and `sitecustomize`
+hooks out of the release process before tool code starts. Repository paths are
+then appended after the interpreter's standard-library paths. The unittest
+child removes every ambient `PYTHON*` variable from its explicit environment.
+
+The dependency boundary runs immediately after release-set safety and before
+Python compilation or unit-test discovery. A boundary failure reports unit
+tests as skipped, so untrusted checkout tests are not executed, while the
+remaining non-test checks continue to provide additional diagnostics. The
+boundary also rejects top-level standard-library shadow modules. Together these
+controls prevent checkout or ambient modules from pre-empting the gate's own
+standard-library imports before the inventory check runs.
 
 The default browser mode still loads Pyodide 0.25.0 from jsDelivr without a
 complete authenticated distribution inventory. This gate does not report that

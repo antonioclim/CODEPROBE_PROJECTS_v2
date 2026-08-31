@@ -3,10 +3,18 @@
 
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__" and not (
+    sys.flags.isolated and sys.flags.no_site
+):
+    raise SystemExit(
+        "this command requires isolated, site-free Python; rerun it with -I -S -B"
+    )
+
 import argparse
 import json
 import stat
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -17,7 +25,7 @@ SRC = ROOT / "src"
 TOOLS = ROOT / "tools"
 for path in (SRC, TOOLS):
     if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
+        sys.path.append(str(path))
 
 import audit_institutional_pack  # noqa: E402
 import check_file_references  # noqa: E402

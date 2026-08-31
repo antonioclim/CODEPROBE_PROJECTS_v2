@@ -158,13 +158,17 @@ class ReleaseReproducibilityUnitTests(unittest.TestCase):
             with zipfile.ZipFile(packet.zip_path, "x") as archive:
                 archive.writestr(info, b"print(1)\n")
             content = packet.zip_path.read_bytes()
-            packet.checksum_path.write_text(
-                f"{hashlib.sha256(content).hexdigest()}  {reproducibility.PACKET_BASENAME}\n",
-                encoding="ascii",
+            packet.checksum_path.write_bytes(
+                (
+                    f"{hashlib.sha256(content).hexdigest()}  "
+                    f"{reproducibility.PACKET_BASENAME}\n"
+                ).encode("ascii")
             )
-            packet.audit_path.write_text(
-                json.dumps(reproducibility.summarise_zip(packet.zip_path), indent=2) + "\n",
-                encoding="utf-8",
+            packet.audit_path.write_bytes(
+                (
+                    json.dumps(reproducibility.summarise_zip(packet.zip_path), indent=2)
+                    + "\n"
+                ).encode("utf-8")
             )
             with self.assertRaisesRegex(reproducibility.ReproducibilityError, "metadata is not canonical"):
                 reproducibility.verify_packet(
@@ -188,6 +192,59 @@ class ReleaseReproducibilityUnitTests(unittest.TestCase):
             self.assertNotIn(name, environment)
         self.assertEqual(environment["GIT_CONFIG_GLOBAL"], os.devnull)
         self.assertEqual(environment["GIT_CONFIG_NOSYSTEM"], "1")
+
+    def test_fast_gate_child_disables_site_initialisation(self) -> None:
+        payload = {"app_version": "1.0", "results": []}
+        with mock.patch.object(reproducibility, "run_command") as runner:
+            with mock.patch.object(
+                reproducibility,
+                "load_unique_json",
+                return_value=payload,
+            ):
+                observed = reproducibility.run_fast_gate(
+                    Path("source"),
+                    Path("result.json"),
+                )
+        self.assertEqual(observed, payload)
+        command = runner.call_args.args[0]
+        self.assertEqual(command[:4], [sys.executable, "-I", "-S", "-B"])
+
+    def test_builder_child_disables_site_initialisation(self) -> None:
+        commands: list[list[object]] = []
+
+        def fake_run(command: list[object], **_: object) -> None:
+            commands.append(command)
+            output = Path(command[command.index("--out") + 1])
+            for name in reproducibility.PACKET_FILENAMES:
+                (output.parent / name).write_bytes(b"packet\n")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_directory = Path(tmp) / "packet"
+            with mock.patch.object(
+                reproducibility,
+                "run_command",
+                side_effect=fake_run,
+            ):
+                reproducibility.build_packet(Path("source"), output_directory)
+        self.assertEqual(commands[0][:4], [sys.executable, "-I", "-S", "-B"])
+
+    def test_child_environment_removes_all_ambient_python_controls(self) -> None:
+        poisoned = {
+            "PYTHONHOME": "/tmp/hostile-home",
+            "PYTHONPATH": "/tmp/hostile-path",
+            "PYTHONWARNINGS": "error",
+            "PYTHONHASHSEED": "random",
+        }
+        with mock.patch.dict(os.environ, poisoned, clear=False):
+            environment = reproducibility._child_environment()
+        ambient_names = {
+            name for name in environment if name.upper().startswith("PYTHON")
+        }
+        self.assertEqual(
+            ambient_names,
+            {"PYTHONDONTWRITEBYTECODE", "PYTHONUTF8"},
+        )
+        self.assertEqual(environment[reproducibility.ACTIVE_ENVIRONMENT_VARIABLE], "1")
 
     def test_forced_crlf_state_is_rejected(self) -> None:
         record = b"i/lf w/crlf attr/text eol=lf\tchanged.txt\0"

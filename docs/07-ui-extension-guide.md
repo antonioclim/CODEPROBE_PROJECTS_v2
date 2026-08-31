@@ -27,7 +27,7 @@ renderReport()
 └── update export/history state
 ```
 
-New panels should follow the same pattern: read structured fields from the JSON report, render them into a dedicated container, and avoid mutating the report itself.
+New panels should follow the same pattern: read structured fields from the JSON report, render them into a dedicated container and avoid mutating the report itself.
 
 ### Project intake
 
@@ -54,5 +54,6 @@ Features that need to survive export should be added to the JSON report in `src/
 4. Add CSS to `app/codeprobe.css`.
 5. Add tests for schema, UI hooks and release validation.
 6. Refresh `app/resource-integrity.json`, run
-   `tools/check_release.py --write-release-evidence`, inspect the evidence diff,
-   and then run the read-only `tools/check_release.py` gate.
+   `python3 -I -S -B tools/check_release.py --write-release-evidence`, inspect the
+   evidence diff and then run the read-only
+   `python3 -I -S -B tools/check_release.py` gate.

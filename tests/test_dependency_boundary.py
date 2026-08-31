@@ -86,10 +86,12 @@ class DependencyBoundaryTests(unittest.TestCase):
         self.root = Path(self.temporary_directory.name)
         for relative in ("src", "tools", "tests", "app", ".github/workflows"):
             (self.root / relative).mkdir(parents=True, exist_ok=True)
-        (self.root / "src" / "codeprobe_runtime.py").write_text("VALUE = 1\n", encoding="utf-8")
-        (self.root / "src" / "main.py").write_text(
-            "import json\nimport codeprobe_runtime\n", encoding="utf-8"
+        (self.root / "src" / "codeprobe_runtime.py").write_text(
+            "import json\nVALUE = json.dumps(1)\n", encoding="utf-8"
         )
+        engine_package = self.root / "src" / "codeprobe_engine"
+        engine_package.mkdir()
+        (engine_package / "__init__.py").write_text("\n", encoding="utf-8")
         (self.root / "tools" / "helper.py").write_text(
             "from pathlib import Path\n", encoding="utf-8"
         )
@@ -143,6 +145,11 @@ class DependencyBoundaryTests(unittest.TestCase):
 
     def test_recognised_python_and_javascript_manifests_are_rejected(self) -> None:
         candidates = (
+            "Cargo.toml",
+            "conda-lock.yml",
+            "constraints",
+            "noxfile.py",
+            "go.mod",
             "pyproject.toml",
             "requirements-dev.txt",
             "dev-requirements.txt",
@@ -151,6 +158,7 @@ class DependencyBoundaryTests(unittest.TestCase):
             "package.json",
             "package-lock.json",
             "pnpm-lock.yaml",
+            "tox.ini",
         )
         for relative in candidates:
             with self.subTest(relative=relative):
@@ -186,8 +194,109 @@ class DependencyBoundaryTests(unittest.TestCase):
         vendor_file.write_text("// runtime\n", encoding="utf-8")
         self.assert_error_contains("no provenance inventory is configured")
 
+    def test_unreferenced_source_package_is_rejected(self) -> None:
+        package = self.root / "src" / "requests"
+        package.mkdir()
+        (package / "__init__.py").write_text("import json\n", encoding="utf-8")
+        self.assert_error_contains("unapproved source-tree entry src/requests")
+
+    def test_exact_source_inventory_requires_both_expected_entry_types(self) -> None:
+        runtime = self.root / "src" / "codeprobe_runtime.py"
+        runtime.unlink()
+        runtime.mkdir()
+        self.assert_error_contains("is missing or is not a regular file")
+
+        runtime.rmdir()
+        runtime.write_text("import json\n", encoding="utf-8")
+        package = self.root / "src" / "codeprobe_engine"
+        (package / "__init__.py").unlink()
+        package.rmdir()
+        package.write_text("\n", encoding="utf-8")
+        self.assert_error_contains("is missing or is not a regular directory")
+
+    def test_standard_library_shadow_modules_are_rejected(self) -> None:
+        for relative in ("json.py", "JSON.py", "tools/pathlib.py", "tests/shlex.py"):
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.write_text("raise SystemExit(0)\n", encoding="utf-8")
+                try:
+                    self.assert_error_contains("standard-library shadow module")
+                finally:
+                    path.unlink()
+
+    def test_standard_library_shadow_packages_are_rejected_case_insensitively(self) -> None:
+        for relative in ("json/__init__.py", "tools/PathLib/__init__.py"):
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.parent.mkdir(parents=True)
+                path.write_text("raise SystemExit(0)\n", encoding="utf-8")
+                try:
+                    self.assert_error_contains("standard-library shadow package")
+                finally:
+                    path.unlink()
+                    path.parent.rmdir()
+
+    def test_noncanonical_first_party_modules_are_rejected(self) -> None:
+        runtime = self.root / "tools" / "codeprobe_runtime.py"
+        runtime.write_text("raise RuntimeError('shadow')\n", encoding="utf-8")
+        self.assert_error_contains("noncanonical first-party shadow module")
+
+        runtime.unlink()
+        engine = self.root / "tests" / "CodeProbe_Engine"
+        engine.mkdir()
+        (engine / "__init__.py").write_text("\n", encoding="utf-8")
+        self.assert_error_contains("noncanonical first-party shadow package")
+
+    def test_packaged_dependency_artefacts_are_rejected(self) -> None:
+        for relative in (
+            "packages/example.whl",
+            "packages/example.egg",
+            "cache/x.conda",
+            "cache/example.tgz",
+            "cache/example.tar.gz",
+        ):
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"archive")
+                try:
+                    self.assert_error_contains("unapproved packaged dependency artefact")
+                finally:
+                    path.unlink()
+
+    def test_manifestless_node_modules_tree_is_rejected(self) -> None:
+        candidates = (
+            "app/node_modules/example/index.js",
+            "app/bower_components/example/index.js",
+            "app/jspm_packages/example/index.js",
+            "src/codeprobe_engine/thirdparty/example.py",
+            "src/codeprobe_engine/_vendor/example.py",
+            "__pypackages__/3.10/lib/requests.py",
+        )
+        for relative in candidates:
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("VALUE = 1\n", encoding="utf-8")
+                try:
+                    self.assert_error_contains("unapproved vendored dependency directory")
+                finally:
+                    path.unlink()
+                    if relative.startswith("app/"):
+                        stop = self.root / "app"
+                    elif relative.startswith("src/"):
+                        stop = self.root / "src" / "codeprobe_engine"
+                    else:
+                        stop = self.root
+                    parent = path.parent
+                    while parent != stop:
+                        parent.rmdir()
+                        parent = parent.parent
+
     def test_third_party_import_is_rejected(self) -> None:
-        (self.root / "src" / "main.py").write_text("import requests\n", encoding="utf-8")
+        (self.root / "src" / "codeprobe_runtime.py").write_text(
+            "import requests\n", encoding="utf-8"
+        )
         self.assert_error_contains("third-party or unresolved import 'requests'")
 
     def test_python_outside_standard_source_areas_is_still_audited(self) -> None:
@@ -197,14 +306,38 @@ class DependencyBoundaryTests(unittest.TestCase):
         self.assert_error_contains("third-party or unresolved import 'requests'")
 
     def test_standard_library_allowlist_is_not_host_version_dependent(self) -> None:
-        (self.root / "src" / "main.py").write_text("import tomllib\n", encoding="utf-8")
+        (self.root / "src" / "codeprobe_runtime.py").write_text(
+            "import tomllib\n", encoding="utf-8"
+        )
         self.assert_error_contains("third-party or unresolved import 'tomllib'")
+
+    def test_portable_standard_library_shadow_forms_are_rejected(self) -> None:
+        variants = (
+            self.root / "tools" / "JSON.PY",
+            self.root / "tools" / "json.pyc",
+            self.root / "tools" / "json.cpython-312-x86_64-linux-gnu.so",
+            self.root / "tools" / "Json" / "__INIT__.PY",
+        )
+        for path in variants:
+            with self.subTest(path=path):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"shadow")
+                self.assert_error_contains("standard-library shadow")
+                path.unlink()
+
+    def test_python_310_standard_library_import_is_approved(self) -> None:
+        (self.root / "src" / "codeprobe_runtime.py").write_text(
+            "import errno\n", encoding="utf-8"
+        )
+        self.assertEqual(self.errors(), [])
 
     def test_new_local_package_does_not_silently_become_approved(self) -> None:
         package = self.root / "src" / "requests"
         package.mkdir()
         (package / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
-        (self.root / "src" / "main.py").write_text("import requests\n", encoding="utf-8")
+        (self.root / "src" / "codeprobe_runtime.py").write_text(
+            "import requests\n", encoding="utf-8"
+        )
         self.assert_error_contains("third-party or unresolved import 'requests'")
 
     def test_dynamic_python_import_and_package_manager_command_are_rejected(self) -> None:
@@ -221,11 +354,438 @@ class DependencyBoundaryTests(unittest.TestCase):
         self.assertTrue(any("dynamic package-loading" in error for error in errors), errors)
         self.assertTrue(any("package-manager command" in error for error in errors), errors)
 
+    def test_constructed_python_package_manager_commands_are_rejected(self) -> None:
+        variants = (
+            "import subprocess\n"
+            "command = ['python', '-m', 'pip', 'install', 'plugin']\n"
+            "subprocess.run(args=command)\n",
+            "import subprocess\n"
+            "command = ['python', '-m', 'pip', 'install', 'plugin']\n"
+            "alias = command\n"
+            "subprocess.run(alias)\n",
+            "import subprocess\n"
+            "subprocess.run(['py' + 'thon', '-m', 'pi' + 'p', 'in' + 'stall', 'plugin'])\n",
+            "import subprocess\n"
+            "launch = subprocess.run\n"
+            "launch(['python', '-m', 'pip', 'install', 'plugin'])\n",
+            "import subprocess as sp\n"
+            "first = sp.run\n"
+            "launch = first\n"
+            "launch(['python', '-m', 'pip', 'install', 'plugin'])\n",
+            "import subprocess\n"
+            "tool = 'pip'\n"
+            "command = f'{tool} install plugin'\n"
+            "subprocess.run(command, shell=True)\n",
+            "import subprocess\n"
+            "tool = ''.join(['pi', 'p'])\n"
+            "subprocess.run([tool, 'install', 'plugin'])\n",
+            "import subprocess\n"
+            "subprocess.run([b'pip', b'install', b'plugin'])\n",
+            "import subprocess\n"
+            "subprocess.run(args=['install', 'plugin'], executable='pip')\n",
+        )
+        path = self.root / "tools" / "dynamic_command.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assert_error_contains("package-manager command")
+
+    def test_common_python_package_launch_forms_are_rejected(self) -> None:
+        variants = (
+            "import subprocess\nimport sys\n"
+            "subprocess.run([sys.executable, '-m', 'pip', 'install', 'plugin'])\n",
+            "import subprocess\n"
+            "subprocess.run(['py', '-m', 'pip', 'install', 'plugin'])\n",
+            "import subprocess\n"
+            "subprocess.run(['/usr/bin/env', 'pip', 'install', 'plugin'])\n",
+            "import os\nos.execvp('pip', ['pip', 'install', 'plugin'])\n",
+            "import subprocess\n"
+            "subprocess.run('echo ready; pip install plugin', shell=True)\n",
+            "import subprocess\n"
+            "subprocess.run(['sh', '-c', 'echo ready | pip install plugin'])\n",
+            "import subprocess\n"
+            "tool = ''.join(map(str, ['pi', 'p']))\n"
+            "subprocess.run([tool, 'install', 'plugin'])\n",
+        )
+        path = self.root / "tools" / "launch_forms.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assert_error_contains("package-manager command")
+
+    def test_python_command_analysis_fails_closed_on_branch_and_outer_ambiguity(self) -> None:
+        variants = (
+            "import subprocess\ncondition = True\n"
+            "if condition:\n    command = ['pip', 'install', 'plugin']\n"
+            "else:\n    command = ['echo', 'offline']\n"
+            "subprocess.run(command)\n",
+            "import subprocess\ncommand = 'echo offline'\n"
+            "def launch():\n    subprocess.run(command, shell=True)\n"
+            "command = 'pip install plugin'\nlaunch()\n",
+        )
+        path = self.root / "tools" / "ambiguous_command.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assert_error_contains("static analysis limits")
+
+    def test_python_analysis_depth_is_bounded_without_crashing(self) -> None:
+        (self.root / "tools" / "deep_expression.py").write_text(
+            "value = root" + ".child" * 1_500 + "\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("static analysis limits")
+
+    def test_sequential_safe_reassignment_and_quoted_shell_data_pass(self) -> None:
+        (self.root / "tools" / "safe_process.py").write_text(
+            "import subprocess\n"
+            "command = 'pip install plugin'\n"
+            "command = 'echo offline'\n"
+            "subprocess.run(command, shell=True)\n"
+            "subprocess.run(\"echo 'safe; pip install is unavailable'\", shell=True)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_dormant_function_assignment_does_not_contaminate_module_scope(self) -> None:
+        (self.root / "tools" / "safe_scope.py").write_text(
+            "import subprocess\n"
+            "command = 'echo offline'\n"
+            "def dormant():\n    command = 'pip install plugin'\n    return command\n"
+            "subprocess.run(command, shell=True)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_reflected_dynamic_import_is_rejected(self) -> None:
+        variants = (
+            "import importlib\n"
+            "loader = getattr(importlib, 'import_' + 'module')\n"
+            "loader('plugin')\n",
+            "import importlib\n"
+            "loader = object.__getattribute__(importlib, 'import_module')\n"
+            "loader('plugin')\n",
+            "import importlib\n"
+            "reflect = object.__getattribute__\n"
+            "loader = reflect(importlib, 'import_module')\n"
+            "loader('plugin')\n",
+            "import importlib\n"
+            "loader = type(importlib).__getattribute__(importlib, 'import_module')\n"
+            "loader('plugin')\n",
+        )
+        path = self.root / "tools" / "reflection.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assert_error_contains("dynamic package-loading reflection")
+
+    def test_reflected_process_launcher_is_rejected(self) -> None:
+        variants = (
+            "import subprocess\n"
+            "launch = getattr(subprocess, 'r' + 'un')\n"
+            "launch(['pip', 'install', 'plugin'])\n",
+            "import subprocess\n"
+            "launch = object.__getattribute__(subprocess, 'run')\n"
+            "launch(['pip', 'install', 'plugin'])\n",
+            "import subprocess\n"
+            "reflect = object.__getattribute__\n"
+            "launch = reflect(subprocess, 'run')\n"
+            "launch(['pip', 'install', 'plugin'])\n",
+        )
+        path = self.root / "tools" / "reflection.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assert_error_contains("dynamic process-execution reflection")
+
+    def test_module_namespace_dictionary_reflection_is_rejected(self) -> None:
+        variants = (
+            "import importlib\n"
+            "loader = importlib.__dict__.get('import_module')\n"
+            "loader('plugin')\n",
+            "import importlib\n"
+            "loader = vars(importlib).get('import_module')\n"
+            "loader('plugin')\n",
+            "import subprocess\n"
+            "launch = subprocess.__dict__.get('run')\n"
+            "launch(['pip', 'install', 'plugin'])\n",
+        )
+        path = self.root / "tools" / "namespace_reflection.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assert_error_contains("namespace lookup")
+
+    def test_module_aliases_do_not_hide_dynamic_loading_or_process_launchers(self) -> None:
+        variants = (
+            "import importlib\n"
+            "module = importlib\n"
+            "module.import_module('plugin')\n",
+            "import importlib\n"
+            "module = importlib\n"
+            "getattr(module, 'import_module')('plugin')\n",
+            "import importlib\n"
+            "module = importlib\n"
+            "module.__dict__.get('import_module')('plugin')\n",
+            "import subprocess\n"
+            "process = subprocess\n"
+            "process.run(['pip', 'install', 'plugin'])\n",
+        )
+        path = self.root / "tools" / "module_alias.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assertTrue(self.errors())
+
+    def test_additional_dynamic_code_and_process_launchers_are_rejected(self) -> None:
+        variants = (
+            "import os\n"
+            "os.spawnvp(os.P_WAIT, 'pip', ['pip', 'install', 'plugin'])\n",
+            "import os\n"
+            "os.posix_spawnp('pip', ['pip', 'install', 'plugin'], os.environ)\n",
+            "import importlib.machinery\n"
+            "loader = importlib.machinery.SourceFileLoader('plugin', '/tmp/plugin.py')\n"
+            "loader.load_module()\n",
+            "exec('import requests')\n",
+            "import sys\n"
+            "vars(sys.modules['builtins'])['__import__']('requests')\n",
+        )
+        path = self.root / "tools" / "additional_dynamic.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assertTrue(self.errors())
+
+    def test_code_execution_and_spawn_aliases_are_rejected(self) -> None:
+        variants = (
+            "runner = exec\nrunner('import requests')\n",
+            "runner = eval\nrunner('__import__(\\\"requests\\\")')\n",
+            "from os import spawnvp as launch\n"
+            "import os\nlaunch(os.P_WAIT, 'pip', ['pip', 'install', 'plugin'])\n",
+            "import os\nlaunch = os.spawnvp\n"
+            "launch(os.P_WAIT, 'pip', ['pip', 'install', 'plugin'])\n",
+        )
+        path = self.root / "tools" / "aliased_execution.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                errors = self.errors()
+                self.assertTrue(
+                    any(
+                        fragment in error
+                        for fragment in ("dynamic Python code execution", "package-manager command")
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_unresolved_process_commands_and_ordinary_wrappers_fail_closed(self) -> None:
+        variants = (
+            "import os\nimport subprocess\n"
+            "subprocess.run(os.environ['INSTALL_COMMAND'], shell=True)\n",
+            "import subprocess\ndef launch(command):\n"
+            "    subprocess.run(command, shell=True)\nlaunch('echo offline')\n",
+        )
+        path = self.root / "tools" / "unresolved_process.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assert_error_contains("process command exceeds static analysis limits")
+
+    def test_aliased_reflection_and_builtin_import_are_rejected(self) -> None:
+        variants = (
+            "import importlib\nreflect = getattr\n"
+            "loader = reflect(importlib, 'import_module')\nloader('plugin')\n",
+            "load = __import__\nload('plugin')\n",
+        )
+        path = self.root / "tools" / "reflected_alias.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                errors = self.errors()
+                self.assertTrue(
+                    any("dynamic package-loading" in error for error in errors),
+                    errors,
+                )
+
+    def test_unsupported_process_indirection_is_rejected(self) -> None:
+        variants = (
+            "import subprocess\noptions = {'args': ['echo', 'safe']}\n"
+            "subprocess.run(**options)\n",
+            "import subprocess\n_, launch = (None, subprocess.run)\n"
+            "launch(['echo', 'safe'])\n",
+            "import subprocess\na = subprocess.run\n"
+            "_, launch = (None, a)\nlaunch(['echo', 'safe'])\n",
+            "import subprocess\n(f := subprocess.run)(['pip', 'install', 'plugin'])\n",
+        )
+        path = self.root / "tools" / "indirect_process.py"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assertTrue(self.errors())
+
+    def test_safely_reassigned_launcher_alias_is_not_treated_as_process_execution(self) -> None:
+        (self.root / "tools" / "safe_alias.py").write_text(
+            "import subprocess\n"
+            "launch = subprocess.run\n"
+            "launch = print\n"
+            "launch(['pip', 'install', 'plugin'])\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_static_safe_reflection_is_not_treated_as_dependency_loading(self) -> None:
+        (self.root / "tools" / "reflection.py").write_text(
+            "import importlib\n"
+            "import subprocess\n"
+            "IMPORT_UTIL = getattr(importlib, 'util')\n"
+            "PIPE = getattr(subprocess, 'PIPE')\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+        (self.root / "tools" / "reflection.py").write_text(
+            "import importlib\n"
+            "import subprocess\n"
+            "invalidate = object.__getattribute__(importlib, 'invalidate_caches')\n"
+            "render = object.__getattribute__(subprocess, 'list2cmdline')\n"
+            "typed_invalidate = type(importlib).__getattribute__(importlib, 'invalidate_caches')\n"
+            "invalidate()\n"
+            "typed_invalidate()\n"
+            "print(render(['echo', 'offline']))\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_pep_723_inline_package_metadata_is_rejected(self) -> None:
+        path = self.root / "tools" / "inline.py"
+        path.write_text(
+            "# /// script\n"
+            "# dependencies = ['requests==2.32.5']\n"
+            "# ///\n"
+            "print('offline')\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("unapproved PEP 723 inline package metadata")
+        path.write_text("TEXT = '# /// script'\n", encoding="utf-8")
+        self.assertEqual(self.errors(), [])
+
+    def test_extensionless_python_shebang_pep_723_block_is_rejected(self) -> None:
+        path = self.root / "tools" / "inline-script"
+        shebangs = (
+            "#!/usr/bin/env python3",
+            "#!/usr/bin/env -S uv run --script",
+        )
+        for shebang in shebangs:
+            with self.subTest(shebang=shebang):
+                path.write_text(
+                    f"{shebang}\n"
+                    "# /// script\n"
+                    "# dependencies = ['requests==2.32.5']\n"
+                    "# ///\n",
+                    encoding="utf-8",
+                )
+                self.assert_error_contains("unapproved PEP 723 inline package metadata")
+
     def test_dynamic_javascript_package_loader_is_rejected(self) -> None:
         (self.root / "app" / "dynamic.mjs").write_text(
             "await pyodide.loadPackage('numpy');\n", encoding="utf-8"
         )
         self.assert_error_contains("dynamic Pyodide package loading")
+
+    def test_computed_and_template_javascript_loaders_are_rejected(self) -> None:
+        variants = (
+            "pyodide['load' + 'Package']('numpy');\n",
+            "const value = `${pyodide.loadPackage('numpy')}`;\n",
+            "const value = `${import('plugin')}`;\n",
+            "const value = `${importScripts('worker.js')}`;\n",
+        )
+        path = self.root / "app" / "computed-loader.js"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assertTrue(self.errors())
+
+    def test_mixed_case_browser_suffixes_are_scanned(self) -> None:
+        (self.root / "app" / "loader.JS").write_text(
+            "await import('plugin');\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("dynamic JavaScript import")
+
+    def test_remote_binding_analysis_has_a_work_budget(self) -> None:
+        source = "".join(
+            f'const remote{index} = "{dependency_boundary.PYODIDE_INDEX_URL}";\n'
+            for index in range(dependency_boundary.MAX_JAVASCRIPT_REMOTE_BINDINGS + 1)
+        )
+        (self.root / "app" / "many-remotes.js").write_text(source, encoding="utf-8")
+        self.assert_error_contains("remote-binding analysis exceeds static limits")
+
+    def test_javascript_loader_names_in_comments_and_strings_are_ignored(self) -> None:
+        (self.root / "app" / "dynamic.mjs").write_text(
+            "// require('offline')\n"
+            "const explanation = \"import('offline') and loadPackage('offline')\";\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_simply_constructed_javascript_remote_locations_are_rejected(self) -> None:
+        index_url = dependency_boundary.PYODIDE_INDEX_URL
+        variants = (
+            f'const base = "{index_url}";\nconst alias = base\n'
+            'script.src = `${alias}../../../npm/x.js`;\n',
+            r'const target = "\u0068ttps://evil.example/runtime.js";' "\n",
+            'script.src = "ht" + "tps://evil.example/runtime.js";\n',
+            f'script.src = "{index_url}".concat("../../../npm/x.js");\n',
+            f'script.src = new URL("../../../npm/x.js", "{index_url}");\n',
+            f'let base; base = "{index_url}";\n'
+            'script.src = (base) + "../../../npm/x.js";\n',
+            f'const base = {"(" * 20}"{index_url}"{")" * 20};\n'
+            'script.src = base?.concat("../../../npm/x.js");\n',
+            f'const base = /* {"x" * 600} */ "{index_url}";\n'
+            'script.src = new URL(resolvePath("x"), base);\n',
+        )
+        path = self.root / "app" / "loader.js"
+        for source in variants:
+            with self.subTest(source=source[:80]):
+                path.write_text(source, encoding="utf-8")
+                self.assertTrue(
+                    any(
+                        fragment in error
+                        for error in self.errors()
+                        for fragment in (
+                            "remote executable",
+                            "URL concatenation",
+                        )
+                    ),
+                    self.errors(),
+                )
+
+    def test_javascript_regex_literals_cannot_mask_a_later_remote_url(self) -> None:
+        (self.root / "app" / "loader.js").write_text(
+            r'const pattern = /[\"]/; const loader = "https://evil.example/x.js";'
+            "\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("unapproved remote executable origin")
+
+    def test_escaped_javascript_identifiers_are_rejected_without_crashing(self) -> None:
+        path = self.root / "app" / "loader.js"
+        path.write_text(
+            r'const b\u0061se = "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/";'
+            "\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("escaped JavaScript identifier")
+        path.write_text(r'const invalid = "\u{110000}";' "\n", encoding="utf-8")
+        self.errors()
+
+    def test_protocol_relative_ipv6_and_triple_slash_urls_are_rejected(self) -> None:
+        path = self.root / "app" / "loader.js"
+        for value in ("//[::1]/x.js", "///evil.example/x.js", "//user@evil.example/x.js"):
+            with self.subTest(value=value):
+                path.write_text(f'const loader = "{value}";\n', encoding="utf-8")
+                self.assert_error_contains("protocol-relative remote executable URL")
 
     def test_production_integrity_requires_lower_case_sha256(self) -> None:
         for digest in ("", "A" * 64, "a" * 63):
@@ -293,11 +853,141 @@ class DependencyBoundaryTests(unittest.TestCase):
         )
         self.assert_error_contains("unapproved remote executable URL")
 
+    def test_approved_remote_base_cannot_be_concatenated(self) -> None:
+        variants = (
+            f'script.src = "{dependency_boundary.PYODIDE_INDEX_URL}"'
+            ' + "../../../npm/pkg@latest/file.js";\n',
+            f'const base = "{dependency_boundary.PYODIDE_INDEX_URL}";\n'
+            'script.src = base + "../../../npm/pkg@latest/file.js";\n',
+        )
+        path = self.root / "app" / "loader.js"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assert_error_contains("remote executable URL concatenation")
+
+    def test_html_entity_urls_and_bare_origin_concatenation_are_rejected(self) -> None:
+        variants = (
+            (
+                f'<script>const base = "{dependency_boundary.PYODIDE_ORIGIN}"; '
+                'script.src = base + "/npm/pkg@latest/file.js";</script>\n',
+                "inline script or event handler",
+            ),
+            (
+                '<script src="https&colon;//evil.example/runtime.js"></script>\n',
+                "unapproved remote executable origin",
+            ),
+            (
+                '<script src="&#47;&#47;evil.example/runtime.js"></script>\n',
+                "protocol-relative remote executable URL",
+            ),
+        )
+        path = self.root / "app" / "index.html"
+        for source, expected in variants:
+            with self.subTest(expected=expected):
+                path.write_text(source, encoding="utf-8")
+                self.assert_error_contains(expected)
+
+    def test_html_url_normalisation_and_active_resource_kinds_are_strict(self) -> None:
+        variants = (
+            '<script src="https&NewLine;://evil.example/x.js"></script>\n',
+            '<script src="https&Tab;://evil.example/x.js"></script>\n',
+            '<script href="https://evil.example/x.js"></script>\n',
+            '<svg><script xlink:href="https://evil.example/x.js"></script></svg>\n',
+            f'<base href="{dependency_boundary.PYODIDE_INDEX_URL}">\n',
+        )
+        path = self.root / "app" / "index.html"
+        for source in variants:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                self.assertTrue(self.errors())
+
+    def test_html_anchor_and_image_preload_are_not_executable_locations(self) -> None:
+        (self.root / "app" / "index.html").write_text(
+            '<meta http-equiv="Content-Security-Policy" '
+            'content="script-src \'self\'">\n'
+            '<a href="https://example.com/docs">Documentation</a>\n'
+            '<link rel="preload" as="image" href="https://example.com/image.png">\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_csp_remote_source_forms_are_rejected(self) -> None:
+        unsafe_sources = (
+            "*",
+            "https:",
+            "http:",
+            "evil.example",
+            "*.evil.example",
+            "https&NewLine;://evil.example",
+        )
+        path = self.root / "app" / "index.html"
+        for unsafe_source in unsafe_sources:
+            with self.subTest(unsafe_source=unsafe_source):
+                path.write_text(
+                    '<meta http-equiv="Content-Security-Policy" '
+                    f'content="script-src \'self\' {unsafe_source}">\n',
+                    encoding="utf-8",
+                )
+                self.assert_error_contains("unapproved CSP executable source")
+
     def test_protocol_relative_remote_executable_url_is_rejected(self) -> None:
         (self.root / "app" / "index.html").write_text(
             "<script src=//evil.example/runtime.js></script>\n", encoding="utf-8"
         )
         self.assert_error_contains("protocol-relative remote executable URL")
+
+    def test_html_embedded_executable_locations_and_schemes_are_rejected(self) -> None:
+        path = self.root / "app" / "index.html"
+        csp = (
+            '<meta http-equiv="Content-Security-Policy" '
+            'content="script-src \'self\'">\n'
+        )
+        variants = (
+            ('<iframe src="https://evil.example/frame.html"></iframe>', "embedded active document"),
+            ('<object data="https://evil.example/object.html"></object>', "embedded active document"),
+            ('<embed src="https://evil.example/plugin.html">', "embedded active document"),
+            ('<script src="data:text/javascript,alert(1)"></script>', "unapproved executable URL scheme"),
+            ('<iframe srcdoc="<script>import(\'plugin\')</script>"></iframe>', "inline frame document"),
+            ('<body onload="script.src=\'https://evil.example/runtime.js\'">', "inline script or event handler"),
+        )
+        for markup, expected in variants:
+            with self.subTest(markup=markup):
+                path.write_text(csp + markup + "\n", encoding="utf-8")
+                self.assert_error_contains(expected)
+
+    def test_html_csp_local_confinement_and_navigation_are_fail_closed(self) -> None:
+        path = self.root / "app" / "index.html"
+        variants = (
+            ('<meta http-equiv="Content-Security-Policy" content="img-src \'self\'">',
+             "lacks script-src or default-src"),
+            ('<meta http-equiv="Content-Security-Policy" content="script-src \'self\'">'
+             '<script src="../tools/helper.js"></script>', "escapes app"),
+            ('<meta http-equiv="Content-Security-Policy" content="script-src \'self\'">'
+             '<meta http-equiv="refresh" content="0;url=https://evil.example">', "meta refresh"),
+            ('<meta http-equiv="Content-Security-Policy" content="script-src \'self\'">'
+             '<a href="javascript:alert(1)">open</a>', "navigation URL scheme"),
+            ('<meta http-equiv="Content-Security-Policy" content="script-src \'self\'">'
+             '<script>pyodide.loadPackage(\'numpy\')</script>', "inline script or event handler"),
+        )
+        for source, expected in variants:
+            with self.subTest(expected=expected):
+                path.write_text(source + "\n", encoding="utf-8")
+                self.assert_error_contains(expected)
+
+    def test_json_escaped_remote_url_is_rejected_after_decoding(self) -> None:
+        (self.root / "app" / "extra.json").write_text(
+            '{"loader":"https\\u003a//evil.example/x.js"}\n',
+            encoding="utf-8",
+        )
+        self.assert_error_contains("unapproved remote executable origin")
+
+    def test_html_requires_a_content_security_policy(self) -> None:
+        (self.root / "app" / "index.html").write_text(
+            "<!doctype html><title>Missing policy</title>\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("missing Content-Security-Policy")
 
     def test_workflow_is_required_and_pull_request_target_is_forbidden(self) -> None:
         workflow = self.root / ".github" / "workflows" / "ci.yml"
@@ -445,6 +1135,181 @@ class DependencyBoundaryTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assert_error_contains("package-manager command is forbidden")
+
+    def test_workflow_obfuscated_package_installs_are_rejected(self) -> None:
+        variants = (
+            "      - run: >-\n"
+            "          python -m pip\n"
+            "          install requests\n",
+            "      - run: |\n"
+            "          python -m pip \\\n"
+            "            install requests\n",
+            "      - env:\n"
+            "          TOOL: pip\n"
+            "        run: \"$TOOL\" install requests\n",
+            "      - env:\n"
+            "          TOOL: pip\n"
+            "        run: \"${{ env.TOOL }} install requests\"\n",
+            "      - run: \"pip install requests\"\n",
+            "      - run: echo ready | pip install requests\n",
+        )
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        for addition in variants:
+            with self.subTest(addition=addition):
+                workflow.write_text(approved_workflow() + addition, encoding="utf-8")
+                self.assert_error_contains("package-manager command is forbidden")
+
+    def test_workflow_dynamic_heads_fail_closed_through_wrappers_and_payloads(self) -> None:
+        variants = (
+            "      - shell: bash\n        run: TOOL=p''ip; $TOOL install requests\n",
+            "      - shell: bash\n        run: command $TOOL install requests\n",
+            "      - shell: bash\n        run: exec $TOOL install requests\n",
+            "      - shell: bash\n        run: env $TOOL install requests\n",
+            "      - shell: bash\n        run: sudo $TOOL install requests\n",
+            "      - shell: bash\n        run: bash -c \"$CMD\"\n",
+            "      - shell: bash\n        run: python -c \"$CODE\"\n",
+        )
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        for addition in variants:
+            with self.subTest(addition=addition):
+                workflow.write_text(approved_workflow() + addition, encoding="utf-8")
+                self.assert_error_contains("unsupported dynamic workflow executable")
+
+    def test_workflow_explicit_keys_tags_and_flow_env_are_rejected(self) -> None:
+        additions = (
+            "      - ? run\n        : pip install requests\n",
+            "      - run: !!str pip install requests\n",
+            "      - env: {TOOL: pip}\n        run: echo offline\n",
+            "  unsafe:\n    ? permissions\n    : write-all\n    runs-on: ubuntu-24.04\n",
+        )
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        for addition in additions:
+            with self.subTest(addition=addition):
+                workflow.write_text(approved_workflow() + addition, encoding="utf-8")
+                self.assertTrue(self.errors())
+
+    def test_workflow_security_sensitive_tagged_keys_are_rejected(self) -> None:
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        variants = (
+            approved_workflow()
+            + "      - !!str run: pip install requests\n",
+            approved_workflow()
+            + "      - !<tag:yaml.org,2002:str> uses: evil/action@main\n",
+            approved_workflow().replace(
+                "  validate:\n    runs-on:",
+                "  validate:\n    !!str permissions:\n"
+                "      contents: write\n    runs-on:",
+            ),
+        )
+        for source in variants:
+            with self.subTest(source=source):
+                workflow.write_text(source, encoding="utf-8")
+                self.assert_error_contains(
+                    "YAML tags on security-sensitive mapping keys"
+                )
+
+        workflow.write_text(
+            approved_workflow().replace(
+                "name: Offline boundary", "!!str name: Offline boundary"
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_workflow_ambiguous_referenced_environment_is_rejected(self) -> None:
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        workflow.write_text(
+            approved_workflow()
+            + "      - env:\n"
+            + "          TOOL: pip\n"
+            + "          TOOL: echo\n"
+            + "        run: $TOOL offline\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("ambiguous workflow environment variable")
+
+    def test_workflow_flow_runs_comments_and_shells_fail_closed(self) -> None:
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        variants = (
+            approved_workflow() + "      - {run: pip install requests}\n",
+            approved_workflow()
+            + "      - shell: bash\n"
+            + "        run: echo foo#bar; pip install requests\n",
+            approved_workflow()
+            + "      - shell: cmd\n"
+            + "        run: |\n"
+            + "          echo safe # scanner must not truncate & pip install requests\n",
+        )
+        for source in variants:
+            with self.subTest(source=source.rsplit("\n", 3)[-3:]):
+                workflow.write_text(source, encoding="utf-8")
+                self.assertTrue(self.errors())
+
+    def test_workflow_dynamic_heads_prefixes_and_expansion_are_rejected(self) -> None:
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        commands = (
+            "$TOOL install requests",
+            "command pip install requests",
+            "exec pip install requests",
+            "$'pip' install requests",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                workflow.write_text(
+                    approved_workflow()
+                    + "      - shell: bash\n"
+                    + f"        run: {command}\n",
+                    encoding="utf-8",
+                )
+                self.assertTrue(self.errors())
+
+        workflow.write_text(
+            approved_workflow()
+            + "      - env:\n"
+            + "          X: $X$X$X$X\n"
+            + "        shell: bash\n"
+            + "        run: $X\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("workflow command exceeds static analysis limits")
+
+    def test_numeric_yaml_anchor_is_rejected_but_shell_glob_is_not(self) -> None:
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        workflow.write_text(
+            approved_workflow() + "extra: &123 safe\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("YAML anchors and aliases")
+        workflow.write_text(
+            approved_workflow()
+            + "      - shell: bash\n"
+            + "        run: echo *files\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_workflow_quoted_shell_data_and_unused_tool_environment_pass(self) -> None:
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        workflow.write_text(
+            approved_workflow()
+            + "      - env:\n"
+            + "          TOOL: pip\n"
+            + "        shell: bash\n"
+            + "        run: echo 'safe; pip install is unavailable'\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_workflow_metadata_is_not_treated_as_an_executable_command(self) -> None:
+        workflow = self.root / ".github" / "workflows" / "ci.yml"
+        workflow.write_text(
+            approved_workflow()
+            + "      - name: Explain why pip install is forbidden\n"
+            + "        shell: bash\n"
+            + "        run: echo offline\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
 
     def test_cli_prints_external_runtime_limitation_separately(self) -> None:
         output = io.StringIO()

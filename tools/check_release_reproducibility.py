@@ -8,6 +8,15 @@ release checker and builder in child source trees.
 
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__" and not (
+    sys.flags.isolated and sys.flags.no_site
+):
+    raise SystemExit(
+        "this command requires isolated, site-free Python; rerun it with -I -S -B"
+    )
+
 import argparse
 import difflib
 import hashlib
@@ -18,7 +27,6 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 import tarfile
 import tempfile
 import unicodedata
@@ -603,16 +611,25 @@ def load_unique_json(path: Path) -> Any:
 
 
 def _child_environment() -> dict[str, str]:
-    return {
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith("PYTHON")
+    }
+    environment.update({
         ACTIVE_ENVIRONMENT_VARIABLE: "1",
         "PYTHONDONTWRITEBYTECODE": "1",
-    }
+        "PYTHONUTF8": "1",
+    })
+    return environment
 
 
 def run_fast_gate(source_root: Path, result_path: Path) -> dict[str, Any]:
     run_command(
         [
             sys.executable,
+            "-I",
+            "-S",
             "-B",
             source_root / "tools" / "check_release.py",
             "--skip-tests",
@@ -621,6 +638,7 @@ def run_fast_gate(source_root: Path, result_path: Path) -> dict[str, Any]:
         ],
         cwd=source_root,
         environment=_child_environment(),
+        replace_environment=True,
     )
     payload = load_unique_json(result_path)
     if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
@@ -653,6 +671,8 @@ def build_packet(source_root: Path, output_directory: Path) -> PacketPaths:
     run_command(
         [
             sys.executable,
+            "-I",
+            "-S",
             "-B",
             source_root / "tools" / "build_release.py",
             "--skip-tests",
@@ -661,6 +681,7 @@ def build_packet(source_root: Path, output_directory: Path) -> PacketPaths:
         ],
         cwd=source_root,
         environment=_child_environment(),
+        replace_environment=True,
     )
     observed = sorted(path.name for path in output_directory.iterdir())
     if observed != sorted(PACKET_FILENAMES):

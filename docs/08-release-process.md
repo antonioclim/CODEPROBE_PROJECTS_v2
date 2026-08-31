@@ -18,7 +18,7 @@ Before building a release, update:
 From the repository root:
 
 ```bash
-python3 tools/check_release.py
+python3 -I -S -B tools/check_release.py
 ```
 
 This is the canonical read-only gate. It does not write bytecode, audit reports
@@ -30,21 +30,25 @@ This runs:
 
 - release-set safety checks that reject symbolic links and non-regular files
   before later readers are invoked;
+- the standard-library dependency boundary and immutable workflow action pins;
 - Python compilation checks;
-- unit-test discovery;
+- unit-test discovery, only after the dependency boundary succeeds;
 - JavaScript syntax checking through Node.js when available;
 - browser CSP and local SRI checks;
 - browser-resource integrity checks;
 - version-consistency checks;
 - file and project smoke analyses;
 - metric-inventory checks;
-- the standard-library dependency boundary and immutable workflow action pins;
 - exact verification of the committed audit reports and release manifest.
+
+A dependency-boundary failure prevents the checkout's unit tests from running.
+The gate reports that test step as skipped while the remaining non-test checks
+continue to provide additional diagnostics.
 
 After an intentional source change, refresh the tracked release evidence with:
 
 ```bash
-python3 tools/check_release.py --write-release-evidence
+python3 -I -S -B tools/check_release.py --write-release-evidence
 ```
 
 The refresh is attempted only after the other checks pass. Each evidence file
@@ -59,7 +63,7 @@ release set.
 For a faster pre-commit pass:
 
 ```bash
-python3 tools/check_release.py --skip-tests
+python3 -I -S -B tools/check_release.py --skip-tests
 ```
 
 Machine-readable results may be requested with `--json-out`, but that explicit
@@ -74,7 +78,7 @@ matrix. It never uses `--write-release-evidence`: stale evidence must fail rathe
 than be repaired by automation. A separate job runs:
 
 ```bash
-python3 -B tools/check_release_reproducibility.py
+python3 -I -S -B tools/check_release_reproducibility.py
 ```
 
 That command requires a clean Git commit. It compares the committed tree with
@@ -98,7 +102,7 @@ exactly; an extra or missing release file fails verification.
 ## 4. Build the release ZIP
 
 ```bash
-python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
 ```
 
 The builder runs the complete read-only gate against the committed evidence,

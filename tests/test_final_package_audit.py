@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import io
 import json
+import os
 import shutil
 import stat
 import subprocess
@@ -24,6 +26,23 @@ from codeprobe_engine.release import ReleaseSetError  # noqa: E402
 
 
 class FinalPackageAuditTests(unittest.TestCase):
+    def symlink_or_skip(
+        self,
+        link: Path,
+        target: Path,
+        *,
+        target_is_directory: bool = False,
+    ) -> None:
+        try:
+            link.symlink_to(target, target_is_directory=target_is_directory)
+        except OSError as exc:
+            if os.name == "nt" and (
+                getattr(exc, "winerror", None) == 1314
+                or exc.errno in {errno.EACCES, errno.EPERM}
+            ):
+                self.skipTest("symbolic-link privilege is unavailable on this Windows runner")
+            raise
+
     @staticmethod
     def snapshot_tree(root: Path) -> dict[str, tuple[object, ...]]:
         snapshot: dict[str, tuple[object, ...]] = {}
@@ -150,6 +169,89 @@ class FinalPackageAuditTests(unittest.TestCase):
         self.assertFalse(dependency_result.ok)
         self.assertIn("unapproved dependency fixture", dependency_result.detail)
 
+    def test_dependency_boundary_failure_skips_untrusted_unittests(self) -> None:
+        forced_failure = check_release.CheckResult(
+            "dependency-boundary",
+            False,
+            "forced dependency failure",
+        )
+        with mock.patch.object(
+            check_release,
+            "check_dependency_policy",
+            return_value=forced_failure,
+        ):
+            with mock.patch.object(check_release, "check_unittest_suite") as suite:
+                results = check_release.run_checks(
+                    verify_manifest_file=False,
+                    verify_persisted_evidence=False,
+                )
+        suite.assert_not_called()
+        names = [result.name for result in results]
+        self.assertLess(
+            names.index("dependency-boundary"),
+            names.index("python-compile"),
+        )
+        unit_tests = next(result for result in results if result.name == "unit-tests")
+        self.assertTrue(unit_tests.ok)
+        self.assertTrue(unit_tests.skipped)
+        self.assertIn("dependency boundary failed", unit_tests.detail)
+
+    def test_canonical_cli_ignores_ambient_site_and_shadow_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ambient = Path(tmp)
+            marker = ambient / "sitecustomize-loaded.txt"
+            (ambient / "sitecustomize.py").write_text(
+                f"open({str(marker)!r}, 'w', encoding='utf-8').write('loaded\\n')\n",
+                encoding="utf-8",
+            )
+            (ambient / "json.py").write_text(
+                "raise RuntimeError('ambient json shadow imported')\n",
+                encoding="utf-8",
+            )
+            encodings = ambient / "encodings"
+            encodings.mkdir()
+            (encodings / "__init__.py").write_text(
+                "import _io\n"
+                f"_io.open({str(marker)!r}, 'w').write('pre-bootstrap loaded\\n')\n",
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = str(ambient)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-S",
+                    "-B",
+                    str(ROOT / "tools" / "check_release.py"),
+                    "--help",
+                ],
+                cwd=ambient,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+            output = completed.stdout + completed.stderr
+            self.assertEqual(completed.returncode, 0, output)
+            self.assertFalse(marker.exists())
+            self.assertNotIn("ambient json shadow imported", output)
+
+    def test_release_cli_refuses_nonisolated_invocation(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-S",
+                "-B",
+                str(ROOT / "tools" / "check_release.py"),
+                "--help",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("requires isolated, site-free Python", completed.stderr)
+
     def test_unsafe_release_set_stops_the_gate_before_other_readers(self) -> None:
         with mock.patch.object(
             check_release,
@@ -175,7 +277,7 @@ class FinalPackageAuditTests(unittest.TestCase):
             external = Path(tmp) / "external.json"
             external.write_text('{"external": true}\n', encoding="utf-8")
             evidence.unlink()
-            evidence.symlink_to(external)
+            self.symlink_or_skip(evidence, external)
             with mock.patch.object(final_audit, "read_regular_file") as reader:
                 with contextlib.redirect_stdout(io.StringIO()):
                     exit_code = final_audit.main(["--root", str(fixture_root)])
@@ -327,6 +429,33 @@ class FinalPackageAuditTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("not a recognised successful run", result.detail)
 
+    def test_unittest_child_removes_all_ambient_python_controls(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="",
+            stderr="Ran 1 test in 0.001s\n\nOK\n",
+        )
+        ambient = {
+            "PYTHONHASHSEED": "314159",
+            "PYTHONHOME": "/ambient/python-home",
+            "PYTHONPATH": "/ambient/python-path",
+            "PYTHONUTF8": "1",
+        }
+        with mock.patch.dict(check_release.os.environ, ambient, clear=False):
+            with mock.patch.object(
+                check_release.subprocess,
+                "run",
+                return_value=completed,
+            ) as runner:
+                result = check_release.check_unittest_suite()
+        self.assertTrue(result.ok, result.detail)
+        environment = runner.call_args.kwargs["env"]
+        self.assertFalse(
+            any(key.upper().startswith("PYTHON") for key in environment),
+            environment,
+        )
+
     def test_default_gate_leaves_complete_source_tree_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture_root = Path(tmp) / "kit"
@@ -336,7 +465,15 @@ class FinalPackageAuditTests(unittest.TestCase):
                 ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"),
             )
             refresh = subprocess.run(
-                [sys.executable, "tools/check_release.py", "--skip-tests", "--write-release-evidence"],
+                [
+                    sys.executable,
+                    "-I",
+                    "-S",
+                    "-B",
+                    "tools/check_release.py",
+                    "--skip-tests",
+                    "--write-release-evidence",
+                ],
                 cwd=fixture_root,
                 text=True,
                 capture_output=True,
@@ -344,7 +481,7 @@ class FinalPackageAuditTests(unittest.TestCase):
             self.assertEqual(refresh.returncode, 0, refresh.stdout + refresh.stderr)
             before = self.snapshot_tree(fixture_root)
             gate = subprocess.run(
-                [sys.executable, "tools/check_release.py", "--skip-tests"],
+                [sys.executable, "-I", "-S", "-B", "tools/check_release.py", "--skip-tests"],
                 cwd=fixture_root,
                 text=True,
                 capture_output=True,

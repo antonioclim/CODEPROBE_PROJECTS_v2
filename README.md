@@ -10,13 +10,13 @@ Version `2.2.0` is the **naming-stable release**. The documentation, educator re
 
 Use CodeProbe to help students inspect authored source files before submission. The kit reports structural, stylometric and code-quality signals that may justify revision or discussion.
 
-The reported **AI-style concern score** is a review signal; it is not proof of misconduct, not a formal authorship attribution, and not a certificate of independent authorship. Where a manual review is needed, the score should be read with repository history, intermediate commits, design notes, tests and an oral code walkthrough.
+The reported **AI-style concern score** is a review signal; it is not proof of misconduct, not a formal authorship attribution and not a certificate of independent authorship. Where a manual review is needed, the score should be read with repository history, intermediate commits, design notes, tests and an oral code walkthrough.
 
 The browser interface accepts direct drag-and-drop: a single source file opens single-file analysis; a folder, multiple files or a GitHub ZIP export opens project mode. Project mode applies built-in exclusions, any `.codeprobeignore` file found in the project and the structured manual-review guidance that appears in exported reports. When a ZIP contains a single hosted-export wrapper such as `repository-main/`, CodeProbe strips that wrapper before evaluating `.codeprobeignore`; the report records this in `input_packaging`.
 
 ## Repository layout
 
-The active file inventory is `docs/00-file-catalogue.md`, the naming rules are `docs/01-naming-policy.md`, and the migration record is `release/file-rename-map.csv`.
+The active file inventory is `docs/00-file-catalogue.md`, the naming rules are `docs/01-naming-policy.md` and the migration record is `release/file-rename-map.csv`.
 
 ```text
 .
@@ -41,7 +41,7 @@ A defensible use model is:
 1. students analyse only the source files they authored for the assessed task;
 2. starter code, third-party libraries, generated files, minified assets, build output and documentation are excluded;
 3. the bundled **60% trigger is provisional** and should be replaced by a course-local calibration profile when possible;
-4. a result above the active review trigger should normally lead to revision, disclosure where required, and human review if concern persists;
+4. a result above the active review trigger should normally lead to revision, disclosure where required and human review if concern persists;
 5. no academic penalty should be based on the CodeProbe score alone.
 
 ### Suggested provisional interpretation bands
@@ -120,19 +120,19 @@ Then open the printed local address.
 Project analysis:
 
 ```bash
-python3 tools/analyze_project.py path/to/project --json-out report.json --text-out report.txt
+python3 -I -S -B tools/analyze_project.py --folder path/to/project --json-out report.json --text-out report.txt
 ```
 
 ZIP analysis:
 
 ```bash
-python3 tools/analyze_project.py path/to/project.zip --json-out report.json --text-out report.txt
+python3 -I -S -B tools/analyze_project.py --zip path/to/project.zip --json-out report.json --text-out report.txt
 ```
 
 Calibration from a manifest:
 
 ```bash
-python3 tools/calibrate_profile.py   --manifest calibration/01-corpus-manifest-template.csv   --profile-id intro-python-2026-v1   --label "Intro Python 2026"   --target-fpr 10   --profile-out calibration/profiles/intro-python-2026.json
+python3 -I -S -B tools/calibrate_profile.py   --manifest calibration/01-corpus-manifest-template.csv   --profile-id intro-python-2026-v1   --label "Intro Python 2026"   --target-fpr 10   --profile-out calibration/profiles/intro-python-2026.json
 ```
 
 ## Release validation
@@ -140,7 +140,7 @@ python3 tools/calibrate_profile.py   --manifest calibration/01-corpus-manifest-t
 Run the full validation pipeline from the repository root:
 
 ```bash
-python3 tools/check_release.py
+python3 -I -S -B tools/check_release.py
 ```
 
 This canonical gate is read-only. Its first check rejects symbolic links and
@@ -150,7 +150,7 @@ replacing them. After an intentional source change, refresh those evidence files
 only after the remaining checks pass:
 
 ```bash
-python3 tools/check_release.py --write-release-evidence
+python3 -I -S -B tools/check_release.py --write-release-evidence
 ```
 
 The former `--write-manifest` spelling remains a compatibility alias.
@@ -158,7 +158,7 @@ The former `--write-manifest` spelling remains a compatibility alias.
 Build the manifest-verified three-file release packet:
 
 ```bash
-python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
 ```
 
 The builder verifies the committed evidence without rewriting tracked source

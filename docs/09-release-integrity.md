@@ -15,7 +15,7 @@ For CodeProbe, source files such as Python, JavaScript, HTML, CSS and Markdown c
 When two releases appear unexpectedly different in size, do not compare only the file size displayed by the operating system or browser. Use this procedure:
 
 ```bash
-python3 tools/compare_releases.py old_release.zip new_release.zip \
+python3 -I -S -B tools/compare_releases.py old_release.zip new_release.zip \
   --json-out release_comparison.json \
   --md-out release_comparison.md
 ```
@@ -36,7 +36,7 @@ release is not acceptable merely because its ZIP size looks plausible.
 
 ## Source-tree immutability invariant
 
-`python3 tools/check_release.py` is a read-only operation. Run it in both a fresh
+`python3 -I -S -B tools/check_release.py` is a read-only operation. Run it in both a fresh
 Git clone and an exact `git archive` export when preparing a release candidate.
 With the same supported toolchain and a byte-preserving checkout configuration,
 the semantic results must agree, and a before/after inventory of the complete
@@ -47,7 +47,8 @@ Packaging uses the strictly verified manifest as an allowlist and captures all
 member bytes before ZIP construction. A file added or changed after capture
 cannot enter or alter that build. Symbolic links and special files outside the
 explicitly excluded VCS, cache, build and bytecode locations are rejected before
-any other release checker runs.
+subsequent release check functions and readers run. Release-tool imports have
+already occurred at that point.
 
 The repository-level `.gitattributes` policy fixes detected text files to LF,
 disables content-changing Git filters and substitutions and marks the current

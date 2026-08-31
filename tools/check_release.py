@@ -8,15 +8,24 @@ reported as skipped rather than hidden.
 
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__" and not (
+    sys.flags.isolated and sys.flags.no_site
+):
+    raise SystemExit(
+        "this command requires isolated, site-free Python; rerun it with -I -S -B"
+    )
+
 import argparse
 import base64
 import hashlib
 import json
+import os
 import py_compile
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,10 +41,10 @@ TOOLS = ROOT / "tools"
 MAX_UNITTEST_FAILURE_IDENTIFIERS = 5
 MAX_UNITTEST_FAILURE_IDENTIFIER_CHARACTERS = 300
 MAX_UNITTEST_DETAIL_CHARACTERS = 1_024
-if str(TOOLS) not in sys.path:
-    sys.path.insert(0, str(TOOLS))
 if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+    sys.path.append(str(SRC))
+if str(TOOLS) not in sys.path:
+    sys.path.append(str(TOOLS))
 
 import codeprobe_runtime as engine  # noqa: E402
 import audit_institutional_pack  # noqa: E402
@@ -97,10 +106,21 @@ def check_dependency_policy() -> CheckResult:
 
 
 def check_unittest_suite(verbose: bool = False) -> CheckResult:
-    cmd = [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"]
+    cmd = [sys.executable, "-I", "-S", "-B", "-m", "unittest", "discover", "-s", "tests"]
     if verbose:
         cmd.append("-v")
-    completed = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith("PYTHON")
+    }
+    completed = subprocess.run(
+        cmd,
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+    )
     unittest_output = completed.stderr
     lines = unittest_output.strip().splitlines()
     count_matches = re.findall(r"^Ran (?P<count>[0-9]{1,9}) tests? in ", unittest_output, re.M)
@@ -371,7 +391,7 @@ def check_final_package_audit() -> CheckResult:
 
 
 def check_release_set_safety(root: Path = ROOT) -> CheckResult:
-    """Reject unsafe filesystem entries before any other checker can read them."""
+    """Reject unsafe entries before subsequent check functions read the tree."""
     try:
         paths = validate_release_set(root)
     except ReleaseSetError as exc:
@@ -464,11 +484,21 @@ def run_checks(
     safety = check_release_set_safety()
     if not safety.ok:
         return [safety]
-    checks = [safety, check_python_compile()]
+    dependency = check_dependency_policy()
+    checks = [safety, dependency, check_python_compile()]
     if not skip_tests:
-        checks.append(check_unittest_suite(verbose=verbose_tests))
+        if dependency.ok:
+            checks.append(check_unittest_suite(verbose=verbose_tests))
+        else:
+            checks.append(
+                CheckResult(
+                    "unit-tests",
+                    True,
+                    "not run because the dependency boundary failed",
+                    skipped=True,
+                )
+            )
     checks.extend([
-        check_dependency_policy(),
         check_javascript_syntax(require_node=require_node),
         check_browser_security(),
         check_resource_integrity(),

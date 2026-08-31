@@ -17,7 +17,7 @@ The directory should contain `pyodide.js`, WebAssembly files and the standard Py
 From the kit root:
 
 ```bash
-python3 - <<'PY'
+python3 -I -S - <<'PY'
 from pathlib import Path
 import hashlib
 path = Path('app/vendor/pyodide/v0.25.0/full/pyodide.js')
@@ -70,8 +70,8 @@ Once the complete inventory and its verifier have been introduced, refresh and
 check the tracked evidence:
 
 ```bash
-python3 tools/check_release.py --write-release-evidence
-python3 tools/check_release.py
+python3 -I -S -B tools/check_release.py --write-release-evidence
+python3 -I -S -B tools/check_release.py
 ```
 
 The first command explicitly refreshes the audit reports and release manifest.
@@ -83,7 +83,7 @@ release gate. Large Pyodide files will increase the ZIP size substantially.
 A validated release ZIP can be produced with:
 
 ```bash
-python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_offline.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_offline.zip
 ```
 
 Vendored runtime content must consist of regular files rather than symbolic

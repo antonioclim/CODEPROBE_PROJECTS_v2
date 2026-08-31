@@ -9,10 +9,18 @@ input handling with the calibration tools to reduce duplicate maintenance paths.
 
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__" and not (
+    sys.flags.isolated and sys.flags.no_site
+):
+    raise SystemExit(
+        "this command requires isolated, site-free Python; rerun it with -I -S -B"
+    )
+
 import argparse
 import base64
 import json
-import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -22,7 +30,7 @@ SRC = ROOT / "src"
 TOOLS = ROOT / "tools"
 for _path in (SRC, TOOLS):
     if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
+        sys.path.append(str(_path))
 
 import codeprobe_runtime as engine
 from codeprobe_engine.project_io import read_folder_files, stderr_warning
