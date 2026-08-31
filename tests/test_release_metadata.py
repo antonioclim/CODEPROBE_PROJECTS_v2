@@ -285,6 +285,48 @@ class ReleaseMetadataTests(unittest.TestCase):
                 release._stat_identity(different_creation_time),
             )
 
+    def test_windows_metadata_uses_verified_path_despite_fd_capability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "evidence.json"
+            target.write_bytes(b"original\n")
+            real_chmod = os.chmod
+            real_utime = os.utime
+            timestamp = 1_700_000_000_000_000_000
+
+            with mock.patch.object(release.os, "name", "nt"):
+                self.assertFalse(release._use_metadata_descriptor(release.os.chmod))
+                self.assertFalse(release._use_metadata_descriptor(release.os.utime))
+            with mock.patch.object(
+                release.os,
+                "chmod",
+                wraps=real_chmod,
+            ) as chmodder:
+                with mock.patch.object(
+                    release.os,
+                    "utime",
+                    wraps=real_utime,
+                ) as timer:
+                    with mock.patch.object(
+                        release,
+                        "_use_metadata_descriptor",
+                        return_value=False,
+                    ):
+                        release.atomic_write_bytes(
+                            target,
+                            b"replacement\n",
+                            times_ns=(timestamp, timestamp),
+                        )
+
+            self.assertEqual(target.read_bytes(), b"replacement\n")
+            self.assertTrue(timer.called)
+            self.assertTrue(chmodder.called)
+            self.assertTrue(
+                all(isinstance(call.args[0], Path) for call in timer.call_args_list)
+            )
+            self.assertTrue(
+                all(isinstance(call.args[0], Path) for call in chmodder.call_args_list)
+            )
+
     def test_manifest_verifier_rejects_every_authoritative_metadata_tamper(self):
         mutations = {
             "schema": lambda value: value.__setitem__("schema_version", "forged/v1"),

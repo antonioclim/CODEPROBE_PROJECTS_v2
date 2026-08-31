@@ -129,15 +129,17 @@ def atomic_write_bytes(
             if (opened.st_dev, opened.st_ino) != temporary_identity:
                 raise ReleaseSetError("atomic-write temporary file changed before metadata preparation")
             if times_ns is not None:
-                if os.utime in os.supports_fd:
+                if _use_metadata_descriptor(os.utime):
                     os.utime(descriptor, ns=times_ns)
                 else:
                     # Windows finalises last-write time only after writing
-                    # handles close. Its pathname API is used while a verified
-                    # read handle remains open and cooperative quiescence is
-                    # required for the destination directory.
+                    # handles close and can reject metadata changes through a
+                    # read-only descriptor even when Python advertises fd
+                    # support. Its pathname API is used while a verified read
+                    # handle remains open and cooperative quiescence is required
+                    # for the destination directory.
                     os.utime(temporary_path, ns=times_ns)
-            if os.chmod in os.supports_fd:
+            if _use_metadata_descriptor(os.chmod):
                 os.chmod(descriptor, selected_mode)
             else:
                 os.chmod(temporary_path, selected_mode)
@@ -233,6 +235,10 @@ def _mode_matches(left_mode: int, right_mode: int) -> bool:
     if os.name == "nt":
         return bool(left & stat.S_IWRITE) == bool(right & stat.S_IWRITE)
     return left == right
+
+
+def _use_metadata_descriptor(function: Callable[..., object]) -> bool:
+    return os.name != "nt" and function in os.supports_fd
 
 
 def _path_opens_same_file(path: Path, descriptor: int, root: Path | None) -> bool:
