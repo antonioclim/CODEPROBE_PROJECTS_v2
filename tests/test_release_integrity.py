@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import json
 import os
@@ -26,6 +27,23 @@ import compare_releases as release_compare
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
+    def symlink_or_skip(
+        self,
+        link: Path,
+        target: Path,
+        *,
+        target_is_directory: bool = False,
+    ) -> None:
+        try:
+            link.symlink_to(target, target_is_directory=target_is_directory)
+        except OSError as exc:
+            if os.name == "nt" and (
+                getattr(exc, "winerror", None) == 1314
+                or exc.errno in {errno.EACCES, errno.EPERM}
+            ):
+                self.skipTest("symbolic-link privilege is unavailable on this Windows runner")
+            raise
+
     @staticmethod
     def make_release_fixture(parent: Path, name: str) -> Path:
         root = parent / name
@@ -34,6 +52,31 @@ class ReleaseIntegrityTests(unittest.TestCase):
         (root / "source.py").write_bytes(b"print('stable')\n")
         write_manifest(root, engine.APP_VERSION)
         return root
+
+    def test_host_mode_comparison_respects_windows_capabilities(self):
+        self.assertTrue(
+            build_release._host_mode_matches(0o666, 0o644, platform_name="nt")
+        )
+        self.assertFalse(
+            build_release._host_mode_matches(0o444, 0o644, platform_name="nt")
+        )
+        self.assertTrue(
+            build_release._host_mode_matches(0o644, 0o644, platform_name="posix")
+        )
+        self.assertFalse(
+            build_release._host_mode_matches(0o666, 0o644, platform_name="posix")
+        )
+
+    def test_windows_file_metadata_sync_does_not_hide_io_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "packet.zip"
+            path.write_bytes(b"packet")
+            failure = OSError(errno.EIO, "simulated storage failure")
+            with mock.patch.object(build_release.os, "name", "nt"):
+                with mock.patch.object(build_release.os, "fsync", side_effect=failure):
+                    with self.assertRaises(OSError) as captured:
+                        build_release._fsync_file_metadata(path)
+            self.assertEqual(captured.exception.errno, errno.EIO)
 
     def _zip_with(self, path: Path, members: dict[str, bytes]) -> None:
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -131,7 +174,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
             external = parent / "external.bin"
             external.write_bytes(b"preserve me")
             output = parent / "release.zip"
-            output.symlink_to(external)
+            self.symlink_or_skip(output, external)
             with self.assertRaisesRegex(build_release.PublicationError, "symbolic link"):
                 build_release.publish_release(root, output, app_version=engine.APP_VERSION)
             self.assertEqual(external.read_bytes(), b"preserve me")
@@ -139,13 +182,60 @@ class ReleaseIntegrityTests(unittest.TestCase):
     def test_in_checkout_output_parent_symlink_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             parent = Path(tmp)
-            root = self.make_release_fixture(parent, "kit")
+            root = self.make_release_fixture(parent, "kit").resolve()
             external = parent / "external-output"
             external.mkdir()
-            (root / "dist").symlink_to(external, target_is_directory=True)
+            self.symlink_or_skip(root / "dist", external, target_is_directory=True)
             with self.assertRaisesRegex(build_release.PublicationError, "traverses a symbolic link"):
                 build_release.plan_release_targets(root, root / "dist" / "release.zip")
+
+            alias = parent / "checkout-alias"
+            self.symlink_or_skip(alias, root, target_is_directory=True)
+            with self.assertRaisesRegex(build_release.PublicationError, "traverses a symbolic link"):
+                build_release.plan_release_targets(
+                    alias,
+                    root / "dist" / "release.zip",
+                )
             self.assertEqual(list(external.iterdir()), [])
+
+    def test_root_alias_is_bound_once_during_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            first = self.make_release_fixture(parent, "first").resolve()
+            second = self.make_release_fixture(parent, "second").resolve()
+            (second / "source.py").write_bytes(b"print('second')\n")
+            write_manifest(second, engine.APP_VERSION)
+            alias = parent / "checkout-alias"
+            self.symlink_or_skip(alias, first, target_is_directory=True)
+            requested_output = alias / "dist" / "release.zip"
+            output = first / "dist" / "release.zip"
+            real_planner = build_release._plan_release_targets
+
+            def swap_before_planning(
+                lexical_root: Path,
+                resolved_root: Path,
+                selected_output: Path,
+            ):
+                alias.unlink()
+                self.symlink_or_skip(alias, second, target_is_directory=True)
+                return real_planner(lexical_root, resolved_root, selected_output)
+
+            with mock.patch.object(
+                build_release,
+                "_plan_release_targets",
+                side_effect=swap_before_planning,
+            ):
+                targets = build_release.publish_release(
+                    alias,
+                    requested_output,
+                    app_version=engine.APP_VERSION,
+                )
+
+            self.assertEqual(targets.zip_path, output)
+            with zipfile.ZipFile(output) as archive:
+                member = f"CodeProbe_Project_Kit_v{engine.APP_VERSION}/source.py"
+                self.assertEqual(archive.read(member), b"print('stable')\n")
+            self.assertFalse((second / "dist").exists())
 
     def test_staging_failure_leaves_existing_release_packet_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:

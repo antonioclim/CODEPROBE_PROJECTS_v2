@@ -1,3 +1,5 @@
+import contextlib
+import errno
 import json
 import hashlib
 import os
@@ -33,6 +35,23 @@ from codeprobe_engine.release import (
 
 
 class ReleaseMetadataTests(unittest.TestCase):
+    def symlink_or_skip(
+        self,
+        link: Path,
+        target: Path,
+        *,
+        target_is_directory: bool = False,
+    ) -> None:
+        try:
+            link.symlink_to(target, target_is_directory=target_is_directory)
+        except OSError as exc:
+            if os.name == "nt" and (
+                getattr(exc, "winerror", None) == 1314
+                or exc.errno in {errno.EACCES, errno.EPERM}
+            ):
+                self.skipTest("symbolic-link privilege is unavailable on this Windows runner")
+            raise
+
     @staticmethod
     def make_manifest_fixture(parent: Path, name: str = "kit") -> Path:
         root = parent / name
@@ -178,7 +197,7 @@ class ReleaseMetadataTests(unittest.TestCase):
             external = parent / "external.txt"
             external.write_bytes(b"must not be packaged\n")
             root = self.make_manifest_fixture(parent)
-            (root / "linked.txt").symlink_to(external)
+            self.symlink_or_skip(root / "linked.txt", external)
             with self.assertRaisesRegex(ReleaseSetError, "symbolic links are forbidden"):
                 validate_release_set(root)
 
@@ -271,29 +290,45 @@ class ReleaseMetadataTests(unittest.TestCase):
             self.assertFalse(result.ok)
             result.detail.encode("utf-8")
 
-    @unittest.skipIf(os.name == "nt", "hostile Unix filename regression")
     def test_actual_release_paths_must_be_portable_and_not_collide(self):
         with tempfile.TemporaryDirectory() as tmp:
             parent = Path(tmp)
-            root = self.make_manifest_fixture(parent, "invalid")
-            (root / "bad\\name.txt").write_bytes(b"bad\n")
-            with self.assertRaisesRegex(ReleaseSetError, "unsafe release path"):
-                validate_release_set(root)
+            if os.name != "nt":
+                root = self.make_manifest_fixture(parent, "invalid")
+                (root / "bad\\name.txt").write_bytes(b"bad\n")
+                with self.assertRaisesRegex(ReleaseSetError, "unsafe release path"):
+                    validate_release_set(root)
 
-            root = self.make_manifest_fixture(parent, "collision")
-            (root / "SOURCE.TXT").write_bytes(b"collision\n")
-            with self.assertRaisesRegex(ReleaseSetError, "collide on a portable filesystem"):
-                validate_release_set(root)
+            root = self.make_manifest_fixture(parent, "collision").resolve()
+            upper_source = root / "SOURCE.TXT"
+            try:
+                with upper_source.open("xb") as handle:
+                    handle.write(b"collision\n")
+            except FileExistsError:
+                collision_context = mock.patch.object(
+                    release,
+                    "_walk_release_files",
+                    return_value=(root / "source.txt", upper_source),
+                )
+            else:
+                collision_context = contextlib.nullcontext()
+            with collision_context:
+                with self.assertRaisesRegex(ReleaseSetError, "collide on a portable filesystem"):
+                    validate_release_set(root)
 
-            root = self.make_manifest_fixture(parent, "manifest-collision")
-            (root / "release" / "RELEASE-MANIFEST.JSON").write_bytes(b"collision\n")
-            with self.assertRaisesRegex(ReleaseSetError, "collide on a portable filesystem"):
-                validate_release_set(root)
+            root = self.make_manifest_fixture(parent, "manifest-collision").resolve()
+            with mock.patch.object(
+                release,
+                "_walk_release_files",
+                return_value=(root / "release" / "RELEASE-MANIFEST.JSON",),
+            ):
+                with self.assertRaisesRegex(ReleaseSetError, "collide on a portable filesystem"):
+                    tuple(release.iter_release_files(root))
 
     def test_directory_swap_to_symlink_is_detected_before_paths_are_returned(self):
         with tempfile.TemporaryDirectory() as tmp:
             parent = Path(tmp)
-            root = self.make_manifest_fixture(parent)
+            root = self.make_manifest_fixture(parent).resolve()
             nested = root / "docs"
             saved = parent / "saved-docs"
             external = parent / "external"
@@ -307,7 +342,7 @@ class ReleaseMetadataTests(unittest.TestCase):
                 if Path(path) == nested and not swapped:
                     swapped = True
                     nested.rename(saved)
-                    nested.symlink_to(external, target_is_directory=True)
+                    self.symlink_or_skip(nested, external, target_is_directory=True)
                 return real_scandir(path)
 
             with mock.patch.object(release.os, "scandir", side_effect=swap_before_scan):
@@ -317,14 +352,14 @@ class ReleaseMetadataTests(unittest.TestCase):
     def test_root_anchored_reader_rejects_escape_and_symlink_before_read(self):
         with tempfile.TemporaryDirectory() as tmp:
             parent = Path(tmp)
-            root = self.make_manifest_fixture(parent)
+            root = self.make_manifest_fixture(parent).resolve()
             external = parent / "external.txt"
             external.write_bytes(b"external\n")
             with self.assertRaisesRegex(ReleaseSetError, "not canonical below its root"):
                 release.read_regular_file(root / ".." / "external.txt", root=root)
 
             link = root / "linked.txt"
-            link.symlink_to(external)
+            self.symlink_or_skip(link, external)
             with mock.patch.object(release.os, "supports_dir_fd", set()):
                 with mock.patch.object(release.os, "read", wraps=os.read) as reader:
                     with self.assertRaisesRegex(ReleaseSetError, "not a regular file"):
@@ -336,7 +371,7 @@ class ReleaseMetadataTests(unittest.TestCase):
 
             def swap_during_open(path: Path, selected_root: Path | None) -> int:
                 source.rename(saved)
-                source.symlink_to(external)
+                self.symlink_or_skip(source, external)
                 return os.open(external, os.O_RDONLY)
 
             with mock.patch.object(release, "_open_regular_for_read", side_effect=swap_during_open):
@@ -352,8 +387,10 @@ class ReleaseMetadataTests(unittest.TestCase):
             current = root
             directories = [root]
             leaf = current / "leaf.txt"
+            previous_recursion_limit = sys.getrecursionlimit()
             try:
-                for _ in range(1_100):
+                sys.setrecursionlimit(64)
+                for _ in range(80):
                     current /= "d"
                     current.mkdir()
                     directories.append(current)
@@ -362,6 +399,7 @@ class ReleaseMetadataTests(unittest.TestCase):
                 write_manifest(root, engine.APP_VERSION)
                 self.assertEqual(verify_manifest(root, app_version=engine.APP_VERSION), [])
             finally:
+                sys.setrecursionlimit(previous_recursion_limit)
                 leaf.unlink(missing_ok=True)
                 (root / MANIFEST_NAME).unlink(missing_ok=True)
                 release_directory = root / "release"

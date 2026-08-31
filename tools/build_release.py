@@ -3,13 +3,21 @@
 
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__" and not (
+    sys.flags.isolated and sys.flags.no_site
+):
+    raise SystemExit(
+        "this command requires isolated, site-free Python; rerun it with -I -S -B"
+    )
+
 import argparse
 import json
 import os
 import re
 import shutil
 import stat
-import sys
 import tempfile
 import zipfile
 from contextlib import contextmanager
@@ -21,10 +29,10 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 TOOLS = ROOT / "tools"
-if str(TOOLS) not in sys.path:
-    sys.path.insert(0, str(TOOLS))
 if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+    sys.path.append(str(SRC))
+if str(TOOLS) not in sys.path:
+    sys.path.append(str(TOOLS))
 
 import codeprobe_runtime as engine  # noqa: E402
 import check_release  # noqa: E402
@@ -121,14 +129,27 @@ def _reject_in_checkout_symlink_components(root: Path, path: Path) -> None:
             raise PublicationError(f"release output parent component is not a directory: {current}")
 
 
-def plan_release_targets(root: Path, requested_output: Path) -> ReleaseTargets:
-    """Resolve and validate the three public release names without writing."""
-    root = root.resolve()
+def _plan_release_targets(
+    lexical_root: Path,
+    resolved_root: Path,
+    requested_output: Path,
+) -> ReleaseTargets:
     lexical_zip = _absolute_without_resolving(requested_output)
+    try:
+        checkout_relative_zip = lexical_zip.relative_to(lexical_root)
+    except ValueError:
+        bound_zip = lexical_zip
+    else:
+        bound_zip = resolved_root.joinpath(*checkout_relative_zip.parts)
     lexical_targets = (
         lexical_zip,
         lexical_zip.with_name(lexical_zip.name + ".sha256.txt"),
         lexical_zip.with_name(lexical_zip.name + ".package_audit.json"),
+    )
+    bound_targets = (
+        bound_zip,
+        bound_zip.with_name(bound_zip.name + ".sha256.txt"),
+        bound_zip.with_name(bound_zip.name + ".package_audit.json"),
     )
     if not PORTABLE_ZIP_NAME.fullmatch(lexical_zip.name):
         raise PublicationError("release output must have a portable basename ending in .zip")
@@ -137,15 +158,16 @@ def plan_release_targets(root: Path, requested_output: Path) -> ReleaseTargets:
             raise PublicationError(f"release output uses a reserved device name: {target.name}")
         if len(os.fsencode(target.name)) > PORTABLE_NAME_MAX_BYTES:
             raise PublicationError(f"release packet filename is too long for a portable filesystem: {target.name}")
-    _reject_in_checkout_symlink_components(root, lexical_zip)
-    for target in lexical_targets:
+    _reject_in_checkout_symlink_components(lexical_root, lexical_zip)
+    _reject_in_checkout_symlink_components(resolved_root, bound_zip)
+    for target in dict.fromkeys((*lexical_targets, *bound_targets)):
         _reject_lexical_symlink(target)
 
-    output = lexical_zip.resolve(strict=False)
+    output = bound_zip.resolve(strict=False)
     if not PORTABLE_ZIP_NAME.fullmatch(output.name):
         raise PublicationError("release output must have a portable basename ending in .zip")
     try:
-        relative = output.relative_to(root)
+        relative = output.relative_to(resolved_root)
     except ValueError:
         pass
     else:
@@ -165,6 +187,13 @@ def plan_release_targets(root: Path, requested_output: Path) -> ReleaseTargets:
         if len(os.fsencode(target.name)) > PORTABLE_NAME_MAX_BYTES:
             raise PublicationError(f"release packet filename is too long for a portable filesystem: {target.name}")
     return targets
+
+
+def plan_release_targets(root: Path, requested_output: Path) -> ReleaseTargets:
+    """Resolve and validate the three public release names without writing."""
+    lexical_root = _absolute_without_resolving(root)
+    resolved_root = lexical_root.resolve()
+    return _plan_release_targets(lexical_root, resolved_root, requested_output)
 
 
 def _source_identities(root: Path) -> set[tuple[int, int]]:
@@ -200,10 +229,37 @@ def _write_bytes_fsynced(
     with path.open("xb") as handle:
         handle.write(content)
         handle.flush()
-        os.chmod(path, mode)
-        if times_ns is not None:
-            os.utime(path, ns=times_ns, follow_symlinks=False)
         os.fsync(handle.fileno())
+    os.chmod(path, mode)
+    if times_ns is not None:
+        os.utime(path, ns=times_ns, follow_symlinks=False)
+    _fsync_file_metadata(path)
+
+
+def _host_mode_matches(
+    actual: int,
+    expected: int,
+    *,
+    platform_name: str = os.name,
+) -> bool:
+    """Compare the host mode without claiming unsupported Windows POSIX bits."""
+    if platform_name == "nt":
+        return bool(actual & stat.S_IWRITE) == bool(expected & stat.S_IWRITE)
+    return actual == expected
+
+
+def _fsync_file_metadata(path: Path) -> None:
+    """Persist post-write metadata where the host provides that guarantee."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _fsync_directory(path: Path) -> None:
@@ -324,7 +380,11 @@ def _packet_bytes(targets: ReleaseTargets) -> dict[Path, bytes]:
 def _same_existing_packet(targets: ReleaseTargets, expected: dict[Path, bytes]) -> bool:
     for target in targets.all():
         metadata = _lstat_or_none(target)
-        if metadata is None or stat.S_IMODE(metadata.st_mode) != 0o644:
+        if (
+            metadata is None
+            or not stat.S_ISREG(metadata.st_mode)
+            or not _host_mode_matches(stat.S_IMODE(metadata.st_mode), 0o644)
+        ):
             return False
         try:
             if read_regular_file(target) != expected[target]:
@@ -551,8 +611,9 @@ def publish_release(
     package_root: str | None = None,
 ) -> ReleaseTargets:
     """Publish a verified three-file packet with detected-failure rollback."""
-    root = root.resolve()
-    targets = plan_release_targets(root, requested_output)
+    lexical_root = _absolute_without_resolving(root)
+    root = lexical_root.resolve()
+    targets = _plan_release_targets(lexical_root, root, requested_output)
     _validate_destination_targets(targets, root)
     snapshot = read_verified_release_snapshot(root, app_version=app_version)
     canonical_root = package_root or f"CodeProbe_Project_Kit_v{app_version}"
