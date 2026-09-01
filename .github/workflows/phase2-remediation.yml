@@ -1,0 +1,286 @@
+name: Phase 2 remediation transaction
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-hostile-remediation
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: phase2-remediation-transaction
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    if: github.actor == 'antonioclim'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the audit branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: audit/codeprobe-hostile-remediation
+          fetch-depth: 0
+          persist-credentials: true
+          clean: true
+          lfs: false
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+          check-latest: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.20.0'
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
+
+      - name: Apply the source transaction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/phase2_remediate.py
+          test ! -e tools/phase2_remediate.py
+          test ! -e .github/workflows/phase2-remediation.yml
+          test ! -e .github/workflows/audit-snapshot-export.yml
+
+      - name: Run targeted syntax and hostile-input tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B -m py_compile \
+            src/codeprobe_runtime.py \
+            src/codeprobe_engine/project_io.py \
+            tools/analyze_project.py \
+            tools/calibrate_profile.py \
+            tests/test_project_mode.py \
+            tests/test_calibration_profiles.py
+          node --check app/codeprobe-ui.js
+          node --check app/project-ui.js
+          python -I -S -B -m unittest -v \
+            tests.test_project_mode \
+            tests.test_calibration_profiles \
+            tests.test_dynamic_ui_review
+
+      - name: Run the complete test suite
+        id: tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B -m unittest discover -s tests -v 2>&1 | tee /tmp/codeprobe-unittest.log
+          count="$(sed -nE 's/^Ran ([0-9]+) tests?.*/\1/p' /tmp/codeprobe-unittest.log | tail -n 1)"
+          test -n "$count"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the deterministic dependency boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/check_dependency_boundary.py
+
+      - name: Regenerate tracked release evidence through the canonical gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/check_release.py --require-node --write-release-evidence 2>&1 | tee /tmp/codeprobe-write-gate.log
+
+      - name: Re-run the canonical gate read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/check_release.py --require-node 2>&1 | tee /tmp/codeprobe-read-gate.log
+
+      - name: Commit the verified transaction locally
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Revolvix'
+          git config user.email '48681843+antonioclim@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Harden project ingestion and calibration evaluation'
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tree=$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain)"
+
+      - name: Verify exact-commit reproducibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/check_release_reproducibility.py --repository . --commit HEAD 2>&1 | tee /tmp/codeprobe-reproducibility.log
+          test -z "$(git status --porcelain)"
+
+      - name: Push only the verified fast-forward commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin HEAD:refs/heads/audit/codeprobe-hostile-remediation
+
+      - name: Wait for canonical exact-head CI
+        id: canonical
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.parse
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          final_sha = os.environ['FINAL_SHA']
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f'Bearer {token}',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'CodeProbe-phase2-remediation',
+          }
+          selected = None
+          deadline = time.time() + 1500
+          while time.time() < deadline:
+              query = urllib.parse.urlencode({'head_sha': final_sha, 'event': 'pull_request', 'per_page': 20})
+              request = urllib.request.Request(
+                  f'https://api.github.com/repos/{repository}/actions/workflows/ci.yml/runs?{query}',
+                  headers=headers,
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  payload = json.load(response)
+              candidates = [run for run in payload.get('workflow_runs', []) if run.get('head_sha') == final_sha]
+              if candidates:
+                  selected = sorted(candidates, key=lambda run: int(run['id']), reverse=True)[0]
+                  print(f"canonical CI #{selected.get('run_number')}: {selected.get('status')} / {selected.get('conclusion')}", flush=True)
+                  if selected.get('status') == 'completed':
+                      break
+              time.sleep(10)
+          if not selected or selected.get('status') != 'completed':
+              raise SystemExit('canonical exact-head CI did not complete before timeout')
+          if selected.get('conclusion') != 'success':
+              raise SystemExit(f"canonical exact-head CI failed: {selected.get('html_url')}")
+          output = os.environ['GITHUB_OUTPUT']
+          with open(output, 'a', encoding='utf-8') as handle:
+              handle.write(f"run_id={selected['id']}\n")
+              handle.write(f"run_number={selected['run_number']}\n")
+              handle.write(f"url={selected['html_url']}\n")
+          PY
+
+      - name: Persist the Phase 2 PR ledger
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.commit.outputs.sha }}
+          FINAL_TREE: ${{ steps.commit.outputs.tree }}
+          TEST_COUNT: ${{ steps.tests.outputs.count }}
+          CI_RUN_ID: ${{ steps.canonical.outputs.run_id }}
+          CI_RUN_NUMBER: ${{ steps.canonical.outputs.run_number }}
+          CI_URL: ${{ steps.canonical.outputs.url }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f'Bearer {token}',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'CodeProbe-phase2-remediation',
+          }
+          url = f'https://api.github.com/repos/{repository}/pulls/1'
+          with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
+              pull = json.load(response)
+          marker_start = '<!-- phase2-input-calibration:start -->'
+          marker_end = '<!-- phase2-input-calibration:end -->'
+          section = f'''{marker_start}
+          ## Phase 1–2 recovery — bounded input and independent calibration
+
+          **PASS on the exact audit head. Do not merge yet.**
+
+          - Audit head: `{os.environ['FINAL_SHA']}`
+          - Git tree: `{os.environ['FINAL_TREE']}`
+          - Complete local suite: {os.environ['TEST_COUNT']} tests passed
+          - Canonical gate: release evidence regenerated and then verified read-only
+          - Reproducibility: clean exact-commit checkout, Git archive and release packet agreed
+          - Exact-head CI: [run #{os.environ['CI_RUN_NUMBER']}]({os.environ['CI_URL']}) succeeded
+          - `main` reference retained: `328a8568b2120385e5e96384ac5782e149454e76`
+
+          The project input boundary now rejects filesystem redirects and special entries, applies byte and inventory limits before reads, and excludes hostile ZIP members before decompression. Calibration now uses a group-exclusive fit/evaluation design, fails closed on unreadable samples, exports no absolute sample paths and applies profiles only within their declared report-kind and language scope.
+
+          Merge, tag, release and licence changes remain unauthorised. Residual work covers local-server exposure, subprocess limits, Pyodide provenance, browser accessibility/E2E evidence, coverage, architectural extraction, crash recovery and repository policy.
+          {marker_end}'''
+          section = '\n'.join(line.strip() for line in section.splitlines())
+          body = pull.get('body') or ''
+          pattern = re.compile(re.escape(marker_start) + r'.*?' + re.escape(marker_end), re.S)
+          body = pattern.sub(section, body) if pattern.search(body) else body.rstrip() + '\n\n' + section + '\n'
+          data = json.dumps({'body': body}).encode('utf-8')
+          request = urllib.request.Request(url, data=data, headers={**headers, 'Content-Type': 'application/json'}, method='PATCH')
+          with urllib.request.urlopen(request, timeout=30) as response:
+              updated = json.load(response)
+          if marker_start not in (updated.get('body') or ''):
+              raise SystemExit('PR ledger marker did not persist')
+          print(updated.get('html_url'))
+          PY
+
+      - name: Verify immutable main and remote audit head
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f'Bearer {token}',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'CodeProbe-phase2-remediation',
+          }
+          def get(path):
+              request = urllib.request.Request(f'https://api.github.com/repos/{repository}/{path}', headers=headers)
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          main = get('branches/main')
+          audit = get('branches/audit%2Fcodeprobe-hostile-remediation')
+          pull = get('pulls/1')
+          expected_main = '328a8568b2120385e5e96384ac5782e149454e76'
+          final_sha = os.environ['FINAL_SHA']
+          checks = {
+              'main unchanged': main['commit']['sha'] == expected_main,
+              'audit head exact': audit['commit']['sha'] == final_sha,
+              'PR open': pull['state'] == 'open',
+              'PR draft': pull['draft'] is True,
+              'PR unmerged': pull['merged'] is False,
+              'PR head exact': pull['head']['sha'] == final_sha,
+              'ledger present': '<!-- phase2-input-calibration:start -->' in (pull.get('body') or ''),
+          }
+          for name, passed in checks.items():
+              print(f"{'PASS' if passed else 'FAIL'}: {name}")
+          if not all(checks.values()):
+              raise SystemExit('final remote invariant verification failed')
+          PY
