@@ -1,0 +1,50 @@
+name: Audit snapshot export
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-hostile-remediation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Export exact audit tree
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+          lfs: false
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+
+      - name: Verify checked-out commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Create exact Git archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=zip --output=codeprobe-audit-snapshot.zip HEAD
+          sha256sum codeprobe-audit-snapshot.zip > codeprobe-audit-snapshot.zip.sha256
+
+      - name: Upload audit snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codeprobe-audit-snapshot-${{ github.sha }}
+          path: |
+            codeprobe-audit-snapshot.zip
+            codeprobe-audit-snapshot.zip.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
