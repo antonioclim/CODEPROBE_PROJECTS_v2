@@ -1,0 +1,66 @@
+name: Phase 1 bootstrap cleanup
+
+on:
+  push:
+    branches:
+      - automation/codeprobe-phase1-bootstrap-20260901
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: read
+
+jobs:
+  delete-verified-bootstrap-branch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify published checkpoint and delete temporary branch
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN: 328a8568b2120385e5e96384ac5782e149454e76
+          OLD_AUDIT: 120253a665e160d1abae9cc4ff8c429becc42ca0
+          TEMP_BRANCH: automation/codeprobe-phase1-bootstrap-20260901
+        run: |
+          import json, os, urllib.parse, urllib.request
+          repository = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "codeprobe-phase1-cleanup",
+          }
+          def get(path):
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repository}/{path}",
+                  headers=headers,
+              )
+              with urllib.request.urlopen(request) as response:
+                  return json.load(response)
+          main = get("branches/main")
+          audit = get("branches/audit/codeprobe-hostile-remediation")
+          pull = get("pulls/1")
+          audit_sha = audit["commit"]["sha"]
+          assert main["commit"]["sha"] == os.environ["EXPECTED_MAIN"]
+          assert audit_sha != os.environ["OLD_AUDIT"]
+          assert pull["head"]["sha"] == audit_sha
+          assert pull["state"] == "open" and pull["draft"] is True and pull["merged"] is False
+          assert "<!-- phase1-input-boundary:start -->" in (pull.get("body") or "")
+          query = urllib.parse.urlencode({
+              "event": "workflow_dispatch",
+              "branch": "audit/codeprobe-hostile-remediation",
+              "per_page": 30,
+          })
+          runs = get(f"actions/workflows/ci.yml/runs?{query}").get("workflow_runs", [])
+          exact = [run for run in runs if run.get("head_sha") == audit_sha]
+          assert any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in exact)
+          ref = "heads/" + os.environ["TEMP_BRANCH"]
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repository}/git/refs/{ref}",
+              method="DELETE",
+              headers=headers,
+          )
+          with urllib.request.urlopen(request) as response:
+              assert response.status == 204
