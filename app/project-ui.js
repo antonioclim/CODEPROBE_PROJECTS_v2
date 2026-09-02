@@ -3,6 +3,9 @@
     }
     const MAX_BROWSER_DROP_FILES = 2000;
     const MAX_BROWSER_PROJECT_TEXT_BYTES = 1000000;
+    const MAX_BROWSER_PROJECT_ZIP_BYTES = 8000000;
+    const MAX_BROWSER_PROJECT_TOTAL_BYTES = 20000000;
+    const MAX_BROWSER_PROJECT_ENTRIES = 2000;
     const els = {
       zipBtn: document.getElementById("zipBtn"), zipInput: document.getElementById("zipInput"),
       folderBtn: document.getElementById("folderBtn"), folderInput: document.getElementById("folderInput"),
@@ -137,27 +140,29 @@
       els.status.textContent = "Engine ready.";
     }
     async function loadZip(file) {
+      if ((file.size || 0) > MAX_BROWSER_PROJECT_ZIP_BYTES) { els.status.textContent = `ZIP exceeds the ${MAX_BROWSER_PROJECT_ZIP_BYTES} byte browser limit.`; return; }
       const buffer = await file.arrayBuffer();
       state.projectName = (file.name || "project.zip").replace(/\.zip$/i, "");
-      state.payload = { project_name: state.projectName, zip_base64: bytesToBase64(new Uint8Array(buffer)) };
+      state.payload = { project_name: state.projectName, zip_base64: bytesToBase64(new Uint8Array(buffer)), max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES, max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES, max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES, max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES };
       els.analyseBtn.disabled = false;
       els.status.textContent = `Loaded ZIP: ${file.name}.`;
     }
     async function loadFolder(fileList) {
       const selected = Array.from(fileList || []);
-      if (selected.length > 1500) {
+      if (selected.length > MAX_BROWSER_PROJECT_ENTRIES) {
         els.status.textContent = "Folder selection contains too many files for the browser UI; use tools/analyze_project.py for this project.";
         return;
       }
-      const files = []; const warnings = [];
+      const files = []; const warnings = []; let acceptedBytes = 0;
       for (const file of selected) {
         const path = file._codeprobeRelativePath || file.webkitRelativePath || file.name;
         if ((file.size || 0) > MAX_BROWSER_PROJECT_TEXT_BYTES) { warnings.push(`${path}: skipped in browser because it exceeds 1 MB`); continue; }
-        try { files.push(await decodeTextFile(file)); } catch (error) { warnings.push(`${path}: ${error.message}`); }
+        if (acceptedBytes + (file.size || 0) > MAX_BROWSER_PROJECT_TOTAL_BYTES) { warnings.push(`${path}: skipped because the browser project budget is ${MAX_BROWSER_PROJECT_TOTAL_BYTES} bytes`); continue; }
+        try { files.push(await decodeTextFile(file)); acceptedBytes += file.size || 0; } catch (error) { warnings.push(`${path}: ${error.message}`); }
       }
       const first = files[0]?.path || "project";
       state.projectName = first.split("/").filter(Boolean)[0] || "project";
-      state.payload = { project_name: state.projectName, files };
+      state.payload = { project_name: state.projectName, files, max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES, max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES, max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES, max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES };
       els.analyseBtn.disabled = false;
       els.status.textContent = `Loaded folder: ${files.length} text file(s)${warnings.length ? `; ${warnings.length} skipped by browser` : ""}.`;
     }

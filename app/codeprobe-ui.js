@@ -6,6 +6,9 @@
     const HISTORY_ENABLED_KEY = "codeprobe_html_history_enabled_v1";
     const MAX_BROWSER_DROP_FILES = 2000;
     const MAX_BROWSER_PROJECT_TEXT_BYTES = 1000000;
+    const MAX_BROWSER_PROJECT_ZIP_BYTES = 8000000;
+    const MAX_BROWSER_PROJECT_TOTAL_BYTES = 20000000;
+    const MAX_BROWSER_PROJECT_ENTRIES = 2000;
     const ALLOWED_CONFIG_KEYS = new Set(["enabled", "weight", "thresholds", "notes", "group", "contributes_to_overall"]);
     const ALLOWED_METRIC_GROUPS = new Set(["stylometry", "context", "quality", "documentation"]);
     const NON_AUTHORSHIP_METRICS = new Set([
@@ -892,12 +895,19 @@ importlib.import_module("codeprobe_runtime")
 
     async function handleProjectZip(file) {
       if (!file) return;
+      if ((file.size || 0) > MAX_BROWSER_PROJECT_ZIP_BYTES) {
+        throw new Error(`Project ZIP exceeds the ${MAX_BROWSER_PROJECT_ZIP_BYTES} byte browser limit.`);
+      }
       const zipBase64 = arrayBufferToBase64(await file.arrayBuffer());
       appState.analysisMode = "project";
       appState.projectPayload = {
         project_name: String(file.name || "zip-project").replace(/\.zip$/i, "") || "zip-project",
         zip_filename: file.name || "archive.zip",
-        zip_base64: zipBase64
+        zip_base64: zipBase64,
+        max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES,
+        max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES,
+        max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES,
+        max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES
       };
       appState.currentFileName = appState.projectPayload.project_name;
       appState.fileWarnings = [];
@@ -923,17 +933,27 @@ importlib.import_module("codeprobe_runtime")
         return;
       }
       const projectName = projectNameFromFiles(files);
+      if (files.length > MAX_BROWSER_PROJECT_ENTRIES) {
+        throw new Error(`Project selection exceeds the ${MAX_BROWSER_PROJECT_ENTRIES} entry browser limit.`);
+      }
       const payloadFiles = [];
       const warnings = [];
+      let acceptedBytes = 0;
       for (const file of files) {
         const path = file._codeprobeRelativePath || file.webkitRelativePath || file.name || "file";
         if (!projectTextCandidate(path) || file.size > MAX_BROWSER_PROJECT_TEXT_BYTES) {
           payloadFiles.push({ path, content: "", size_bytes: file.size || 0 });
           continue;
         }
+        if (acceptedBytes + (file.size || 0) > MAX_BROWSER_PROJECT_TOTAL_BYTES) {
+          payloadFiles.push({ path, content: "", size_bytes: file.size || 0 });
+          warnings.push(`${path}: skipped because the browser project budget is ${MAX_BROWSER_PROJECT_TOTAL_BYTES} bytes`);
+          continue;
+        }
         try {
           const decoded = await decodeFile(file);
-          payloadFiles.push({ path, content: decoded.text, size_bytes: file.size || decoded.text.length });
+          acceptedBytes += file.size || new TextEncoder().encode(decoded.text).length;
+          payloadFiles.push({ path, content: decoded.text, size_bytes: file.size || new TextEncoder().encode(decoded.text).length });
           if (decoded.warnings && decoded.warnings.length) {
             warnings.push(`${path}: ${decoded.warnings.join("; ")}`);
           }
@@ -945,7 +965,11 @@ importlib.import_module("codeprobe_runtime")
       appState.analysisMode = "project";
       appState.projectPayload = {
         project_name: projectName,
-        files: payloadFiles
+        files: payloadFiles,
+        max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES,
+        max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES,
+        max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES,
+        max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES
       };
       appState.currentFileName = projectName;
       appState.fileWarnings = warnings;

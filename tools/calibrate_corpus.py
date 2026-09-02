@@ -27,6 +27,7 @@ if __name__ == "__main__" and not (
 
 import argparse
 import json
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -42,6 +43,10 @@ for _path in (SRC, TOOLS):
 
 import calibrate_profile
 import codeprobe_runtime as engine
+from codeprobe_engine.project_io import (
+    DEFAULT_MAX_ENTRIES,
+    list_bounded_regular_files,
+)
 
 LABEL_FOLDER_MAP = {
     "human": "human",
@@ -92,28 +97,39 @@ def _source_sample_record(path: Path, corpus_root: Path, label: str, language: s
     return record
 
 
-def build_manifest_from_corpus(corpus_root: Path, course: str, assignment: str, profile_id: str, label: str, language: str = "") -> Dict[str, Any]:
-    if not corpus_root.exists() or not corpus_root.is_dir():
-        raise ValueError(f"Corpus root does not exist or is not a directory: {corpus_root}")
-
+def build_manifest_from_corpus(
+    corpus_root: Path,
+    course: str,
+    assignment: str,
+    profile_id: str,
+    label: str,
+    language: str = "",
+    *,
+    max_entries: int = DEFAULT_MAX_ENTRIES,
+) -> Dict[str, Any]:
+    corpus_root = Path(os.path.abspath(os.fspath(corpus_root)))
     default_rules = engine.parse_ignore_patterns(engine.default_project_ignore_text())
     samples: List[Dict[str, Any]] = []
     label_counts: Dict[str, int] = {}
 
-    for folder in sorted(item for item in corpus_root.iterdir() if item.is_dir()):
-        normalised = folder.name.strip().lower().replace("-", "_")
+    for path in list_bounded_regular_files(
+        corpus_root, max_entries=max_entries
+    ):
+        relative = path.relative_to(corpus_root)
+        if len(relative.parts) < 2:
+            continue
+        normalised = relative.parts[0].strip().lower().replace("-", "_")
         if normalised not in LABEL_FOLDER_MAP:
             continue
+        if _should_skip(path, corpus_root, default_rules):
+            continue
         sample_label = LABEL_FOLDER_MAP[normalised]
-        for path in sorted(folder.rglob("*")):
-            if not path.is_file():
-                continue
-            if _should_skip(path, corpus_root, default_rules):
-                continue
-            record = _source_sample_record(path, corpus_root, sample_label, language)
-            if record:
-                samples.append(record)
-                label_counts[sample_label] = label_counts.get(sample_label, 0) + 1
+        record = _source_sample_record(
+            path, corpus_root, sample_label, language
+        )
+        if record:
+            samples.append(record)
+            label_counts[sample_label] = label_counts.get(sample_label, 0) + 1
 
     if not samples:
         raise ValueError("No analysable source samples were found under labelled folders such as human/, ai/ or hybrid/.")
@@ -150,21 +166,49 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--scores-out", "--csv-out", dest="csv_out", help="Generated per-sample observations CSV path.")
     parser.add_argument("--sensitivity-out", help="Generated threshold-sensitivity CSV path.")
     parser.add_argument("--manifest-out", help="Optional path to save the generated manifest used for calibration.")
+    parser.add_argument(
+        "--max-entries",
+        type=int,
+        default=DEFAULT_MAX_ENTRIES,
+        help="Maximum filesystem entries inspected without following links.",
+    )
     args = parser.parse_args(argv)
 
-    corpus_root = Path(args.corpus_root).resolve()
+    corpus_root = Path(args.corpus_root).absolute()
     course_slug = slugify(args.course, "course")
     assignment_slug = slugify(args.assignment, "assignment")
     profile_id = args.profile_id or f"{course_slug}-{assignment_slug}-v1"
     label = args.label or f"{args.course} {args.assignment} local calibration".strip()
 
     try:
-        manifest = build_manifest_from_corpus(corpus_root, args.course, args.assignment, profile_id, label, args.language)
-        out_dir = Path(args.out_dir or corpus_root / "codeprobe_calibration_output").resolve()
+        manifest = build_manifest_from_corpus(
+            corpus_root,
+            args.course,
+            args.assignment,
+            profile_id,
+            label,
+            args.language,
+            max_entries=args.max_entries,
+        )
+        out_dir = Path(args.out_dir or corpus_root / "codeprobe_calibration_output").absolute()
         out_dir.mkdir(parents=True, exist_ok=True)
-        manifest_path = Path(args.manifest_out).resolve() if args.manifest_out else out_dir / "generated_manifest.json"
+        manifest_path = Path(args.manifest_out).absolute() if args.manifest_out else out_dir / "generated_manifest.json"
+        calibrate_profile._validate_output_destination(
+            "generated calibration manifest", manifest_path
+        )
+        for record in manifest["samples"]:
+            sample_path = calibrate_profile.resolve_sample_path(
+                corpus_root, str(record["path"])
+            )
+            if calibrate_profile._output_path_key(manifest_path) == calibrate_profile._output_path_key(sample_path):
+                raise ValueError(
+                    "generated calibration manifest must not overwrite a corpus sample"
+                )
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
         forwarded = [
             "--manifest", str(manifest_path),

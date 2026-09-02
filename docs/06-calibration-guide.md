@@ -44,6 +44,8 @@ samples/hybrid_project,hybrid,python,project,declared assisted project folder
 ```
 
 Paths are resolved relative to the manifest location unless `--root` is supplied.
+Manifest and corpus traversal rejects symbolic links, reparse points and special filesystem entries. Output paths must be distinct from the manifest and all samples; an output is also rejected when it is redirected through a link or placed inside a project sample.
+Generated profiles use deterministic pseudonyms for sample paths by default. A manifest may supply an explicit, non-sensitive `sample_id` when local traceability is required. Ordinary analysis reports retain aggregate calibration design and evaluation metadata but do not embed sample-level observations or the full sensitivity grid.
 
 ## Generate a profile
 
@@ -110,3 +112,12 @@ Do not approve a profile unless:
 ## Non-negotiable caveat
 
 A calibrated trigger is still a **review trigger**, not proof. A score above the trigger should lead to revision, explanation and evidence review, not an automatic academic-integrity conclusion. A low score means that the selected signals were not detected; it does not certify independent authorship.
+
+## Independent evaluation and profile scope
+
+A generated profile must use group-exclusive fit and evaluation partitions. The review trigger is selected only on the fit partition. False-positive and positive review rates reported as performance are calculated only on the untouched evaluation partition. A profile is scoped to one report kind and one language; mixed file/project or mixed-language corpora must be split into separate profiles. Sample paths are corpus-relative or pseudonymised and failed sample reads abort generation before any profile is written.
+
+## Duplicate-evidence boundary
+
+Hard-linked aliases of the same filesystem object are rejected. Copied-identical, templated or semantically related samples cannot be inferred reliably from filenames alone; curators must place dependent samples in the same group and exclude duplicated evidence.
+The exported `independent_holdout` flag means group-exclusive separation under the declared group identifiers and physical-source checks. It is not evidence that copied, templated or semantically related samples are statistically independent.

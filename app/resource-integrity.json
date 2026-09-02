@@ -22,21 +22,21 @@
     },
     {
       "path": "codeprobe-ui.js",
-      "size_bytes": 71276,
-      "sha256_hex": "9bb5e2eefc344a840de8fcb3c4c23d2a09670fd078aabf18287e4e0bf404c9fe",
-      "sri_sha256": "sha256-m7Xi7vw0SoQN6PyzxMI9KglnD9B4qr8YKH5OC/QEyf4="
+      "size_bytes": 72678,
+      "sha256_hex": "43e581876b83c8a2849b4403f4738921eade51b44d4787c44dd954fc494de142",
+      "sri_sha256": "sha256-Q+WBh2uDyKKEm0QD9HOJIereUbRNR4fETdlU/ElN4UI="
     },
     {
       "path": "project-ui.js",
-      "size_bytes": 14480,
-      "sha256_hex": "aa94b1f5838f85d4e0b4c45cac502ad9c290f8b27fa6c4a60416abef07dd812e",
-      "sri_sha256": "sha256-qpSx9YOPhdTgtMRcrFAq2cKQ+LJ/psSmBBar7wfdgS4="
+      "size_bytes": 15467,
+      "sha256_hex": "04dce6abc6c2e73791d978fc9ac0be3ede029d53fe57edcb124e0ebe291c54c9",
+      "sri_sha256": "sha256-BNzmq8bC5zeR2Xj8msC+Pt4CnVP+V+3LEk4OvikcVMk="
     },
     {
       "path": "../src/codeprobe_runtime.py",
-      "size_bytes": 241879,
-      "sha256_hex": "138a3f34fc1c44856e0d7ff5b4054ca6a39932c610eb7c9a41c616520710fba3",
-      "sri_sha256": "sha256-E4o/NPwcRIVuDX/1tAVMpqOZMsYQ63yaQcYWUgcQ+6M="
+      "size_bytes": 264527,
+      "sha256_hex": "fc7c2a4d8a624dc54293befff44eb34c59195b2d1892b24454539520b279471e",
+      "sri_sha256": "sha256-/HwqTYpiTcVCk77/9E6zTFkZWy0YkrJEVFOVILJ5Rx4="
     },
     {
       "path": "runtime-config.json",

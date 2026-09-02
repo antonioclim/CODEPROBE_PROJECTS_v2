@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 118,
-  "total_source_size_bytes": 1424710,
+  "total_source_size_bytes": 1520232,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "size_bytes": 19235,
-      "sha256": "bbe4fe4a75624ce00a0685c8b877cb28983f6230abf3cffe2958a181f7ff9856"
+      "size_bytes": 20499,
+      "sha256": "3554eeea023863d045d14de144ee195b61de9353909c16d21c1828db468e50b3"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -47,8 +47,8 @@
     },
     {
       "path": "README.md",
-      "size_bytes": 11023,
-      "sha256": "69cc7f09c2385ce8e6a112c5e190d4263efcd27f78c3195b80be08aceb553045"
+      "size_bytes": 11405,
+      "sha256": "a0a89d9546dbe600a51adafb0e22c926c6035691d06bc36a22f880004c4a1852"
     },
     {
       "path": "app/README.md",
@@ -57,8 +57,8 @@
     },
     {
       "path": "app/codeprobe-ui.js",
-      "size_bytes": 71276,
-      "sha256": "9bb5e2eefc344a840de8fcb3c4c23d2a09670fd078aabf18287e4e0bf404c9fe"
+      "size_bytes": 72678,
+      "sha256": "43e581876b83c8a2849b4403f4738921eade51b44d4787c44dd954fc494de142"
     },
     {
       "path": "app/codeprobe.css",
@@ -68,12 +68,12 @@
     {
       "path": "app/index.html",
       "size_bytes": 14884,
-      "sha256": "af80391d0312fdc562a235fb4de8a6b41465f219f145608949e828536f7abc2e"
+      "sha256": "11617a2713961c7545654ef89e627d645a10b949ecf725a10940b88c0cc4fd9f"
     },
     {
       "path": "app/project-ui.js",
-      "size_bytes": 14480,
-      "sha256": "aa94b1f5838f85d4e0b4c45cac502ad9c290f8b27fa6c4a60416abef07dd812e"
+      "size_bytes": 15467,
+      "sha256": "04dce6abc6c2e73791d978fc9ac0be3ede029d53fe57edcb124e0ebe291c54c9"
     },
     {
       "path": "app/project.css",
@@ -83,7 +83,7 @@
     {
       "path": "app/project.html",
       "size_bytes": 3711,
-      "sha256": "df22c2bb825854bab7721654b25b25a139279f1eb5dd2cc51464d1d37bbe2f5e"
+      "sha256": "5a698dacc66bca990e3ce1bb755f41dfb03a49951e1fa731acc8bd3d53bd8579"
     },
     {
       "path": "app/pyodide-loader.js",
@@ -93,7 +93,7 @@
     {
       "path": "app/resource-integrity.json",
       "size_bytes": 1934,
-      "sha256": "e3b8fea3bab93d591d5ad5138d570fe3686921b25751414aaf04a0bced551b8a"
+      "sha256": "eae85fa1a9f1267cb83d89c3daea2f7df0b19254d4bf90c371cd9dd645bb003d"
     },
     {
       "path": "app/runtime-config.example.json",
@@ -137,8 +137,8 @@
     },
     {
       "path": "calibration/README.md",
-      "size_bytes": 4330,
-      "sha256": "058c5e21e6fb81361e5bf857a26f554caf988c3c33e206f95afb1716f3dddef0"
+      "size_bytes": 5787,
+      "sha256": "5ab9306ddac591b948d746316321060d3fb5e9145b82fb4172f221c6a9ea4c9d"
     },
     {
       "path": "calibration/profiles/README.md",
@@ -167,8 +167,8 @@
     },
     {
       "path": "docs/03-report-schema.md",
-      "size_bytes": 5432,
-      "sha256": "cd7c67e12daea8075ac890cf12a90241d54022d28d1b86db61f32b3328a8c4fb"
+      "size_bytes": 5886,
+      "sha256": "385cdc504192af2966ef47a4e03b2f7bc9eb7447cdb4196513691991f5d58e3d"
     },
     {
       "path": "docs/04-browser-security.md",
@@ -182,8 +182,8 @@
     },
     {
       "path": "docs/06-calibration-guide.md",
-      "size_bytes": 4813,
-      "sha256": "7ed7fe4af8dea1264133468534b6bfb9a6d03f317b54efe0a4139325d200c7e3"
+      "size_bytes": 6517,
+      "sha256": "7da8828582b483b5755cb6fc6510867a542c9dbfc7fffc993537b1294a5e4745"
     },
     {
       "path": "docs/07-ui-extension-guide.md",
@@ -397,8 +397,8 @@
     },
     {
       "path": "src/codeprobe_engine/project_io.py",
-      "size_bytes": 2589,
-      "sha256": "d70a08253ce7350bda7dc83f7dd2eb51a3be894493c05660fb1a0545266275a3"
+      "size_bytes": 18750,
+      "sha256": "7c6f299502653c04f48a47a041712d7e3d8fe2e0c26c1b49acd3eee6d35ddece"
     },
     {
       "path": "src/codeprobe_engine/release.py",
@@ -412,8 +412,8 @@
     },
     {
       "path": "src/codeprobe_runtime.py",
-      "size_bytes": 241879,
-      "sha256": "138a3f34fc1c44856e0d7ff5b4054ca6a39932c610eb7c9a41c616520710fba3"
+      "size_bytes": 264527,
+      "sha256": "fc7c2a4d8a624dc54293befff44eb34c59195b2d1892b24454539520b279471e"
     },
     {
       "path": "tests/test_app_runtime_tools_paths.py",
@@ -427,8 +427,8 @@
     },
     {
       "path": "tests/test_calibration_profiles.py",
-      "size_bytes": 6803,
-      "sha256": "966a677a36b771157f64eea205e300070cea068bdc8594536093b87e7d9c6bf6"
+      "size_bytes": 23153,
+      "sha256": "fe76c72db9256dd79531e810a5846c3e83c2b212ad67ad04b1ea24eeaf19492e"
     },
     {
       "path": "tests/test_dependency_boundary.py",
@@ -442,8 +442,8 @@
     },
     {
       "path": "tests/test_dynamic_ui_review.py",
-      "size_bytes": 3454,
-      "sha256": "88fedddb70b89c3bd1a46d028479721ea07c572b71626edee3a774f57ea8a369"
+      "size_bytes": 4858,
+      "sha256": "21b1c5c5a73aa5a7a67c32cefa65477e37d6a52bbae7edb916e4748c4f7941d7"
     },
     {
       "path": "tests/test_false_positive_controls.py",
@@ -487,8 +487,8 @@
     },
     {
       "path": "tests/test_project_mode.py",
-      "size_bytes": 6548,
-      "sha256": "5516783ca5d373ae637885ab89077307c055ec4834fc41b402b648e8838dcfc2"
+      "size_bytes": 18097,
+      "sha256": "85efb9e38adaf457abaf98cbc17a19bc89e042f62e05f9fac64a3d4d8cc438f7"
     },
     {
       "path": "tests/test_reference_integrity.py",
@@ -527,8 +527,8 @@
     },
     {
       "path": "tools/analyze_project.py",
-      "size_bytes": 4404,
-      "sha256": "629921b123d586c88ed8327e954565ab2d9eb52d14bccf7f9b9947dfdb531856"
+      "size_bytes": 4958,
+      "sha256": "081a266965c6ede71e7738404c76e9266f85d2915e5187cee17aaf3e45d02157"
     },
     {
       "path": "tools/audit_institutional_pack.py",
@@ -542,13 +542,13 @@
     },
     {
       "path": "tools/calibrate_corpus.py",
-      "size_bytes": 8433,
-      "sha256": "e27dee01d5dac2bf6a374625e082ead76c1fdcafb9b633d03850239ab45d6311"
+      "size_bytes": 9460,
+      "sha256": "27d8ea75f2069bac416b5113486ca42b4a788cf9c1ae4ed70e7a3cdf053a361c"
     },
     {
       "path": "tools/calibrate_profile.py",
-      "size_bytes": 21853,
-      "sha256": "509b95cee0f887d4552b1c2ceb728384f445d6813bc69a1a2f1e0542f4b15570"
+      "size_bytes": 40032,
+      "sha256": "04df3e5832a82602d4a042051b8055db4f81fcf89dd6d5913dd21e173e4d3687"
     },
     {
       "path": "tools/check_dependency_boundary.py",
@@ -596,5 +596,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "1514ebfa68d94cf002d4f0a4a08ee404a0d8592c6ae181a33c3f38f205fa3ae5"
+  "manifest_sha256": "39f6a266b9793a6f143fd4468970ad11a80bcf667ce17cb37fd94d2a3d3800b8"
 }

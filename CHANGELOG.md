@@ -8,6 +8,11 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add bounded project-folder and ZIP intake with pre-read exclusion, stable regular-file reads, symlink/special-entry rejection, compressed and expanded byte budgets, entry limits and compression-ratio controls.
+- Add group-exclusive calibration fit/evaluation partitions, explicit report-kind and language scope, fail-closed sample handling and pseudonymised sample identifiers.
+- Add hostile regressions for forged metadata, ZIP bombs, encrypted or special members, unsafe filesystem entries, nested ignore control and calibration leakage.
+- Bound directory-only inventories and pre-read ignore rules, reject redirected calibration outputs and prevent generated calibration files from overwriting source samples.
+- Pseudonymise calibration sample paths by default, prevent mixed label strata within one group and keep sample-level validation data out of ordinary analysis reports.
 - Add least-privilege GitHub Actions validation across Python 3.10–3.14, with
   current stable Windows and macOS coverage and an aggregate check intended for
   default-branch protection.
@@ -18,6 +23,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Reject hard-linked aliases inside project folders, read metric-override JSON through the bounded unambiguous reader and retain exact exclusion reasons for invalid root ignore members.
+- Bound each directory scan before sorting its entries and reject hard-linked calibration aliases, while documenting that copied or semantically dependent samples still require curator grouping.
 - Require the mandatory unit-test floor before tracked release evidence can be
   refreshed and bind that refresh to the non-evidence tree verified by the
   preceding gate.

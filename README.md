@@ -12,7 +12,7 @@ Use CodeProbe to help students inspect authored source files before submission. 
 
 The reported **AI-style concern score** is a review signal; it is not proof of misconduct, not a formal authorship attribution and not a certificate of independent authorship. Where a manual review is needed, the score should be read with repository history, intermediate commits, design notes, tests and an oral code walkthrough.
 
-The browser interface accepts direct drag-and-drop: a single source file opens single-file analysis; a folder, multiple files or a GitHub ZIP export opens project mode. Project mode applies built-in exclusions, any `.codeprobeignore` file found in the project and the structured manual-review guidance that appears in exported reports. When a ZIP contains a single hosted-export wrapper such as `repository-main/`, CodeProbe strips that wrapper before evaluating `.codeprobeignore`; the report records this in `input_packaging`.
+The browser interface accepts bounded direct drag-and-drop: a single source file opens single-file analysis; a folder, multiple files or a GitHub ZIP export opens project mode. Folder traversal does not follow links or special filesystem entries, while ZIP intake applies compressed-size, entry-count, member-size, aggregate-size and expansion-ratio limits before member content is read. Project mode applies built-in exclusions, any `.codeprobeignore` file found in the project and the structured manual-review guidance that appears in exported reports. When a ZIP contains a single hosted-export wrapper such as `repository-main/`, CodeProbe strips that wrapper before evaluating `.codeprobeignore`; the report records this in `input_packaging`.
 
 ## Repository layout
 
@@ -192,7 +192,7 @@ to restore the prior three-file packet and reports an incomplete rollback. See
 ## Limitations
 
 - The score is heuristic and remains provisional until a local course corpus is built.
-- A local calibration profile is only as reliable as its labelled samples.
+- A local calibration profile is only as reliable as its labelled samples and its group-exclusive fit/evaluation design; CodeProbe selects a trigger on the fit partition and reports performance only on the untouched evaluation partition.
 - Small files, heavily templated assignments and generated scaffolds can distort readings.
 - A low score does not prove independent work.
 - A high score does not prove misconduct.
