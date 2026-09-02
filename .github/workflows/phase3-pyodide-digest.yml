@@ -1,0 +1,49 @@
+name: Phase 3 Pyodide digest measurement
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-hostile-remediation
+    paths:
+      - .github/workflows/phase3-pyodide-digest.yml
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Measure the versioned loader response
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import urllib.request
+
+          url = "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"
+          request = urllib.request.Request(
+              url,
+              headers={"User-Agent": "CodeProbe-provenance-audit/1"},
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              payload = response.read(1_000_001)
+              final_url = response.geturl()
+              status = response.status
+              content_type = response.headers.get("Content-Type", "")
+              etag = response.headers.get("ETag", "")
+          if len(payload) > 1_000_000:
+              raise SystemExit("loader response exceeded the 1,000,000-byte audit limit")
+          if final_url != url:
+              raise SystemExit(f"unexpected redirect: {final_url}")
+          if status != 200:
+              raise SystemExit(f"unexpected HTTP status: {status}")
+          if "javascript" not in content_type.lower():
+              raise SystemExit(f"unexpected Content-Type: {content_type}")
+          print(f"PYODIDE_URL={url}")
+          print(f"PYODIDE_BYTES={len(payload)}")
+          print(f"PYODIDE_SHA256={hashlib.sha256(payload).hexdigest()}")
+          print(f"PYODIDE_ETAG={etag}")
+          PY
