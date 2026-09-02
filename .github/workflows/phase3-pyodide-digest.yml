@@ -1,4 +1,4 @@
-name: Phase 3 Pyodide digest measurement
+name: Phase 3 Pyodide provenance measurement
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Measure the versioned loader response
+      - name: Measure the versioned loader and lockfile responses
         shell: bash
         run: |
           set -euo pipefail
@@ -23,27 +23,41 @@ jobs:
           import hashlib
           import urllib.request
 
-          url = "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"
-          request = urllib.request.Request(
-              url,
-              headers={"User-Agent": "CodeProbe-provenance-audit/1"},
+          resources = (
+              (
+                  "LOADER",
+                  "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js",
+                  1_000_000,
+                  "javascript",
+              ),
+              (
+                  "LOCKFILE",
+                  "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide-lock.json",
+                  5_000_000,
+                  "json",
+              ),
           )
-          with urllib.request.urlopen(request, timeout=60) as response:
-              payload = response.read(1_000_001)
-              final_url = response.geturl()
-              status = response.status
-              content_type = response.headers.get("Content-Type", "")
-              etag = response.headers.get("ETag", "")
-          if len(payload) > 1_000_000:
-              raise SystemExit("loader response exceeded the 1,000,000-byte audit limit")
-          if final_url != url:
-              raise SystemExit(f"unexpected redirect: {final_url}")
-          if status != 200:
-              raise SystemExit(f"unexpected HTTP status: {status}")
-          if "javascript" not in content_type.lower():
-              raise SystemExit(f"unexpected Content-Type: {content_type}")
-          print(f"PYODIDE_URL={url}")
-          print(f"PYODIDE_BYTES={len(payload)}")
-          print(f"PYODIDE_SHA256={hashlib.sha256(payload).hexdigest()}")
-          print(f"PYODIDE_ETAG={etag}")
+          for label, url, limit, required_type in resources:
+              request = urllib.request.Request(
+                  url,
+                  headers={"User-Agent": "CodeProbe-provenance-audit/1"},
+              )
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  payload = response.read(limit + 1)
+                  final_url = response.geturl()
+                  status = response.status
+                  content_type = response.headers.get("Content-Type", "")
+                  etag = response.headers.get("ETag", "")
+              if len(payload) > limit:
+                  raise SystemExit(f"{label.lower()} response exceeded the {limit:,}-byte audit limit")
+              if final_url != url:
+                  raise SystemExit(f"unexpected {label.lower()} redirect: {final_url}")
+              if status != 200:
+                  raise SystemExit(f"unexpected {label.lower()} HTTP status: {status}")
+              if required_type not in content_type.lower():
+                  raise SystemExit(f"unexpected {label.lower()} Content-Type: {content_type}")
+              print(f"PYODIDE_{label}_URL={url}")
+              print(f"PYODIDE_{label}_BYTES={len(payload)}")
+              print(f"PYODIDE_{label}_SHA256={hashlib.sha256(payload).hexdigest()}")
+              print(f"PYODIDE_{label}_ETAG={etag}")
           PY
