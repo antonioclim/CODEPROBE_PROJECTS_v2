@@ -49,11 +49,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED_BASELINE='0b9fb3912153f0198a85f81a8279d555a2c846bf'
+          EXPECTED_PARENT='e008efdc9f33b5bb485103d39d8959a129cd8fac'
           EXPECTED_TREE='b15da2fe62c04956f191974b0bf920b7fc044799'
           EXPECTED_DELTA_SHA256='92ca521517e0174e3f8ff9aba176d79b109d509ba76811f19f5719b6f9f6ad5f'
 
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASELINE"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
           test -f tools/phase2_remediate.py
 
           python - <<'PY_FIX_GENERATOR'
@@ -143,6 +143,7 @@ jobs:
           EXPECTED_TREE='b15da2fe62c04956f191974b0bf920b7fc044799'
           git config user.name 'Revolvix'
           git config user.email '48681843+antonioclim@users.noreply.github.com'
+          find . -type d -name __pycache__ -prune -exec rm -rf '{}' +
           git commit -m 'Harden project ingestion and calibration evaluation'
           FINAL_SHA="$(git rev-parse HEAD)"
           FINAL_TREE="$(git rev-parse HEAD^{tree})"
