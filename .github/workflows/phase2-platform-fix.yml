@@ -54,12 +54,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED_PARENT='d29dad653845d817edcb466256ba80a877a33d4a'
+          EXPECTED_PARENT='2389f2304c95c77843c414b90d6a20fd7519daec'
           EXPECTED_TREE='60b15e153b7994d629a265f1d307f9923119ff8e'
           EXPECTED_PATCH_SHA256='e1b301fa467b106c7a3db5efe37069efa39f164d3fb08590d4e698dc9e000984'
 
           test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
-          base64 --decode tools/.phase2-platform-fix.patch.gz.b64 \
+          cat tools/.phase2-platform-fix/part-* \
+            > /tmp/codeprobe-phase2-platform-fix.patch.gz.b64
+          base64 --decode /tmp/codeprobe-phase2-platform-fix.patch.gz.b64 \
             | gzip --decompress > /tmp/codeprobe-phase2-platform-fix.patch
           printf '%s  %s\n' "$EXPECTED_PATCH_SHA256" /tmp/codeprobe-phase2-platform-fix.patch \
             | sha256sum --check --strict
@@ -67,6 +69,7 @@ jobs:
           rm -f \
             .github/workflows/phase2-platform-fix.yml \
             tools/.phase2-platform-fix.patch.gz.b64
+          rm -rf tools/.phase2-platform-fix
           git apply --binary --whitespace=nowarn /tmp/codeprobe-phase2-platform-fix.patch
           git add -A
           git diff --cached --check
