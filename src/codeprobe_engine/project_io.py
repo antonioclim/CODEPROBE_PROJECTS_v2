@@ -231,7 +231,9 @@ def _walk_metadata(root: Path, *, max_entries: int) -> list[tuple[Path, os.stat_
             path = Path(entry.path)
             relative = path.relative_to(root).as_posix()
             try:
-                metadata = entry.stat(follow_symlinks=False)
+                # DirEntry.stat() exposes zero identity fields on Windows.  A
+                # fresh lstat supplies the file index needed to detect aliases.
+                metadata = path.lstat()
             except OSError as exc:
                 raise ProjectInputError(f"cannot inspect project entry {_safe_text(relative)}: {_safe_text(exc)}") from exc
             if stat.S_ISLNK(metadata.st_mode) or _is_reparse_point(metadata):

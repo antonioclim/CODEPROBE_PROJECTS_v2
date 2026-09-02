@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 118,
-  "total_source_size_bytes": 1520232,
+  "total_source_size_bytes": 1522388,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -397,8 +397,8 @@
     },
     {
       "path": "src/codeprobe_engine/project_io.py",
-      "size_bytes": 18750,
-      "sha256": "7c6f299502653c04f48a47a041712d7e3d8fe2e0c26c1b49acd3eee6d35ddece"
+      "size_bytes": 18887,
+      "sha256": "2be3a1448a6d52cdfe38761355c1c44aa7a314b8ca89d2fde57d9d57df2d780f"
     },
     {
       "path": "src/codeprobe_engine/release.py",
@@ -427,8 +427,8 @@
     },
     {
       "path": "tests/test_calibration_profiles.py",
-      "size_bytes": 23153,
-      "sha256": "fe76c72db9256dd79531e810a5846c3e83c2b212ad67ad04b1ea24eeaf19492e"
+      "size_bytes": 24194,
+      "sha256": "694c9eaa2ff92bd291933d2e8a80b84e2ec239870b4f6667abc829477326c352"
     },
     {
       "path": "tests/test_dependency_boundary.py",
@@ -547,8 +547,8 @@
     },
     {
       "path": "tools/calibrate_profile.py",
-      "size_bytes": 40032,
-      "sha256": "04df3e5832a82602d4a042051b8055db4f81fcf89dd6d5913dd21e173e4d3687"
+      "size_bytes": 41010,
+      "sha256": "676fda360c1d1fff3007312669ef0aae83d0b91da6a5c5c7ca726b4e3d916591"
     },
     {
       "path": "tools/check_dependency_boundary.py",
@@ -596,5 +596,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "39f6a266b9793a6f143fd4468970ad11a80bcf667ce17cb37fd94d2a3d3800b8"
+  "manifest_sha256": "8148c3358ecd12aeea8d3a1df318c11b6b75e39b9bba53ac4a8db90d1d00b3fd"
 }

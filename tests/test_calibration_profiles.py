@@ -324,6 +324,30 @@ class IndependentCalibrationBoundaryTests(unittest.TestCase):
                 sample_paths=[(sample, "file")],
             )
 
+    def test_output_parent_alias_is_canonicalised(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "real"
+            real.mkdir()
+            alias = root / "alias"
+            try:
+                alias.symlink_to(real, target_is_directory=True)
+            except OSError:
+                self.skipTest("directory symlink creation unavailable")
+            outputs = {
+                "profile_path": alias / "profile.json",
+                "summary_path": alias / "summary.md",
+                "observations_path": alias / "observations.csv",
+                "sensitivity_path": alias / "sensitivity.csv",
+            }
+            calibrate_profile._validate_output_paths(
+                outputs,
+                manifest_path=root / "manifest.json",
+                sample_paths=[],
+            )
+            self.assertEqual(outputs["profile_path"], real.resolve() / "profile.json")
+            self.assertEqual(outputs["summary_path"], real.resolve() / "summary.md")
+
     def test_output_symlink_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

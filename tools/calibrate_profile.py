@@ -639,29 +639,54 @@ def _output_path_key(path: Path) -> str:
 
 
 def _validate_output_destination(name: str, path: Path) -> Path:
+    """Return a canonical destination while refusing a redirected output file."""
     absolute = Path(os.path.abspath(os.fspath(path)))
-    current = absolute
+    try:
+        metadata = absolute.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise ValueError(f"cannot inspect {name}: {exc}") from exc
+    else:
+        attributes = int(getattr(metadata, "st_file_attributes", 0) or 0)
+        reparse = bool(
+            attributes
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or reparse:
+            raise ValueError(f"{name} must not use a link or reparse point")
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(
+                f"{name} must be a regular file when it already exists"
+            )
+
+    # Canonicalise pre-existing parent aliases before validation and writing.
+    # This preserves the leaf no-link rule without rejecting standard host paths
+    # such as macOS /tmp and /var, which are themselves filesystem aliases.
+    canonical = Path(os.path.realpath(os.fspath(absolute)))
+    current = canonical.parent
     while True:
         try:
-            metadata = current.lstat()
+            ancestor = current.lstat()
         except FileNotFoundError:
             pass
         except OSError as exc:
             raise ValueError(f"cannot inspect {name}: {exc}") from exc
         else:
-            attributes = int(getattr(metadata, "st_file_attributes", 0) or 0)
-            reparse = bool(attributes & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)))
-            if stat.S_ISLNK(metadata.st_mode) or reparse:
-                raise ValueError(f"{name} must not use a link or reparse point")
-            if current == absolute and not stat.S_ISREG(metadata.st_mode):
-                raise ValueError(f"{name} must be a regular file when it already exists")
-            if current != absolute and not stat.S_ISDIR(metadata.st_mode):
+            attributes = int(getattr(ancestor, "st_file_attributes", 0) or 0)
+            reparse = bool(
+                attributes
+                & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+            )
+            if stat.S_ISLNK(ancestor.st_mode) or reparse:
+                raise ValueError(f"{name} has an unresolved link or reparse ancestor")
+            if not stat.S_ISDIR(ancestor.st_mode):
                 raise ValueError(f"{name} has a non-directory ancestor")
         parent = current.parent
         if parent == current:
             break
         current = parent
-    return absolute
+    return canonical
 
 
 def _validate_output_paths(
@@ -676,8 +701,9 @@ def _validate_output_paths(
         (_output_path_key(path), path, kind)
         for path, kind in sample_paths
     ]
-    for name, path in outputs.items():
+    for name, path in list(outputs.items()):
         absolute = _validate_output_destination(name, path)
+        outputs[name] = absolute
         key = _output_path_key(absolute)
         if key in portable:
             raise ValueError(
