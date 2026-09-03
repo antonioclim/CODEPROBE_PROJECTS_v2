@@ -1,4 +1,4 @@
-name: Phase 4F1 source snapshot
+name: Phase 4F1 source and runtime fixture
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   export:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out exact commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,6 +33,61 @@ jobs:
           git archive --format=zip --output="$RUNNER_TEMP/codeprobe-phase4f1-source.zip" "$GITHUB_SHA"
           sha256sum "$RUNNER_TEMP/codeprobe-phase4f1-source.zip" > "$RUNNER_TEMP/codeprobe-phase4f1-source.zip.sha256"
 
+      - name: Download and verify the Pyodide 0.25.0 core fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/pyodide-core-0.25.0.tar.bz2"
+          fixture="$RUNNER_TEMP/pyodide-v0.25.0-core"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --retry 3 --retry-all-errors --connect-timeout 20 --max-time 180 \
+            --output "$archive" \
+            https://github.com/pyodide/pyodide/releases/download/0.25.0/pyodide-core-0.25.0.tar.bz2
+          printf '%s  %s\n' \
+            ebe015d9e0c766af3679378699ac145f0fc320a49213b4734fd30bc28c68c360 \
+            "$archive" | sha256sum --check --strict
+          mkdir -p "$fixture"
+          ARCHIVE="$archive" FIXTURE="$fixture" python -I -S -B - <<'PY'
+          import hashlib
+          import json
+          import os
+          import tarfile
+          from pathlib import Path, PurePosixPath
+
+          expected = {
+              "pyodide.js": (16698, "9c79c9999999b15de7587aa220c61d06aa14e76babb75dc50c2f873aa826ad4d"),
+              "pyodide-lock.json": (88845, "3782b60f746823bed3aaac9bb732e5bda226085c6c39649dc64caad2c816fc92"),
+              "python_stdlib.zip": (2323181, "ca76f51f97772dd3a011b4ca1a2a0062a9aecf1feb9bd77342d3cdbdeb45d33f"),
+              "pyodide.asm.js": (1130465, "e0ee644201404183c666d402925f78998dfa1b1ad99415baef6833b17b082397"),
+              "pyodide.asm.wasm": (9002149, "3694754429c57aff83cf3f8592d83085e8e5edd7ed52e97fbb9ff9065d698ef4"),
+          }
+          archive_path = Path(os.environ["ARCHIVE"])
+          fixture = Path(os.environ["FIXTURE"])
+          found = {}
+          with tarfile.open(archive_path, "r:bz2") as package:
+              for member in package.getmembers():
+                  name = PurePosixPath(member.name).name
+                  if name not in expected:
+                      continue
+                  if not member.isfile() or name in found:
+                      raise SystemExit(f"invalid or duplicate archive member: {name}")
+                  handle = package.extractfile(member)
+                  if handle is None:
+                      raise SystemExit(f"cannot read archive member: {name}")
+                  data = handle.read(expected[name][0] + 1)
+                  size, digest = expected[name]
+                  if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+                      raise SystemExit(f"archive member integrity mismatch: {name}")
+                  (fixture / name).write_bytes(data)
+                  found[name] = {"size_bytes": size, "sha256": digest}
+          if set(found) != set(expected):
+              raise SystemExit("official core archive does not contain the complete expected startup set")
+          (fixture / "fixture-manifest.json").write_text(
+              json.dumps({"schema": "codeprobe-phase4f1-pyodide-fixture/v1", "files": found}, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Upload exact source snapshot
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -40,6 +95,15 @@ jobs:
           path: |
             ${{ runner.temp }}/codeprobe-phase4f1-source.zip
             ${{ runner.temp }}/codeprobe-phase4f1-source.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload verified Pyodide core fixture
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pyodide-v0.25.0-core-fixture
+          path: ${{ runner.temp }}/pyodide-v0.25.0-core
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
