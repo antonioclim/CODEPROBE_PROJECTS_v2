@@ -83,6 +83,9 @@ immutable action pins and required repository settings are recorded in
 
 Browser report history is disabled by default. It stores reports, not source code, when explicitly enabled. The main interface includes **Clear privacy data**, which clears local report history, disables history and clears the current editor/project payload from the page state.
 
+
+Both browser pages expose labelled inputs, polite status announcements, visible keyboard focus and semantic score progress. The main result area implements an automatically activated ARIA tab set: Left/Right arrows move between adjacent tabs, Home selects the first tab and End selects the last. CI exercises this contract in a real Chromium-family browser through the Chrome DevTools Protocol without installing a browser-test package.
+
 ## Launch instructions
 
 ### Windows

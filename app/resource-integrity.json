@@ -4,15 +4,15 @@
   "assets": [
     {
       "path": "codeprobe.css",
-      "size_bytes": 17743,
-      "sha256_hex": "5a0d218ac7793728b71013ec46613ba5b9a6cf2539ceb1f4b796cf123a8ff137",
-      "sri_sha256": "sha256-Wg0hisd5Nyi3EBPsRmE7pbmmzyU5zrH0t5bPEjqP8Tc="
+      "size_bytes": 18703,
+      "sha256_hex": "fb6f814e60d724ae50ee6c4a85e557e69c3af13bf2dfd36fe7af0de53d89a2b3",
+      "sri_sha256": "sha256-+2+BTmDXJK5Q7mxKheVX5pw68Tvy39Nv568N5T2JorM="
     },
     {
       "path": "project.css",
-      "size_bytes": 2149,
-      "sha256_hex": "95d7e54df02c0b34dd42b3ccdd01c3659026740b859f65b649168f7a601eb3eb",
-      "sri_sha256": "sha256-ldflTfAsCzTdQrPM3QHDZZAmdAuFn2W2SRaPemAes+s="
+      "size_bytes": 3288,
+      "sha256_hex": "6394a29e054652cd425bf6328c7c0580ee9a998d250f168680730bd9e5c6d30c",
+      "sri_sha256": "sha256-Y5SingVGUs1CW/YyjHwFgO6amY0lDxaGgHML2eXG0ww="
     },
     {
       "path": "pyodide-loader.js",
@@ -22,27 +22,27 @@
     },
     {
       "path": "codeprobe-ui.js",
-      "size_bytes": 72678,
-      "sha256_hex": "43e581876b83c8a2849b4403f4738921eade51b44d4787c44dd954fc494de142",
-      "sri_sha256": "sha256-Q+WBh2uDyKKEm0QD9HOJIereUbRNR4fETdlU/ElN4UI="
+      "size_bytes": 74645,
+      "sha256_hex": "612496d223146c575f9ebcb83a510e25e5e551defe4f7ecae0046e936b2f2135",
+      "sri_sha256": "sha256-YSSW0iMUbFdfnry4OlEOJeXlUd7+T37K4ARuk2svITU="
     },
     {
       "path": "project-ui.js",
-      "size_bytes": 15467,
-      "sha256_hex": "04dce6abc6c2e73791d978fc9ac0be3ede029d53fe57edcb124e0ebe291c54c9",
-      "sri_sha256": "sha256-BNzmq8bC5zeR2Xj8msC+Pt4CnVP+V+3LEk4OvikcVMk="
-    },
-    {
-      "path": "../src/codeprobe_runtime.py",
-      "size_bytes": 264527,
-      "sha256_hex": "fc7c2a4d8a624dc54293befff44eb34c59195b2d1892b24454539520b279471e",
-      "sri_sha256": "sha256-/HwqTYpiTcVCk77/9E6zTFkZWy0YkrJEVFOVILJ5Rx4="
+      "size_bytes": 16581,
+      "sha256_hex": "c89056cc5a215c5da453769f4fb5a01bba5c291fa7ea0795a008c16d7048f518",
+      "sri_sha256": "sha256-yJBWzFohXF2kU3afT7WgG7pcKR+n6geVoAjBbXBI9Rg="
     },
     {
       "path": "runtime-config.json",
       "size_bytes": 581,
       "sha256_hex": "d825c029d36ded0c029ac6ab0b14b2f5ec0e5058d0ed8bb99444eca9772f0ab7",
       "sri_sha256": "sha256-2CXAKdNt7QwCmsarCxSy9ewOUFjQ7Yu5lETsqXcvCrc="
+    },
+    {
+      "path": "../src/codeprobe_runtime.py",
+      "size_bytes": 264527,
+      "sha256_hex": "fc7c2a4d8a624dc54293befff44eb34c59195b2d1892b24454539520b279471e",
+      "sri_sha256": "sha256-/HwqTYpiTcVCk77/9E6zTFkZWy0YkrJEVFOVILJ5Rx4="
     }
   ]
 }

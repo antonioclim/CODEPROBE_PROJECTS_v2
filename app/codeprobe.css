@@ -33,6 +33,45 @@
       flex-direction: column;
     }
 
+    .visually-hidden {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0 0 0 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+
+    .skip-link {
+      position: fixed;
+      top: 0.5rem;
+      left: 0.5rem;
+      z-index: 10000;
+      padding: 0.7rem 0.9rem;
+      border-radius: 10px;
+      background: #f8fbff;
+      color: #07101f;
+      transform: translateY(-160%);
+      transition: transform 0.12s ease;
+    }
+
+    .skip-link:focus-visible {
+      transform: translateY(0);
+    }
+
+    :where(button, input, select, textarea, summary, a, [role="tab"], [tabindex]):focus-visible {
+      outline: 3px solid #93c5fd;
+      outline-offset: 3px;
+    }
+
+    #editor:focus-visible {
+      outline-offset: -4px;
+    }
+
+
     .app {
       width: min(1800px, 100%);
       margin: 0 auto;
@@ -325,7 +364,6 @@
 
     #editor {
       border: 0;
-      outline: 0;
       resize: none;
       background: transparent;
       color: transparent;
@@ -542,7 +580,6 @@
       line-height: 1.5;
       padding: 0.95rem;
       resize: none;
-      outline: none;
     }
 
     .history-list {
@@ -582,6 +619,13 @@
 
     details.config-box > summary::-webkit-details-marker { display: none; }
 
+
+    .field-label {
+      display: block;
+      margin: 0.3rem 0 0.45rem;
+      font-weight: 600;
+    }
+
     #configOverride {
       width: 100%;
       min-height: 180px;
@@ -594,7 +638,6 @@
       line-height: 1.45;
       padding: 0.85rem;
       resize: vertical;
-      outline: none;
     }
 
     .statusbar {

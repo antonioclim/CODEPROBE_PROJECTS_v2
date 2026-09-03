@@ -12,12 +12,31 @@
       profileSelect: document.getElementById("profileSelect"), analyseBtn: document.getElementById("analyseBtn"),
       calibrationProfile: document.getElementById("calibrationProfile"),
       exportJsonBtn: document.getElementById("exportJsonBtn"), exportTextBtn: document.getElementById("exportTextBtn"),
-      status: document.getElementById("status"), score: document.getElementById("score"), reading: document.getElementById("reading"),
+      status: document.getElementById("status"), score: document.getElementById("score"),
+      scoreProgress: document.getElementById("projectScoreProgress"), scoreBar: document.getElementById("projectScoreBar"), reading: document.getElementById("reading"),
       analysed: document.getElementById("analysed"), excluded: document.getElementById("excluded"),
       reviewPanel: document.getElementById("reviewPanel"), dropOverlay: document.getElementById("dropOverlay"),
       textReport: document.getElementById("textReport"), jsonReport: document.getElementById("jsonReport")
     };
     const state = { pyodide: null, ready: false, payload: null, projectName: "project", text: "", json: "", engineSource: null, engineFingerprint: null };
+    function setStatus(text, { busy = false } = {}) {
+      els.status.textContent = String(text);
+      els.status.setAttribute("aria-busy", busy ? "true" : "false");
+    }
+    function setProgressBar(value, unavailableText = "Not available") {
+      const numeric = Number(value);
+      if (value === null || value === undefined || !Number.isFinite(numeric)) {
+        els.scoreBar.style.width = "0%";
+        els.scoreProgress.removeAttribute("aria-valuenow");
+        els.scoreProgress.setAttribute("aria-valuetext", unavailableText);
+        return;
+      }
+      const bounded = Math.max(0, Math.min(100, numeric));
+      const rendered = bounded.toFixed(1);
+      els.scoreBar.style.width = `${bounded}%`;
+      els.scoreProgress.setAttribute("aria-valuenow", rendered);
+      els.scoreProgress.setAttribute("aria-valuetext", `${rendered} per cent`);
+    }
     function bytesToBase64(bytes) {
       const chunk = 0x8000; let binary = "";
       for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
@@ -92,8 +111,8 @@
     function showDropOverlay(show) { if (els.dropOverlay) { els.dropOverlay.classList.toggle("hidden", !show); els.dropOverlay.setAttribute("aria-hidden", show ? "false" : "true"); } }
     async function handleDroppedProject(dataTransfer) {
       const files = await collectDroppedFiles(dataTransfer);
-      if (!files.length) { els.status.textContent = "No readable files were dropped."; return; }
-      if (files.length > MAX_BROWSER_DROP_FILES) { els.status.textContent = `Too many files were dropped (${files.length}). Use tools/analyze_project.py for very large projects.`; return; }
+      if (!files.length) { setStatus("No readable files were dropped."); return; }
+      if (files.length > MAX_BROWSER_DROP_FILES) { setStatus(`Too many files were dropped (${files.length}). Use tools/analyze_project.py for very large projects.`); return; }
       if (files.length === 1 && /\.zip$/i.test(files[0].name || "")) await loadZip(files[0]);
       else await loadFolder(files);
     }
@@ -127,7 +146,7 @@
     }
     async function initEngine() {
       if (state.ready) return;
-      els.status.textContent = "Loading Pyodide and src/codeprobe_runtime.py…";
+      setStatus("Loading Pyodide and src/codeprobe_runtime.py…", { busy: true });
       if (window.CodeProbeRuntime?.ensurePyodideLoader) {
         await window.CodeProbeRuntime.ensurePyodideLoader();
       }
@@ -137,20 +156,20 @@
       state.pyodide.FS.writeFile("codeprobe_runtime.py", engineSource);
       state.pyodide.runPython("import codeprobe_runtime");
       state.ready = true;
-      els.status.textContent = "Engine ready.";
+      setStatus("Engine ready.");
     }
     async function loadZip(file) {
-      if ((file.size || 0) > MAX_BROWSER_PROJECT_ZIP_BYTES) { els.status.textContent = `ZIP exceeds the ${MAX_BROWSER_PROJECT_ZIP_BYTES} byte browser limit.`; return; }
+      if ((file.size || 0) > MAX_BROWSER_PROJECT_ZIP_BYTES) { setStatus(`ZIP exceeds the ${MAX_BROWSER_PROJECT_ZIP_BYTES} byte browser limit.`); return; }
       const buffer = await file.arrayBuffer();
       state.projectName = (file.name || "project.zip").replace(/\.zip$/i, "");
       state.payload = { project_name: state.projectName, zip_base64: bytesToBase64(new Uint8Array(buffer)), max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES, max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES, max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES, max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES };
       els.analyseBtn.disabled = false;
-      els.status.textContent = `Loaded ZIP: ${file.name}.`;
+      setStatus(`Loaded ZIP: ${file.name}.`);
     }
     async function loadFolder(fileList) {
       const selected = Array.from(fileList || []);
       if (selected.length > MAX_BROWSER_PROJECT_ENTRIES) {
-        els.status.textContent = "Folder selection contains too many files for the browser UI; use tools/analyze_project.py for this project.";
+        setStatus("Folder selection contains too many files for the browser UI; use tools/analyze_project.py for this project.");
         return;
       }
       const files = []; const warnings = []; let acceptedBytes = 0;
@@ -164,7 +183,7 @@
       state.projectName = first.split("/").filter(Boolean)[0] || "project";
       state.payload = { project_name: state.projectName, files, max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES, max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES, max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES, max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES };
       els.analyseBtn.disabled = false;
-      els.status.textContent = `Loaded folder: ${files.length} text file(s)${warnings.length ? `; ${warnings.length} skipped by browser` : ""}.`;
+      setStatus(`Loaded folder: ${files.length} text file(s)${warnings.length ? `; ${warnings.length} skipped by browser` : ""}.`);
     }
     function calibrationProfileObject() {
       const raw = els.calibrationProfile.value.trim();
@@ -175,10 +194,11 @@
     }
     async function analyse() {
       if (!state.payload) return;
-      await initEngine();
+      try { await initEngine(); }
+      catch (error) { setStatus("The in-browser Python engine could not be loaded."); return; }
       let calibration_profile = null;
       try { calibration_profile = calibrationProfileObject(); }
-      catch (error) { els.status.textContent = error.message; return; }
+      catch (error) { setStatus(error.message); return; }
       const payload = { ...state.payload, profile: els.profileSelect.value, calibration_profile, engine_fingerprint: await engineFingerprint() };
       state.pyodide.globals.set("payload_json", JSON.stringify(payload));
       let resultText = "";
@@ -190,13 +210,15 @@
       state.json = JSON.stringify(report, null, 2);
       els.textReport.value = state.text;
       els.jsonReport.value = state.json;
-      els.score.textContent = report.overall_applicable === false ? "N/A" : `${Number(report.overall_percent || 0).toFixed(1)}%`;
+      const overallPercent = Number(report.overall_percent || 0);
+      els.score.textContent = report.overall_applicable === false ? "N/A" : `${overallPercent.toFixed(1)}%`;
+      setProgressBar(report.overall_applicable === false ? null : overallPercent, "Not applicable");
       els.reading.textContent = report.reading || report.verdict || "—";
       els.analysed.textContent = String(report.included_file_count ?? report.analysed_file_count ?? 0);
       els.excluded.textContent = String(report.excluded_file_count ?? 0);
       renderReview(report);
       els.exportJsonBtn.disabled = false; els.exportTextBtn.disabled = false;
-      els.status.textContent = "Project analysis completed.";
+      setStatus("Project analysis completed.");
     }
     function download(name, content, type) { const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
     els.zipBtn.addEventListener("click", () => els.zipInput.click());

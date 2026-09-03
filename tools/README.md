@@ -20,3 +20,12 @@ strict release manifest. It stages and verifies the required ZIP, checksum and
 package audit before publication, then attempts to restore the prior packet
 after a detected publication failure. This is not an atomic or crash-recovery
 guarantee for three paths.
+
+
+## Browser accessibility gate
+
+```bash
+node tools/check_browser_accessibility.js
+```
+
+This command starts the shipped local server and a Chromium-family browser, then verifies accessible names, live regions, progressbar state, focus visibility and keyboard-operated result tabs through the Chrome DevTools Protocol. It has no npm dependency and fails when no supported browser is available.

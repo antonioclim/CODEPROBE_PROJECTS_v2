@@ -57,3 +57,19 @@ Features that need to survive export should be added to the JSON report in `src/
    `python3 -I -S -B tools/check_release.py --write-release-evidence`, inspect the
    evidence diff and then run the read-only
    `python3 -I -S -B tools/check_release.py` gate.
+
+
+## Accessibility contract
+
+New controls must have a programmatic name and a visible `:focus-visible` state. Dynamic operational messages belong in the existing polite status regions rather than in transient visual-only text. Numeric score bars must update their visual width and `aria-valuenow`/`aria-valuetext` together; unavailable or inapplicable scores omit `aria-valuenow` and retain an explicit textual state.
+
+The main result selector follows the ARIA tab pattern. Exactly one tab is selected and in the page tab order. Left and Right move cyclically, Home selects the first tab and End selects the last. Inactive panels carry the native `hidden` state as well as the visual class so they are absent from the accessibility tree.
+
+Run the static and real-browser checks after changing the interface:
+
+```bash
+python3 -I -S -B -m unittest discover -s tests -p 'test_browser_security.py' -v
+node tools/check_browser_accessibility.js
+```
+
+The browser gate launches the shipped local server and an installed Chromium-family browser, blocks the external Pyodide CDN and verifies the interface contract without treating successful runtime download as an accessibility prerequisite.

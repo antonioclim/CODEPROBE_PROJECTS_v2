@@ -264,12 +264,64 @@ jobs:
             exit 1
           fi
 
+
+  browser_accessibility:
+    name: Browser accessibility (Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      CODEPROBE_REQUIRE_HTTP_NAVIGATION: "1"
+      PYTHONHASHSEED: "31411"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+          lfs: false
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          python-version: "3.14.7"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          node-version: "24.20.0"
+          package-manager-cache: false
+
+      - name: Run the real-browser accessibility gate
+        shell: bash
+        run: node tools/check_browser_accessibility.js
+
+      - name: Confirm that browser checks left a clean checkout
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dirty="$(git status --porcelain=v1 --untracked-files=all)"
+          if [[ -n "$dirty" ]]; then
+            printf '%s\n' "$dirty"
+            exit 1
+          fi
+
   required:
     name: Required CI
     if: ${{ always() }}
     needs:
       - validation
       - release_reproducibility
+      - browser_accessibility
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions: {}
@@ -277,9 +329,11 @@ jobs:
       - name: Require every CI job
         shell: bash
         env:
+          BROWSER_ACCESSIBILITY_RESULT: ${{ needs.browser_accessibility.result }}
           REPRODUCIBILITY_RESULT: ${{ needs.release_reproducibility.result }}
           VALIDATION_RESULT: ${{ needs.validation.result }}
         run: |
           set -euo pipefail
           test "$VALIDATION_RESULT" = "success"
           test "$REPRODUCIBILITY_RESULT" = "success"
+          test "$BROWSER_ACCESSIBILITY_RESULT" = "success"

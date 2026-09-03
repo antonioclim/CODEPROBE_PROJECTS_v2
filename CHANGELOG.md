@@ -8,6 +8,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a dependency-free real-browser accessibility gate covering the exposed accessibility tree, roving result tabs, keyboard navigation, focus visibility, live status regions and score semantics.
+- Add programmatic names, skip links, ARIA tab/tabpanel relationships and progressbar state to both browser interfaces.
 - Add bounded project-folder and ZIP intake with pre-read exclusion, stable regular-file reads, symlink/special-entry rejection, compressed and expanded byte budgets, entry limits and compression-ratio controls.
 - Add group-exclusive calibration fit/evaluation partitions, explicit report-kind and language scope, fail-closed sample handling and pseudonymised sample identifiers.
 - Add hostile regressions for forged metadata, ZIP bombs, encrypted or special members, unsafe filesystem entries, nested ignore control and calibration leakage.

@@ -126,6 +126,7 @@
       langMeta: document.getElementById("langMeta"),
       staleMeta: document.getElementById("staleMeta"),
       scoreValue: document.getElementById("scoreValue"),
+      scoreProgress: document.getElementById("scoreProgress"),
       scoreBar: document.getElementById("scoreBar"),
       verdictValue: document.getElementById("verdictValue"),
       confidenceValue: document.getElementById("confidenceValue"),
@@ -133,6 +134,7 @@
       summaryProfile: document.getElementById("summaryProfile"),
       lowLevelQualityCard: document.getElementById("lowLevelQualityCard"),
       lowLevelQualityValue: document.getElementById("lowLevelQualityValue"),
+      lowLevelQualityProgress: document.getElementById("lowLevelQualityProgress"),
       lowLevelQualityBar: document.getElementById("lowLevelQualityBar"),
       notesList: document.getElementById("notesList"),
       warningsList: document.getElementById("warningsList"),
@@ -146,6 +148,7 @@
       manualReviewPanel: document.getElementById("manualReviewPanel"),
       globalDropOverlay: document.getElementById("globalDropOverlay"),
       spinner: document.getElementById("spinner"),
+      statusBar: document.getElementById("applicationStatus"),
       statusText: document.getElementById("statusText"),
       contextText: document.getElementById("contextText"),
       tabButtons: Array.from(document.querySelectorAll(".tab-btn")),
@@ -251,10 +254,31 @@ importlib.import_module("codeprobe_runtime")
     }
 
 
+    function setStatus(text) {
+      els.statusText.textContent = String(text);
+    }
+
     function setBusy(isBusy, text) {
-      els.spinner.classList.toggle("active", Boolean(isBusy));
-      els.statusText.textContent = text;
-      els.analyzeBtn.disabled = Boolean(isBusy) || !appState.engineReady;
+      const busy = Boolean(isBusy);
+      els.spinner.classList.toggle("active", busy);
+      els.statusBar.setAttribute("aria-busy", busy ? "true" : "false");
+      setStatus(text);
+      els.analyzeBtn.disabled = busy || !appState.engineReady;
+    }
+
+    function setProgressBar(container, fill, value, unavailableText = "Not available") {
+      const numeric = Number(value);
+      if (value === null || value === undefined || !Number.isFinite(numeric)) {
+        fill.style.width = "0%";
+        container.removeAttribute("aria-valuenow");
+        container.setAttribute("aria-valuetext", unavailableText);
+        return;
+      }
+      const bounded = clamp(numeric, 0, 100);
+      const rendered = bounded.toFixed(1);
+      fill.style.width = `${bounded}%`;
+      container.setAttribute("aria-valuenow", rendered);
+      container.setAttribute("aria-valuetext", `${rendered} per cent`);
     }
 
     function setEngineBadge(state, text) {
@@ -545,7 +569,7 @@ importlib.import_module("codeprobe_runtime")
       const overallApplicable = report && report.overall_applicable !== false;
       const percent = Number(report?.overall_percent ?? 0);
       els.scoreValue.textContent = overallApplicable ? `${percent.toFixed(1)}%` : "N/A";
-      els.scoreBar.style.width = overallApplicable ? `${clamp(percent, 0, 100)}%` : "0%";
+      setProgressBar(els.scoreProgress, els.scoreBar, overallApplicable ? percent : null, "Not applicable");
       els.verdictValue.textContent = report.reading || report.verdict || "—";
       els.verdictValue.className = `value ${verdictClassName(report)}`;
       els.confidenceValue.textContent = report.confidence || "—";
@@ -568,11 +592,11 @@ importlib.import_module("codeprobe_runtime")
       if (lowLevel) {
         els.lowLevelQualityCard.classList.remove("hidden");
         els.lowLevelQualityValue.textContent = lowLevel.text;
-        els.lowLevelQualityBar.style.width = `${lowLevel.percent === null ? 0 : clamp(lowLevel.percent, 0, 100)}%`;
+        setProgressBar(els.lowLevelQualityProgress, els.lowLevelQualityBar, lowLevel.percent, "Not applicable");
       } else {
         els.lowLevelQualityCard.classList.add("hidden");
         els.lowLevelQualityValue.textContent = "—";
-        els.lowLevelQualityBar.style.width = "0%";
+        setProgressBar(els.lowLevelQualityProgress, els.lowLevelQualityBar, null);
       }
     }
 
@@ -699,13 +723,34 @@ importlib.import_module("codeprobe_runtime")
       `;
     }
 
-    function activateTab(tabId) {
+    function activateTab(tabId, { focusTab = false } = {}) {
+      const requested = els.tabButtons.find(button => button.dataset.tab === tabId);
+      if (!requested) return;
       els.tabButtons.forEach(button => {
-        button.classList.toggle("active", button.dataset.tab === tabId);
+        const selected = button === requested;
+        button.classList.toggle("active", selected);
+        button.setAttribute("aria-selected", selected ? "true" : "false");
+        button.tabIndex = selected ? 0 : -1;
       });
       els.tabPanels.forEach(panel => {
-        panel.classList.toggle("active", panel.id === tabId);
+        const selected = panel.id === tabId;
+        panel.classList.toggle("active", selected);
+        panel.hidden = !selected;
       });
+      if (focusTab) requested.focus();
+    }
+
+    function handleTabKeydown(event) {
+      const currentIndex = els.tabButtons.indexOf(event.currentTarget);
+      if (currentIndex < 0) return;
+      let nextIndex = null;
+      if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % els.tabButtons.length;
+      else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + els.tabButtons.length) % els.tabButtons.length;
+      else if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = els.tabButtons.length - 1;
+      if (nextIndex === null) return;
+      event.preventDefault();
+      activateTab(els.tabButtons[nextIndex].dataset.tab, { focusTab: true });
     }
 
     function downloadBlob(filename, content, contentType) {
@@ -916,7 +961,7 @@ importlib.import_module("codeprobe_runtime")
       scheduleHighlight();
       syncEditorScroll();
       clearReport();
-      els.statusText.textContent = `Project ZIP loaded: ${file.name}.`;
+      setStatus(`Project ZIP loaded: ${file.name}.`);
     }
 
     function projectTextCandidate(path) {
@@ -978,7 +1023,7 @@ importlib.import_module("codeprobe_runtime")
       scheduleHighlight();
       syncEditorScroll();
       clearReport();
-      els.statusText.textContent = `Project files loaded: ${payloadFiles.length}${warnings.length ? ` (${warnings.length} skipped or warned)` : ""}.`;
+      setStatus(`Project files loaded: ${payloadFiles.length}${warnings.length ? ` (${warnings.length} skipped or warned)` : ""}.`);
     }
 
     function getConfigOverrideObject() {
@@ -1084,9 +1129,9 @@ importlib.import_module("codeprobe_runtime")
         const parsed = JSON.parse(item.jsonReport);
         renderReport({ report: parsed, text: item.textReport }, false);
         activateTab("tab-summary");
-        els.statusText.textContent = "A report was loaded from local history.";
+        setStatus("A report was loaded from local history.");
       } catch (error) {
-        els.statusText.textContent = "Local history is corrupted.";
+        setStatus("Local history is corrupted.");
       }
     }
 
@@ -1142,11 +1187,11 @@ importlib.import_module("codeprobe_runtime")
       const isProject = appState.analysisMode === "project";
       const code = els.editor.value;
       if (!isProject && !code.trim()) {
-        els.statusText.textContent = "The editor is empty.";
+        setStatus("The editor is empty.");
         return;
       }
       if (isProject && !appState.projectPayload) {
-        els.statusText.textContent = "No project payload is loaded.";
+        setStatus("No project payload is loaded.");
         return;
       }
       try {
@@ -1161,7 +1206,7 @@ importlib.import_module("codeprobe_runtime")
         override = getConfigOverrideObject();
         calibrationProfile = getCalibrationProfileObject();
       } catch (error) {
-        els.statusText.textContent = error.message;
+        setStatus(error.message);
         activateTab("tab-summary");
         return;
       }
@@ -1255,7 +1300,7 @@ importlib.import_module("codeprobe_runtime")
       els.exportJsonBtn.disabled = true;
       els.exportTextBtn.disabled = true;
       els.scoreValue.textContent = "—";
-      els.scoreBar.style.width = "0%";
+      setProgressBar(els.scoreProgress, els.scoreBar, null);
       els.verdictValue.textContent = "Insufficient data";
       els.verdictValue.className = "value verdict-insufficient";
       els.confidenceValue.textContent = "—";
@@ -1263,7 +1308,7 @@ importlib.import_module("codeprobe_runtime")
       els.summaryProfile.textContent = els.profileSelect.value;
       els.lowLevelQualityCard.classList.add("hidden");
       els.lowLevelQualityValue.textContent = "—";
-      els.lowLevelQualityBar.style.width = "0%";
+      setProgressBar(els.lowLevelQualityProgress, els.lowLevelQualityBar, null);
       renderList(els.notesList, [], "The report will appear here after the first analysis.");
       renderList(els.warningsList, [], "No warnings.");
       els.textReport.value = "The text report will appear here.";
@@ -1292,9 +1337,9 @@ importlib.import_module("codeprobe_runtime")
         syncEditorScroll();
         markReportStale(appState.currentReport !== null || appState.currentProjectReport !== null);
         const warningText = appState.fileWarnings.length ? ` (${appState.fileWarnings.join("; ")})` : "";
-        els.statusText.textContent = `File loaded: ${appState.currentFileName}${warningText}`;
+        setStatus(`File loaded: ${appState.currentFileName}${warningText}`);
       } catch (error) {
-        els.statusText.textContent = error.message;
+        setStatus(error.message);
       }
     }
 
@@ -1329,7 +1374,7 @@ importlib.import_module("codeprobe_runtime")
       updateEditorMeta();
       scheduleHighlight();
       syncEditorScroll();
-      els.statusText.textContent = "Privacy data cleared from this browser session and local storage.";
+      setStatus("Privacy data cleared from this browser session and local storage.");
     }
 
     function handleHistoryClick(event) {
@@ -1434,11 +1479,11 @@ importlib.import_module("codeprobe_runtime")
     async function handleDropDataTransfer(dataTransfer) {
       const droppedFiles = await collectDroppedFiles(dataTransfer);
       if (!droppedFiles.length) {
-        els.statusText.textContent = "No readable files were dropped.";
+        setStatus("No readable files were dropped.");
         return;
       }
       if (droppedFiles.length > MAX_BROWSER_DROP_FILES) {
-        els.statusText.textContent = `Too many files were dropped (${droppedFiles.length}). Use tools/analyze_project.py for very large projects.`;
+        setStatus(`Too many files were dropped (${droppedFiles.length}). Use tools/analyze_project.py for very large projects.`);
         return;
       }
       if (droppedFiles.length === 1 && isZipLikeFile(droppedFiles[0])) {
@@ -1492,7 +1537,7 @@ importlib.import_module("codeprobe_runtime")
       appState.localEngineFile = file;
       appState.engineSource = null;
       appState.engineSourceMode = null;
-      els.statusText.textContent = `Local engine file selected: ${file.name}.`;
+      setStatus(`Local engine file selected: ${file.name}.`);
       if (!appState.engineReady) {
         try {
           await initEngine();
@@ -1516,7 +1561,7 @@ importlib.import_module("codeprobe_runtime")
       scheduleHighlight();
       syncEditorScroll();
       clearReport();
-      els.statusText.textContent = "Editor cleared.";
+      setStatus("Editor cleared.");
     });
 
     els.exportJsonBtn.addEventListener("click", () => {
@@ -1532,7 +1577,7 @@ importlib.import_module("codeprobe_runtime")
     els.clearHistoryBtn.addEventListener("click", () => {
       localStorage.removeItem(HISTORY_KEY);
       renderHistory();
-      els.statusText.textContent = "Local history cleared.";
+      setStatus("Local history cleared.");
     });
 
     els.privacyWipeBtn.addEventListener("click", clearPrivacyData);
@@ -1544,9 +1589,9 @@ importlib.import_module("codeprobe_runtime")
         localStorage.setItem(HISTORY_ENABLED_KEY, String(els.historyEnabled.checked));
         if (!els.historyEnabled.checked) {
           localStorage.removeItem(HISTORY_KEY);
-          els.statusText.textContent = "Local history disabled and cleared.";
+          setStatus("Local history disabled and cleared.");
         } else {
-          els.statusText.textContent = "Local history enabled.";
+          setStatus("Local history enabled.");
         }
         renderHistory();
       });
@@ -1584,6 +1629,7 @@ importlib.import_module("codeprobe_runtime")
 
     els.tabButtons.forEach(button => {
       button.addEventListener("click", () => activateTab(button.dataset.tab));
+      button.addEventListener("keydown", handleTabKeydown);
     });
 
     els.metricsBody.addEventListener("click", event => {
@@ -1656,6 +1702,7 @@ importlib.import_module("codeprobe_runtime")
     scheduleHighlight();
     syncEditorScroll();
     clearReport();
+    activateTab("tab-summary");
 
     initEngine().catch(() => {
       /* the status bar already shows the failure */

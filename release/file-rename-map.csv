@@ -4,10 +4,10 @@ current_path,previous_path,proposed_final_path,role,action,phase,area,risk_level
 .github/workflows/ci.yml,,.github/workflows/ci.yml,continuous-integration workflow,added_audit_phase4,audit-4,.github,high,added during hostile audit Phase 4 to enforce the required release gates
 .gitignore,,.gitignore,standard project file,keep,current,root,low,canonical current path
 00-kit-index.md,KIT_INDEX.md,00-kit-index.md,standard project file,completed_phase13,13,root,low,final naming-stable path; previous_path records migration source where applicable
-README.md,,README.md,standard project file,keep,current,root,low,canonical current path
 CHANGELOG.md,,CHANGELOG.md,standard project file,keep,current,root,low,canonical current path
 CONTRIBUTING.md,,CONTRIBUTING.md,standard project file,keep,current,root,low,canonical current path
 LICENSE,,LICENSE,standard project file,keep,current,root,low,canonical current path
+README.md,,README.md,standard project file,keep,current,root,low,canonical current path
 app/README.md,,app/README.md,browser app asset,keep,current,app,high,canonical current path
 app/codeprobe-ui.js,src/index.js,app/codeprobe-ui.js,browser app asset,completed_migration,current,app,high,final naming-stable path; previous_path records migration source where applicable
 app/codeprobe.css,,app/codeprobe.css,browser app asset,keep,current,app,high,canonical current path
@@ -109,6 +109,7 @@ tools/audit_institutional_pack.py,src/institutional_audit.py,tools/audit_institu
 tools/build_release.py,src/build_release.py,tools/build_release.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/calibrate_corpus.py,src/calibrate_corpus.py,tools/calibrate_corpus.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/calibrate_profile.py,src/calibrate_profile.py,tools/calibrate_profile.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
+tools/check_browser_accessibility.js,,tools/check_browser_accessibility.js,command-line or release utility,added_audit_phase4b,audit-4b,tools,high,dependency-free real-browser accessibility gate used by required CI
 tools/check_dependency_boundary.py,,tools/check_dependency_boundary.py,command-line or release utility,added_audit_phase4,audit-4,tools,high,added during hostile audit Phase 4 to verify the offline dependency contract
 tools/check_file_references.py,tools/check_references.py,tools/check_file_references.py,command-line or release utility,completed_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/check_naming.py,,tools/check_naming.py,command-line or release utility,added_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable

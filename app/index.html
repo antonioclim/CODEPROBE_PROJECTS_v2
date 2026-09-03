@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CodeProbe v2.2.0 — heuristic code and project analysis in the browser</title>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net blob: 'wasm-unsafe-eval'; connect-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
-  <link rel="stylesheet" href="codeprobe.css" integrity="sha256-Wg0hisd5Nyi3EBPsRmE7pbmmzyU5zrH0t5bPEjqP8Tc=">
+  <link rel="stylesheet" href="codeprobe.css" integrity="sha256-+2+BTmDXJK5Q7mxKheVX5pw68Tvy39Nv568N5T2JorM=">
 </head>
 <body>
+  <a class="skip-link" href="#mainContent">Skip to main content</a>
   <div class="app">
     <header class="hero">
       <div>
@@ -112,20 +113,22 @@
       </div>
     </section>
 
-    <main class="main">
+    <main id="mainContent" class="main" tabindex="-1">
       <section class="panel">
         <div class="panel-header">
           <div class="panel-title">
-            <h2>Code editor</h2>
+            <h2 id="editorTitle">Code editor</h2>
             <p>Paste code here, drag a file/folder/ZIP anywhere onto the page, or use the open buttons.</p>
           </div>
           <div class="badge info" id="editorModeBadge">Highlight: auto</div>
         </div>
-        <div class="drop-hint" aria-live="polite">Drop a source file for single-file analysis, or drop a folder / GitHub ZIP export for project analysis.</div>
+        <div id="editorHelp" class="drop-hint">Drop a source file for single-file analysis, or drop a folder / GitHub ZIP export for project analysis.</div>
         <div id="dropZone" class="editor-shell">
           <pre id="highlightLayer" aria-hidden="true"></pre>
           <textarea
             id="editor"
+            aria-label="Source code editor"
+            aria-describedby="editorHelp editorMetadata"
             spellcheck="false"
             autocapitalize="off"
             autocomplete="off"
@@ -134,7 +137,7 @@
 # The analysis runs locally in the browser without sending the source to a server.
 </textarea>
         </div>
-        <div class="editor-footer">
+        <div id="editorMetadata" class="editor-footer">
           <span id="fileMeta">File: fragment.py</span>
           <span id="lineMeta">Lines: 2</span>
           <span id="langMeta">Detected language: Python</span>
@@ -145,9 +148,9 @@
       <section class="panel">
         <div class="summary-grid">
           <div class="summary-card">
-            <div class="label">AI-style concern score</div>
+            <div id="scoreLabel" class="label">AI-style concern score</div>
             <div id="scoreValue" class="value">—</div>
-            <div class="score-bar"><span id="scoreBar"></span></div>
+            <div id="scoreProgress" class="score-bar" role="progressbar" aria-labelledby="scoreLabel" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Not available"><span id="scoreBar" aria-hidden="true"></span></div>
           </div>
           <div class="summary-card">
             <div class="label">Reading</div>
@@ -166,22 +169,22 @@
             <div id="summaryProfile" class="value">default</div>
           </div>
           <div id="lowLevelQualityCard" class="summary-card hidden">
-            <div class="label">Low-Level Quality</div>
+            <div id="lowLevelQualityLabel" class="label">Low-Level Quality</div>
             <div id="lowLevelQualityValue" class="value">—</div>
-            <div class="score-bar"><span id="lowLevelQualityBar"></span></div>
+            <div id="lowLevelQualityProgress" class="score-bar" role="progressbar" aria-labelledby="lowLevelQualityLabel" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Not available"><span id="lowLevelQualityBar" aria-hidden="true"></span></div>
           </div>
         </div>
 
-        <div class="tabs" role="tablist" aria-label="Result panels">
-          <button class="tab-btn active" data-tab="tab-summary" type="button">Summary</button>
-          <button class="tab-btn" data-tab="tab-review" type="button">Manual review</button>
-          <button class="tab-btn" data-tab="tab-metrics" type="button">Metrics</button>
-          <button class="tab-btn" data-tab="tab-text" type="button">Text report</button>
-          <button class="tab-btn" data-tab="tab-json" type="button">JSON</button>
-          <button class="tab-btn" data-tab="tab-history" type="button">History</button>
+        <div id="resultTabs" class="tabs" role="tablist" aria-label="Result panels" aria-orientation="horizontal">
+          <button id="result-tab-summary" class="tab-btn active" data-tab="tab-summary" type="button" role="tab" aria-selected="true" aria-controls="tab-summary" tabindex="0">Summary</button>
+          <button id="result-tab-review" class="tab-btn" data-tab="tab-review" type="button" role="tab" aria-selected="false" aria-controls="tab-review" tabindex="-1">Manual review</button>
+          <button id="result-tab-metrics" class="tab-btn" data-tab="tab-metrics" type="button" role="tab" aria-selected="false" aria-controls="tab-metrics" tabindex="-1">Metrics</button>
+          <button id="result-tab-text" class="tab-btn" data-tab="tab-text" type="button" role="tab" aria-selected="false" aria-controls="tab-text" tabindex="-1">Text report</button>
+          <button id="result-tab-json" class="tab-btn" data-tab="tab-json" type="button" role="tab" aria-selected="false" aria-controls="tab-json" tabindex="-1">JSON</button>
+          <button id="result-tab-history" class="tab-btn" data-tab="tab-history" type="button" role="tab" aria-selected="false" aria-controls="tab-history" tabindex="-1">History</button>
         </div>
 
-        <section id="tab-summary" class="tab-panel active">
+        <section id="tab-summary" class="tab-panel active" role="tabpanel" aria-labelledby="result-tab-summary" tabindex="0">
           <div class="summary-box">
             <div>
               <h3>Notes</h3>
@@ -202,6 +205,7 @@
                 Unknown metrics and unsupported keys are rejected by the engine.
                 Example: <code>{"comment_to_code_ratio":{"weight":0.15,"thresholds":{"ai_peak":0.22}}}</code>
               </p>
+              <label class="field-label" for="configOverride">Metric configuration JSON override</label>
               <textarea id="configOverride" placeholder='{}'></textarea>
             </details>
             <details class="config-box">
@@ -210,6 +214,7 @@
                 Paste a course-local calibration profile produced by <code>tools/calibrate_profile.py</code>.
                 It may define <code>review_policy</code> thresholds and calibrated metric overrides.
               </p>
+              <label class="field-label" for="calibrationProfile">Calibration profile JSON</label>
               <textarea id="calibrationProfile" placeholder='{"profile_id":"intro-python-2026","review_policy":{"file":{"low_max":0.28,"moderate_max":0.48,"elevated_max":0.68,"review_trigger":0.62},"project":{"low_max":0.28,"moderate_max":0.48,"elevated_max":0.68,"review_trigger":0.60}}}'></textarea>
             </details>
             <details class="config-box security-panel">
@@ -223,16 +228,17 @@
           </div>
         </section>
 
-        <section id="tab-review" class="tab-panel">
+        <section id="tab-review" class="tab-panel" role="tabpanel" aria-labelledby="result-tab-review" tabindex="0" hidden>
           <div id="manualReviewPanel" class="review-panel">
             <div class="empty-state">Manual-review guidance will appear after analysis. The guidance is a defensible triage plan, not a misconduct finding.</div>
           </div>
         </section>
 
-        <section id="tab-metrics" class="tab-panel">
+        <section id="tab-metrics" class="tab-panel" role="tabpanel" aria-labelledby="result-tab-metrics" tabindex="0" hidden>
           <div class="metric-layout">
             <div class="table-wrap">
               <table>
+                <caption class="visually-hidden">Metric results</caption>
                 <thead>
                   <tr>
                     <th>Metric</th>
@@ -256,15 +262,17 @@
           </div>
         </section>
 
-        <section id="tab-text" class="tab-panel">
+        <section id="tab-text" class="tab-panel" role="tabpanel" aria-labelledby="result-tab-text" tabindex="0" hidden>
+          <label class="visually-hidden" for="textReport">Text report output</label>
           <textarea id="textReport" class="mono-area" readonly>The text report will appear here.</textarea>
         </section>
 
-        <section id="tab-json" class="tab-panel">
+        <section id="tab-json" class="tab-panel" role="tabpanel" aria-labelledby="result-tab-json" tabindex="0" hidden>
+          <label class="visually-hidden" for="jsonReport">JSON report output</label>
           <textarea id="jsonReport" class="json-area" readonly>{}</textarea>
         </section>
 
-        <section id="tab-history" class="tab-panel">
+        <section id="tab-history" class="tab-panel" role="tabpanel" aria-labelledby="result-tab-history" tabindex="0" hidden>
           <div class="history-box">
             <div class="panel-header history-header">
               <div class="panel-title">
@@ -280,9 +288,9 @@
       </section>
     </main>
 
-    <footer class="statusbar">
+    <footer id="applicationStatus" class="statusbar" aria-busy="false">
       <div id="spinner" class="spinner" aria-hidden="true"></div>
-      <div id="statusText" class="status-text">Starting the analysis engine…</div>
+      <div id="statusText" class="status-text" role="status" aria-live="polite" aria-atomic="true">Starting the analysis engine…</div>
       <div id="contextText" class="context-text">No current report.</div>
     </footer>
   </div>
@@ -293,7 +301,7 @@
     </div>
   </div>
   <script src="pyodide-loader.js" defer integrity="sha256-876RR3lY7z81OopPUT4JNlpxbyWc6i6VQDrGXsi9kU4="></script>
-  <script src="codeprobe-ui.js" defer integrity="sha256-Q+WBh2uDyKKEm0QD9HOJIereUbRNR4fETdlU/ElN4UI="></script>
+  <script src="codeprobe-ui.js" defer integrity="sha256-YSSW0iMUbFdfnry4OlEOJeXlUd7+T37K4ARuk2svITU="></script>
 
 </body>
 </html>

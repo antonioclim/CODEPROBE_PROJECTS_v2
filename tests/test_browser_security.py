@@ -5,6 +5,7 @@ import re
 import sys
 import tempfile
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 from unittest import mock
 
@@ -25,6 +26,30 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import check_release  # noqa: E402
 from codeprobe_engine.release import ReleaseSetError  # noqa: E402
+
+
+class HtmlAccessibilityInventory(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.elements: list[tuple[str, dict[str, str | None]]] = []
+        self.by_id: dict[str, tuple[str, dict[str, str | None]]] = {}
+        self.labels_for: set[str] = set()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        self.elements.append((tag, attributes))
+        identifier = attributes.get("id")
+        if identifier:
+            self.by_id[identifier] = (tag, attributes)
+        if tag == "label" and attributes.get("for"):
+            self.labels_for.add(str(attributes["for"]))
+
+
+def accessibility_inventory(path: Path) -> HtmlAccessibilityInventory:
+    parser = HtmlAccessibilityInventory()
+    parser.feed(path.read_text(encoding="utf-8"))
+    parser.close()
+    return parser
 
 
 def sri_for(path: Path) -> str:
@@ -154,6 +179,117 @@ class BrowserSecurityTests(unittest.TestCase):
         loader = (APP / "pyodide-loader.js").read_text(encoding="utf-8")
         self.assertIn("require_integrity", loader)
         self.assertIn("expected_loader_sha256", loader)
+
+
+class BrowserAccessibilityContractTests(unittest.TestCase):
+    def test_main_tabs_have_complete_aria_and_keyboard_contract(self) -> None:
+        inventory = accessibility_inventory(APP / "index.html")
+        expected = (
+            ("result-tab-summary", "tab-summary", "true", "0"),
+            ("result-tab-review", "tab-review", "false", "-1"),
+            ("result-tab-metrics", "tab-metrics", "false", "-1"),
+            ("result-tab-text", "tab-text", "false", "-1"),
+            ("result-tab-json", "tab-json", "false", "-1"),
+            ("result-tab-history", "tab-history", "false", "-1"),
+        )
+        for tab_id, panel_id, selected, tab_index in expected:
+            tag, tab = inventory.by_id[tab_id]
+            self.assertEqual(tag, "button")
+            self.assertEqual(tab.get("role"), "tab")
+            self.assertEqual(tab.get("aria-controls"), panel_id)
+            self.assertEqual(tab.get("aria-selected"), selected)
+            self.assertEqual(tab.get("tabindex"), tab_index)
+            panel_tag, panel = inventory.by_id[panel_id]
+            self.assertEqual(panel_tag, "section")
+            self.assertEqual(panel.get("role"), "tabpanel")
+            self.assertEqual(panel.get("aria-labelledby"), tab_id)
+            self.assertEqual("hidden" in panel, selected != "true")
+        script = (APP / "codeprobe-ui.js").read_text(encoding="utf-8")
+        for key in ("ArrowLeft", "ArrowRight", "Home", "End"):
+            self.assertIn(f'event.key === "{key}"', script)
+        self.assertIn('button.setAttribute("aria-selected"', script)
+        self.assertIn("panel.hidden = !selected", script)
+        self.assertIn("button.addEventListener(\"keydown\", handleTabKeydown)", script)
+
+    def test_textareas_and_selects_have_programmatic_names(self) -> None:
+        required = {
+            "index.html": {
+                "editor",
+                "languageSelect",
+                "profileSelect",
+                "configOverride",
+                "calibrationProfile",
+                "textReport",
+                "jsonReport",
+            },
+            "project.html": {
+                "profileSelect",
+                "calibrationProfile",
+                "textReport",
+                "jsonReport",
+            },
+        }
+        for html_name, identifiers in required.items():
+            with self.subTest(html=html_name):
+                inventory = accessibility_inventory(APP / html_name)
+                for identifier in identifiers:
+                    tag, attrs = inventory.by_id[identifier]
+                    self.assertIn(tag, {"select", "textarea"})
+                    labelled = identifier in inventory.labels_for
+                    labelled = labelled or bool(attrs.get("aria-label"))
+                    references = str(attrs.get("aria-labelledby") or "").split()
+                    labelled = labelled or bool(references and all(item in inventory.by_id for item in references))
+                    self.assertTrue(labelled, f"{html_name}: {identifier} lacks an accessible name")
+
+    def test_live_regions_progressbars_and_skip_links_are_explicit(self) -> None:
+        for html_name, status_id, progress_ids in (
+            ("index.html", "statusText", ("scoreProgress", "lowLevelQualityProgress")),
+            ("project.html", "status", ("projectScoreProgress",)),
+        ):
+            with self.subTest(html=html_name):
+                inventory = accessibility_inventory(APP / html_name)
+                _, status = inventory.by_id[status_id]
+                self.assertEqual(status.get("role"), "status")
+                self.assertEqual(status.get("aria-live"), "polite")
+                self.assertEqual(status.get("aria-atomic"), "true")
+                skip_links = [attrs for tag, attrs in inventory.elements if tag == "a" and attrs.get("class") == "skip-link"]
+                self.assertEqual(len(skip_links), 1)
+                self.assertEqual(skip_links[0].get("href"), "#mainContent")
+                self.assertIn("mainContent", inventory.by_id)
+                for progress_id in progress_ids:
+                    _, progress = inventory.by_id[progress_id]
+                    self.assertEqual(progress.get("role"), "progressbar")
+                    self.assertEqual(progress.get("aria-valuemin"), "0")
+                    self.assertEqual(progress.get("aria-valuemax"), "100")
+                    self.assertTrue(progress.get("aria-valuetext"))
+                    self.assertIn(str(progress.get("aria-labelledby")), inventory.by_id)
+
+    def test_focus_visible_rules_replace_outline_suppression(self) -> None:
+        for css_name in ("codeprobe.css", "project.css"):
+            css = (APP / css_name).read_text(encoding="utf-8")
+            self.assertIn(":focus-visible", css)
+            self.assertIn("outline: 3px solid", css)
+            self.assertNotRegex(css, r"outline\s*:\s*(?:0|none)\s*;")
+
+    def test_required_ci_includes_the_real_browser_gate(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("browser_accessibility:", workflow)
+        self.assertIn("name: Browser accessibility (Chromium)", workflow)
+        self.assertIn('CODEPROBE_REQUIRE_HTTP_NAVIGATION: "1"', workflow)
+        self.assertIn("run: node tools/check_browser_accessibility.js", workflow)
+        self.assertIn("- browser_accessibility", workflow)
+        self.assertIn("BROWSER_ACCESSIBILITY_RESULT", workflow)
+        self.assertIn('test "$BROWSER_ACCESSIBILITY_RESULT" = "success"', workflow)
+
+    def test_progress_updates_keep_visual_and_accessibility_state_together(self) -> None:
+        main_script = (APP / "codeprobe-ui.js").read_text(encoding="utf-8")
+        project_script = (APP / "project-ui.js").read_text(encoding="utf-8")
+        self.assertIn("function setProgressBar(container, fill, value", main_script)
+        self.assertIn('container.setAttribute("aria-valuenow"', main_script)
+        self.assertIn('container.removeAttribute("aria-valuenow")', main_script)
+        self.assertIn("function setProgressBar(value", project_script)
+        self.assertIn('els.scoreProgress.setAttribute("aria-valuenow"', project_script)
+        self.assertIn('els.scoreProgress.removeAttribute("aria-valuenow")', project_script)
 
 
 if __name__ == "__main__":

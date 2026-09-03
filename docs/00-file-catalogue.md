@@ -5,6 +5,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 ## Summary
 
 - `added_audit_phase4`: 7
+- `added_audit_phase4b`: 1
 - `added_phase13`: 11
 - `completed_migration`: 30
 - `completed_phase13`: 4
@@ -124,6 +125,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tools/build_release.py` | `src/build_release.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/calibrate_corpus.py` | `src/calibrate_corpus.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/calibrate_profile.py` | `src/calibrate_profile.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
+| `tools/check_browser_accessibility.js` | `—` | `tools` | command-line or release utility | `added_audit_phase4b` | audit-4b | `high` |
 | `tools/check_dependency_boundary.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4` | audit-4 | `high` |
 | `tools/check_file_references.py` | `tools/check_references.py` | `tools` | command-line or release utility | `completed_phase13` | 13 | `high` |
 | `tools/check_naming.py` | `—` | `tools` | command-line or release utility | `added_phase13` | 13 | `high` |

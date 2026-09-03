@@ -138,3 +138,10 @@ turning that rule on first would block the current unsigned maintenance path.
 The committed workflow defines the required check but cannot itself enable the
 GitHub ruleset. Repository settings must be verified separately after the rule
 is applied.
+
+
+## Real-browser accessibility job
+
+The `Browser accessibility (Chromium)` job runs on Ubuntu with the same pinned checkout, Python and Node setup actions as the other CI jobs. It invokes `node tools/check_browser_accessibility.js`, which uses only Node's standard modules and the runner's installed Chromium-family browser. The gate inspects the browser accessibility tree and exercises keyboard interaction through the Chrome DevTools Protocol. It deliberately blocks the external Pyodide CDN so a remote runtime outage cannot make an accessibility regression appear to pass or fail.
+
+The aggregate `Required CI` job depends on this browser job. A skipped, cancelled or failed browser run therefore prevents the aggregate check from succeeding.
