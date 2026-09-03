@@ -1,0 +1,173 @@
+name: Phase 4D verified coverage transaction
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-hostile-remediation
+    paths:
+      - .github/workflows/phase4d-transaction.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: codeprobe-phase4d-transaction
+  cancel-in-progress: false
+
+jobs:
+  persist:
+    name: verify_and_persist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUTF8: "1"
+      PYTHONHASHSEED: "31413"
+    steps:
+      - name: Check out the exact audit branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: audit/codeprobe-hostile-remediation
+          clean: true
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: true
+          show-progress: false
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          python-version: "3.14.7"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6.1.0
+        with:
+          architecture: x64
+          check-latest: false
+          node-version: "24.20.0"
+          package-manager-cache: false
+
+      - name: Reconstruct the reviewed candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASELINE='23496aa15cac7a3c2f56d0e4c8de8786f5d39f7b'
+          MEASUREMENT_PARENT='a0859ee2a383fe97561f867d73758e05aa68d517'
+          EXPECTED_PAYLOAD_SHA256='c09ac98f1bfdf52a792802d46774bed13255d58107f1ed28caebe5668a45e621'
+          EXPECTED_PATCH_SHA256='1fce993de9ef142a8738bc2c053c445545fe54cc48d00a7ee55618383957e2db'
+          EXPECTED_TREE='dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801'
+
+          test "$(git rev-parse HEAD~2)" = "$MEASUREMENT_PARENT"
+          test "$(git rev-parse "$BASELINE^{tree}")" = '1a925a3618a67bb040e0970ef4edf7b95a3a5467'
+
+          mapfile -t staged_paths < <(git diff --name-only "$MEASUREMENT_PARENT" HEAD | sort)
+          {
+            for index in $(seq -w 0 11); do
+              printf '.github/phase4d-payload/part-%s\n' "$index"
+            done
+            printf '.github/workflows/phase4d-transaction.yml\n'
+          } | sort > /tmp/phase4d-expected-staged-paths.txt
+          printf '%s\n' "${staged_paths[@]}" > /tmp/phase4d-staged-paths.txt
+          diff -u /tmp/phase4d-expected-staged-paths.txt /tmp/phase4d-staged-paths.txt
+
+          cp .github/workflows/ci.yml /tmp/phase4d-ci-old.yml
+          cp .github/workflows/phase4c-pyodide-measure.yml /tmp/phase4c-measure.yml
+          cp .github/workflows/phase4d-transaction.yml /tmp/phase4d-transaction.yml
+          cp -a .github/phase4d-payload /tmp/phase4d-payload
+          cat .github/phase4d-payload/part-* > /tmp/phase4d-payload.b64
+
+          printf '%s  %s\n' "$EXPECTED_PAYLOAD_SHA256" /tmp/phase4d-payload.b64 \
+            | sha256sum --check --strict
+          base64 --decode /tmp/phase4d-payload.b64 \
+            | gzip --decompress > /tmp/codeprobe-phase4d.patch
+          printf '%s  %s\n' "$EXPECTED_PATCH_SHA256" /tmp/codeprobe-phase4d.patch \
+            | sha256sum --check --strict
+
+          rm -f .github/workflows/phase4c-pyodide-measure.yml
+          rm -f .github/workflows/phase4d-transaction.yml
+          rm -rf .github/phase4d-payload
+          git apply --binary --whitespace=nowarn /tmp/codeprobe-phase4d.patch
+          find . -type d -name __pycache__ -prune -exec rm -rf '{}' +
+          git add -A
+          git diff --cached --check
+          test "$(git write-tree)" = "$EXPECTED_TREE"
+
+      - name: Run the complete pre-publication gate
+        shell: bash
+        env:
+          CODEPROBE_REQUIRE_HTTP_NAVIGATION: "1"
+        run: |
+          set -euo pipefail
+          python -I -S -B -m unittest discover -s tests -v 2>&1 \
+            | tee /tmp/codeprobe-phase4d-tests.log
+          COUNT="$(sed -nE 's/^Ran ([0-9]+) tests?.*/\1/p' /tmp/codeprobe-phase4d-tests.log | tail -n 1)"
+          test "$COUNT" = '352'
+          python -I -S -B tools/check_dependency_boundary.py
+          python -I -S -B tools/check_pyodide_provenance.py
+          python -I -S -B tools/check_coverage.py \
+            --json-out "$RUNNER_TEMP/codeprobe-supported-coverage.json"
+          python -I -S -B tools/check_release.py --require-node
+          node tools/check_browser_accessibility.js
+          python -I -S -B tools/check_file_references.py
+          python -I -S -B tools/check_naming.py
+          node --check app/codeprobe-ui.js
+          node --check app/project-ui.js
+          node --check app/pyodide-loader.js
+          git diff --cached --check
+          test "$(git write-tree)" = 'dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801'
+
+      - name: Verify the exact candidate commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Revolvix'
+          git config user.email '48681843+antonioclim@users.noreply.github.com'
+          CANDIDATE_COMMIT="$(printf '%s\n' \
+            'Enforce supported-code coverage and execution boundaries' \
+            | git commit-tree 'dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801' \
+                -p '23496aa15cac7a3c2f56d0e4c8de8786f5d39f7b')"
+          test "$(git rev-parse "$CANDIDATE_COMMIT^{tree}")" = \
+            'dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801'
+          python -I -S -B tools/check_release_reproducibility.py \
+            --repository . \
+            --commit "$CANDIDATE_COMMIT"
+
+      - name: Publish the non-workflow half as a fast-forward
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The Actions token cannot update workflow files. Preserve the staged
+          # workflow directory for this intermediate commit; the connector will
+          # replace it with the already verified final tree immediately after.
+          cp /tmp/phase4d-ci-old.yml .github/workflows/ci.yml
+          cp /tmp/phase4c-measure.yml .github/workflows/phase4c-pyodide-measure.yml
+          cp /tmp/phase4d-transaction.yml .github/workflows/phase4d-transaction.yml
+          cp -a /tmp/phase4d-payload .github/phase4d-payload
+          find . -type d -name __pycache__ -prune -exec rm -rf '{}' +
+          git add -A
+          git diff --cached --check
+
+          git config user.name 'Revolvix'
+          git config user.email '48681843+antonioclim@users.noreply.github.com'
+          git commit -m 'Apply verified Phase 4D non-workflow changes'
+
+          FINAL_CANDIDATE="$(printf '%s\n' 'candidate' \
+            | git commit-tree 'dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801' \
+                -p '23496aa15cac7a3c2f56d0e4c8de8786f5d39f7b')"
+          mapfile -t remaining < <(git diff --name-only "$FINAL_CANDIDATE" HEAD | sort)
+          {
+            for index in $(seq -w 0 11); do
+              printf '.github/phase4d-payload/part-%s\n' "$index"
+            done
+            printf '%s\n' \
+              '.github/workflows/ci.yml' \
+              '.github/workflows/phase4c-pyodide-measure.yml' \
+              '.github/workflows/phase4d-transaction.yml'
+          } | sort > /tmp/phase4d-expected-remaining.txt
+          printf '%s\n' "${remaining[@]}" > /tmp/phase4d-remaining.txt
+          diff -u /tmp/phase4d-expected-remaining.txt /tmp/phase4d-remaining.txt
+
+          git push origin HEAD:refs/heads/audit/codeprobe-hostile-remediation
