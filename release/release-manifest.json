@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 130,
-  "total_source_size_bytes": 1682587,
+  "total_source_size_bytes": 1683942,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "size_bytes": 21882,
-      "sha256": "6bdcf9aa86b650d9f6ac78c680065249f7fbfe5f88f5bcefd0ba9b6ded44fb98"
+      "size_bytes": 22067,
+      "sha256": "bd324c8b858a7ff84e4724ccb61377212a182c2a2d4df17039cfdbc6a86f1a3d"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -242,8 +242,8 @@
     },
     {
       "path": "docs/17-supported-coverage.md",
-      "size_bytes": 3815,
-      "sha256": "cd8050c3f6dc518ef8bd967944a1aa0581abfac2066a1286e3a91042590cbef9"
+      "size_bytes": 4067,
+      "sha256": "5c554aad7f44dbc8c65633627abc0298d1702c27ff1bb5333909e498867b85e2"
     },
     {
       "path": "docs/assets/interface-preview.png",
@@ -452,8 +452,8 @@
     },
     {
       "path": "tests/test_coverage_policy.py",
-      "size_bytes": 7771,
-      "sha256": "11920eb8f7c7a8431de369f2fd8e06849dd1c5fde13593dd93fc92e0f9761611"
+      "size_bytes": 8167,
+      "sha256": "35a846dd8dfb970f30e14dd7601339d0d92c3602bc6097b6404676d27548e3bb"
     },
     {
       "path": "tests/test_dependency_boundary.py",
@@ -597,8 +597,8 @@
     },
     {
       "path": "tools/check_coverage.py",
-      "size_bytes": 20244,
-      "sha256": "77af3f197b87ed6374977f896332ab2e309c4fab9a4fdf62ca7d232d1188d162"
+      "size_bytes": 20766,
+      "sha256": "ddf7d6d4f45f74544e56ae3764a758b487590ef54422999d39c54be372896011"
     },
     {
       "path": "tools/check_dependency_boundary.py",
@@ -623,7 +623,7 @@
     {
       "path": "tools/check_release.py",
       "size_bytes": 42573,
-      "sha256": "fea6b02d0c508746cdfc1f61bf07f0d8061c543b05034c2e6351930768b487fe"
+      "sha256": "0222820316744185eb397bcf9e077bce3ba852f668346052f8880bcb553ead5e"
     },
     {
       "path": "tools/check_release_reproducibility.py",
@@ -638,7 +638,7 @@
     {
       "path": "tools/coverage-policy.json",
       "size_bytes": 1732,
-      "sha256": "be945eb18967b4bbbff42fb1892df1165c77384a9bd31a981a5cc9f7b6a378db"
+      "sha256": "9c5b0ad12ad59b7c8d438bb8f291b34f656c53331de1aed2cd7216409d1a81e4"
     },
     {
       "path": "tools/final_audit.py",
@@ -656,5 +656,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "1cc5cf148f5d09953f5378ecd909467690c86a8b764ea0b60c8019aaf3f348f8"
+  "manifest_sha256": "529f30c23bd4ef95b62b868e4c7c75627a6db5ed6279c543ff7d0f38915be6ee"
 }

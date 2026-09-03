@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,6 +98,14 @@ class CoveragePolicyTests(unittest.TestCase):
         row = rows[0]
         self.assertGreaterEqual(row.executed, 1)
 
+    def test_missing_monitoring_api_is_a_controlled_runtime_error(self) -> None:
+        with mock.patch.object(coverage.sys, "monitoring", None, create=True):
+            with self.assertRaisesRegex(
+                coverage.CoveragePolicyError,
+                "requires CPython with the sys.monitoring API",
+            ):
+                coverage._monitoring_api()
+
     def test_repository_policy_pins_the_running_standard_python(self) -> None:
         policy = coverage.load_policy(ROOT / "tools" / "coverage-policy.json")
         self.assertRegex(policy["python_runtime"], r"^3\.14\.[0-9]+$")
@@ -104,7 +113,7 @@ class CoveragePolicyTests(unittest.TestCase):
 
     def test_repository_floors_form_a_nonzero_high_risk_ratchet(self) -> None:
         policy = coverage.load_policy(ROOT / "tools" / "coverage-policy.json")
-        self.assertGreaterEqual(policy["minimum_tests"], 352)
+        self.assertGreaterEqual(policy["minimum_tests"], 353)
         self.assertGreaterEqual(policy["floors"]["overall"], 72.0)
         self.assertGreaterEqual(policy["floors"]["roots"]["src"], 69.0)
         self.assertGreaterEqual(policy["floors"]["roots"]["tools"], 75.0)

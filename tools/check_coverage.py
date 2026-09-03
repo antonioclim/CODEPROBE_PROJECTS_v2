@@ -210,25 +210,36 @@ def executable_lines(path: Path) -> set[int]:
     return lines
 
 
+def _monitoring_api() -> Any:
+    monitoring = getattr(sys, "monitoring", None)
+    if monitoring is None:
+        raise CoveragePolicyError(
+            "supported coverage requires CPython with the sys.monitoring API"
+        )
+    return monitoring
+
+
 class _SupportedCoverageMonitor:
     """Count line events only for the declared production-code set.
 
     The monitor uses CPython's ``sys.monitoring`` API rather than ``sys.settrace``.
     Deliberately adversarial tests may clear or disrupt a conventional tracing
     function, while monitoring events remain independent and apply to worker
-    threads in the same interpreter.
+    threads in the same interpreter. Access to the version-specific API is
+    deferred until measurement starts so the release gate remains importable on
+    every supported Python version.
     """
 
-    _PREFERRED_TOOL_IDS = (
-        sys.monitoring.COVERAGE_ID,
-        sys.monitoring.PROFILER_ID,
-        3,
-        4,
-        sys.monitoring.DEBUGGER_ID,
-        sys.monitoring.OPTIMIZER_ID,
-    )
-
     def __init__(self, measured_files: Sequence[Path]) -> None:
+        self._monitoring = _monitoring_api()
+        self._preferred_tool_ids = (
+            self._monitoring.COVERAGE_ID,
+            self._monitoring.PROFILER_ID,
+            3,
+            4,
+            self._monitoring.DEBUGGER_ID,
+            self._monitoring.OPTIMIZER_ID,
+        )
         self._measured = {str(path.resolve(strict=True)) for path in measured_files}
         self._code_paths: dict[CodeType, str | None] = {}
         self.executed: dict[str, set[int]] = {path: set() for path in self._measured}
@@ -250,15 +261,15 @@ class _SupportedCoverageMonitor:
         del instruction_offset
         path = self._path_for_code(code)
         if path is not None and self._tool_id is not None:
-            sys.monitoring.set_local_events(
+            self._monitoring.set_local_events(
                 self._tool_id,
                 code,
-                sys.monitoring.events.LINE,
+                self._monitoring.events.LINE,
             )
         # The code object's classification does not change during this run.
         # Disable further PY_START callbacks for this code while retaining any
         # local LINE events installed above.
-        return sys.monitoring.DISABLE
+        return self._monitoring.DISABLE
 
     def _on_line(self, code: CodeType, line_number: int) -> object:
         path = self._path_for_code(code)
@@ -266,29 +277,32 @@ class _SupportedCoverageMonitor:
             self.executed[path].add(int(line_number))
         # Coverage is Boolean at each bytecode location. Once observed, repeated
         # callbacks add cost but no information.
-        return sys.monitoring.DISABLE
+        return self._monitoring.DISABLE
 
     def __enter__(self) -> "_SupportedCoverageMonitor":
-        for tool_id in self._PREFERRED_TOOL_IDS:
-            if sys.monitoring.get_tool(tool_id) is None:
+        for tool_id in self._preferred_tool_ids:
+            if self._monitoring.get_tool(tool_id) is None:
                 self._tool_id = tool_id
                 break
         if self._tool_id is None:
             raise CoveragePolicyError(
                 "no sys.monitoring tool identifier is available for coverage"
             )
-        sys.monitoring.use_tool_id(self._tool_id, "codeprobe-supported-coverage")
-        sys.monitoring.register_callback(
+        self._monitoring.use_tool_id(self._tool_id, "codeprobe-supported-coverage")
+        self._monitoring.register_callback(
             self._tool_id,
-            sys.monitoring.events.PY_START,
+            self._monitoring.events.PY_START,
             self._on_python_start,
         )
-        sys.monitoring.register_callback(
+        self._monitoring.register_callback(
             self._tool_id,
-            sys.monitoring.events.LINE,
+            self._monitoring.events.LINE,
             self._on_line,
         )
-        sys.monitoring.set_events(self._tool_id, sys.monitoring.events.PY_START)
+        self._monitoring.set_events(
+            self._tool_id,
+            self._monitoring.events.PY_START,
+        )
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
@@ -297,10 +311,18 @@ class _SupportedCoverageMonitor:
             return
         tool_id = self._tool_id
         self._tool_id = None
-        sys.monitoring.set_events(tool_id, 0)
-        sys.monitoring.register_callback(tool_id, sys.monitoring.events.PY_START, None)
-        sys.monitoring.register_callback(tool_id, sys.monitoring.events.LINE, None)
-        sys.monitoring.free_tool_id(tool_id)
+        self._monitoring.set_events(tool_id, 0)
+        self._monitoring.register_callback(
+            tool_id,
+            self._monitoring.events.PY_START,
+            None,
+        )
+        self._monitoring.register_callback(
+            tool_id,
+            self._monitoring.events.LINE,
+            None,
+        )
+        self._monitoring.free_tool_id(tool_id)
 
 
 def _run_tests(root: Path, stream: io.StringIO) -> unittest.result.TestResult:
@@ -321,10 +343,7 @@ def _run_tests(root: Path, stream: io.StringIO) -> unittest.result.TestResult:
 
 
 def collect_coverage(root: Path, policy: Mapping[str, Any]) -> tuple[list[FileCoverage], int, str]:
-    if not hasattr(sys, "monitoring"):
-        raise CoveragePolicyError(
-            "supported coverage requires CPython with the sys.monitoring API"
-        )
+    _monitoring_api()
     measured_files = discover_source_files(root, policy)
     output = io.StringIO()
     with _SupportedCoverageMonitor(measured_files) as monitor:

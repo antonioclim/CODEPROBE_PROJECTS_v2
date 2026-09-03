@@ -29,6 +29,7 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Keep the ordinary release gate importable on Python 3.10–3.13 by deferring the version-specific `sys.monitoring` lookup until the dedicated Python 3.14 coverage measurement starts.
 - Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
 - Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - Reject hard-linked aliases inside project folders, read metric-override JSON through the bounded unambiguous reader and retain exact exclusion reasons for invalid root ignore members.
