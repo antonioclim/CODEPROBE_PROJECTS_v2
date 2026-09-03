@@ -1,0 +1,170 @@
+name: Phase 4D Python compatibility correction
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-hostile-remediation
+    paths:
+      - .github/workflows/phase4d-python-compat.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: codeprobe-phase4d-python-compatibility
+  cancel-in-progress: false
+
+jobs:
+  correct:
+    name: verify_and_persist_python_compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUTF8: "1"
+      PYTHONHASHSEED: "31416"
+      CODEPROBE_REQUIRE_HTTP_NAVIGATION: "1"
+    steps:
+      - name: Check out the exact audit branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: audit/codeprobe-hostile-remediation
+          clean: true
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: true
+          show-progress: false
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          python-version: "3.14.7"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          node-version: "24.20.0"
+          package-manager-cache: false
+
+      - name: Reconstruct the reviewed compatibility candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          PARENT='cfd614cb304cc5e1011eda9abb8d66e86c65baf1'
+          EXPECTED_PAYLOAD_SHA256='cd19124c77f94490ab32d2febf135913315c656071f7766bd8d2517b155afe56'
+          EXPECTED_PATCH_SHA256='178e95db0528c571ab28b771c6808b985c8a25c40073f99bf17807e7a2e6561b'
+          EXPECTED_TREE='468ca43ebac12118f1f6ab65f63ac17ab878f348'
+
+          test "$(git rev-parse HEAD^)" = "$PARENT"
+          mapfile -t staged_paths < <(git diff --name-only "$PARENT" HEAD | sort)
+          printf '%s\n' \
+            '.github/phase4d-compat-fix.b64' \
+            '.github/workflows/phase4d-python-compat.yml' \
+            | sort > /tmp/phase4d-compat-expected.txt
+          printf '%s\n' "${staged_paths[@]}" > /tmp/phase4d-compat-actual.txt
+          diff -u /tmp/phase4d-compat-expected.txt /tmp/phase4d-compat-actual.txt
+
+          cp .github/workflows/phase4d-python-compat.yml /tmp/phase4d-python-compat.yml
+          cp .github/phase4d-compat-fix.b64 /tmp/phase4d-compat-fix.b64
+          printf '%s  %s\n' "$EXPECTED_PAYLOAD_SHA256" /tmp/phase4d-compat-fix.b64 \
+            | sha256sum --check --strict
+          base64 --decode /tmp/phase4d-compat-fix.b64 \
+            | gzip --decompress > /tmp/codeprobe-phase4d-compat.patch
+          printf '%s  %s\n' "$EXPECTED_PATCH_SHA256" /tmp/codeprobe-phase4d-compat.patch \
+            | sha256sum --check --strict
+
+          rm -f .github/workflows/phase4d-python-compat.yml
+          rm -f .github/phase4d-compat-fix.b64
+          git apply --binary --whitespace=nowarn /tmp/codeprobe-phase4d-compat.patch
+          find . -type d -name __pycache__ -prune -exec rm -rf '{}' +
+          git add -A
+          git diff --cached --check
+          test "$(git write-tree)" = "$EXPECTED_TREE"
+
+      - name: Run the complete pre-publication gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B -m unittest discover -s tests -v 2>&1 \
+            | tee /tmp/codeprobe-phase4d-compat-tests.log
+          COUNT="$(sed -nE 's/^Ran ([0-9]+) tests?.*/\1/p' \
+            /tmp/codeprobe-phase4d-compat-tests.log | tail -n 1)"
+          test "$COUNT" = '353'
+          python -I -S -B tools/check_dependency_boundary.py
+          python -I -S -B tools/check_pyodide_provenance.py
+          python -I -S -B tools/check_coverage.py \
+            --json-out "$RUNNER_TEMP/codeprobe-supported-coverage.json"
+          python -I -S -B tools/check_release.py --require-node
+          node tools/check_browser_accessibility.js
+          python -I -S -B tools/check_file_references.py
+          python -I -S -B tools/check_naming.py
+          node --check app/codeprobe-ui.js
+          node --check app/project-ui.js
+          node --check app/pyodide-loader.js
+          git diff --cached --check
+          test "$(git write-tree)" = '468ca43ebac12118f1f6ab65f63ac17ab878f348'
+
+      - name: Verify exact-commit reproducibility in a clean clone
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Revolvix'
+          git config user.email '48681843+antonioclim@users.noreply.github.com'
+          CANDIDATE_COMMIT="$(printf '%s\n' \
+            'Keep coverage imports compatible with supported Python' \
+            | git commit-tree '468ca43ebac12118f1f6ab65f63ac17ab878f348' \
+                -p 'cfd614cb304cc5e1011eda9abb8d66e86c65baf1')"
+          test "$(git rev-parse "$CANDIDATE_COMMIT^{tree}")" = \
+            '468ca43ebac12118f1f6ab65f63ac17ab878f348'
+
+          CLEAN_ROOT="$(mktemp -d)"
+          cleanup() {
+            git update-ref -d refs/heads/phase4d-compat-candidate 2>/dev/null || true
+            rm -rf "$CLEAN_ROOT"
+          }
+          trap cleanup EXIT
+          git update-ref refs/heads/phase4d-compat-candidate "$CANDIDATE_COMMIT"
+          git clone --local --no-hardlinks --branch phase4d-compat-candidate \
+            --single-branch . "$CLEAN_ROOT/repository"
+          test -z "$(git -C "$CLEAN_ROOT/repository" status \
+            --porcelain=v1 --untracked-files=all)"
+          python -I -S -B \
+            "$CLEAN_ROOT/repository/tools/check_release_reproducibility.py" \
+            --repository "$CLEAN_ROOT/repository" \
+            --commit "$CANDIDATE_COMMIT"
+          cleanup
+          trap - EXIT
+
+      - name: Publish the verified non-workflow correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/phase4d-python-compat.yml .github/workflows/phase4d-python-compat.yml
+          cp /tmp/phase4d-compat-fix.b64 .github/phase4d-compat-fix.b64
+          find . -type d -name __pycache__ -prune -exec rm -rf '{}' +
+          git add -A
+          git diff --cached --check
+
+          mapfile -t changed < <(git diff --cached --name-only | sort)
+          printf '%s\n' \
+            CHANGELOG.md \
+            docs/17-supported-coverage.md \
+            release/release-manifest.json \
+            tests/test_coverage_policy.py \
+            tools/check_coverage.py \
+            tools/check_release.py \
+            tools/coverage-policy.json \
+            | sort > /tmp/phase4d-compat-expected-changes.txt
+          printf '%s\n' "${changed[@]}" > /tmp/phase4d-compat-actual-changes.txt
+          diff -u /tmp/phase4d-compat-expected-changes.txt \
+            /tmp/phase4d-compat-actual-changes.txt
+
+          git config user.name 'Revolvix'
+          git config user.email '48681843+antonioclim@users.noreply.github.com'
+          git commit -m 'Keep coverage imports compatible with supported Python'
+          git push origin HEAD:refs/heads/audit/codeprobe-hostile-remediation
