@@ -60,7 +60,7 @@ jobs:
           EXPECTED_PATCH_SHA256='1fce993de9ef142a8738bc2c053c445545fe54cc48d00a7ee55618383957e2db'
           EXPECTED_TREE='dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801'
 
-          test "$(git rev-parse HEAD~2)" = "$MEASUREMENT_PARENT"
+          test "$(git merge-base "$MEASUREMENT_PARENT" HEAD)" = "$MEASUREMENT_PARENT"
           test "$(git rev-parse "$BASELINE^{tree}")" = '1a925a3618a67bb040e0970ef4edf7b95a3a5467'
 
           mapfile -t staged_paths < <(git diff --name-only "$MEASUREMENT_PARENT" HEAD | sort)
@@ -129,7 +129,7 @@ jobs:
             'Enforce supported-code coverage and execution boundaries' \
             | git commit-tree 'dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801' \
                 -p '23496aa15cac7a3c2f56d0e4c8de8786f5d39f7b')"
-          test "$(git rev-parse "$CANDIDATE_COMMIT^{tree}")" = \
+          test "$(git rev-parse "$CANDIDATE_COMMIT^{tree})" = \
             'dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801'
           python -I -S -B tools/check_release_reproducibility.py \
             --repository . \
