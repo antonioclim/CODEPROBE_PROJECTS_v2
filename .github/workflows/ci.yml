@@ -315,6 +315,50 @@ jobs:
             exit 1
           fi
 
+  coverage:
+    name: Supported-code coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      PYTHONHASHSEED: "31410"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+          lfs: false
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          python-version: "3.14.7"
+
+      - name: Measure and enforce supported-code coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/check_coverage.py \
+            --json-out "$RUNNER_TEMP/codeprobe-supported-coverage.json"
+
+      - name: Confirm that coverage left a clean checkout
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dirty="$(git status --porcelain=v1 --untracked-files=all)"
+          if [[ -n "$dirty" ]]; then
+            printf '%s\n' "$dirty"
+            exit 1
+          fi
+
   required:
     name: Required CI
     if: ${{ always() }}
@@ -322,6 +366,7 @@ jobs:
       - validation
       - release_reproducibility
       - browser_accessibility
+      - coverage
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions: {}
@@ -330,6 +375,7 @@ jobs:
         shell: bash
         env:
           BROWSER_ACCESSIBILITY_RESULT: ${{ needs.browser_accessibility.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
           REPRODUCIBILITY_RESULT: ${{ needs.release_reproducibility.result }}
           VALIDATION_RESULT: ${{ needs.validation.result }}
         run: |
@@ -337,3 +383,4 @@ jobs:
           test "$VALIDATION_RESULT" = "success"
           test "$REPRODUCIBILITY_RESULT" = "success"
           test "$BROWSER_ACCESSIBILITY_RESULT" = "success"
+          test "$COVERAGE_RESULT" = "success"
