@@ -1,6 +1,6 @@
 {
   "schema": "codeprobe-browser-resource-integrity/v1",
-  "note": "SRI values are computed for local CodeProbe browser assets and the auditable Python runtime. Pyodide CDN integrity must be supplied in runtime-config.json if integrity enforcement is required.",
+  "note": "SHA-256 and SRI values for the packaged CodeProbe browser assets, production runtime configuration, measured Pyodide provenance metadata and auditable Python runtime.",
   "assets": [
     {
       "path": "codeprobe.css",
@@ -16,27 +16,33 @@
     },
     {
       "path": "pyodide-loader.js",
-      "size_bytes": 5449,
-      "sha256_hex": "f3be91477958ef3f353a8a4f513e09365a716f259cea2e95403ac65ec8bd914e",
-      "sri_sha256": "sha256-876RR3lY7z81OopPUT4JNlpxbyWc6i6VQDrGXsi9kU4="
+      "size_bytes": 12008,
+      "sha256_hex": "3713ba171718069271cd2c04b5b211965d99c68443f7a5f569b81750eb7164a6",
+      "sri_sha256": "sha256-NxO6FxcYBpJxzSwEtbIRll2ZxoRD96X1abgXUOtxZKY="
     },
     {
       "path": "codeprobe-ui.js",
-      "size_bytes": 74645,
-      "sha256_hex": "612496d223146c575f9ebcb83a510e25e5e551defe4f7ecae0046e936b2f2135",
-      "sri_sha256": "sha256-YSSW0iMUbFdfnry4OlEOJeXlUd7+T37K4ARuk2svITU="
+      "size_bytes": 74367,
+      "sha256_hex": "2d46e1238dd589c457d0eaf33037aa6c9a3ed30ee2d2dd3fd620be0902fca532",
+      "sri_sha256": "sha256-LUbhI43VicRX0OrzMDeqbJo+0w7i0t0/1iC+CQL8pTI="
     },
     {
       "path": "project-ui.js",
-      "size_bytes": 16581,
-      "sha256_hex": "c89056cc5a215c5da453769f4fb5a01bba5c291fa7ea0795a008c16d7048f518",
-      "sri_sha256": "sha256-yJBWzFohXF2kU3afT7WgG7pcKR+n6geVoAjBbXBI9Rg="
+      "size_bytes": 16449,
+      "sha256_hex": "083f26ea8efb70012f3193d35aaec4e7389f6f2376ecd8564e5842eadc1d183e",
+      "sri_sha256": "sha256-CD8m6o77cAEvMZPTWq7E5zifbyN27NhWTlhC6twdGD4="
     },
     {
       "path": "runtime-config.json",
-      "size_bytes": 581,
-      "sha256_hex": "d825c029d36ded0c029ac6ab0b14b2f5ec0e5058d0ed8bb99444eca9772f0ab7",
-      "sri_sha256": "sha256-2CXAKdNt7QwCmsarCxSy9ewOUFjQ7Yu5lETsqXcvCrc="
+      "size_bytes": 752,
+      "sha256_hex": "2f339fe1f29c55145e85a791bfac12cb15ca6c30fa3d75c5fe59114d2175770b",
+      "sri_sha256": "sha256-LzOf4fKcVRRehaeRv6wSyxXKbDD6PXXF/lkRTSF1dws="
+    },
+    {
+      "path": "pyodide-provenance.json",
+      "size_bytes": 2152,
+      "sha256_hex": "9a7f4f334366bfe0baa545900485bd5d28b42d5f40791290a8e6b3f685b1d694",
+      "sri_sha256": "sha256-mn9PM0Nmv+C6pUWQBIW9XSi0LV9AeRKQqOaz9oWx1pQ="
     },
     {
       "path": "../src/codeprobe_runtime.py",

@@ -19,6 +19,7 @@ EXPECTED_RESOURCE_ASSETS = {
     "codeprobe-ui.js",
     "project-ui.js",
     "runtime-config.json",
+    "pyodide-provenance.json",
     "../src/codeprobe_runtime.py",
 }
 sys.path.insert(0, str(ROOT / "src"))

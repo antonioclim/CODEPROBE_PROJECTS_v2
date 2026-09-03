@@ -26,7 +26,6 @@ import os
 import re
 import shutil
 import stat
-import subprocess
 import tarfile
 import tempfile
 import unicodedata
@@ -43,6 +42,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.append(str(SRC))
 
+from codeprobe_engine.process_control import ProcessControlError, run_bounded_process  # noqa: E402
 from codeprobe_engine.release import ReleaseSetError, read_regular_file  # noqa: E402
 
 ACTIVE_ENVIRONMENT_VARIABLE = "CODEPROBE_REPRO_GATE_ACTIVE"
@@ -145,19 +145,27 @@ def run_command(
     if environment and not replace_environment:
         child_environment.update(environment)
     try:
-        completed = subprocess.run(
+        completed = run_bounded_process(
             argv,
             cwd=cwd,
-            env=child_environment,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
+            environment=child_environment,
+            replace_environment=True,
             timeout=timeout,
+            stdout_limit=64 * 1024 * 1024,
+            stderr_limit=4 * 1024 * 1024,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except (OSError, ProcessControlError, ValueError) as exc:
         raise ReproducibilityError(
-            f"command could not complete in {_safe_text(cwd)}: {_command_display(command)}: {_safe_text(exc)}"
+            f"command could not start in {_safe_text(cwd)}: {_command_display(command)}: {_safe_text(exc)}"
         ) from exc
+    if completed.timed_out:
+        raise ReproducibilityError(
+            f"command exceeded the {timeout} second limit in {_safe_text(cwd)}: {_command_display(command)}"
+        )
+    if completed.output_limit_exceeded:
+        raise ReproducibilityError(
+            f"command exceeded its captured-output limit in {_safe_text(cwd)}: {_command_display(command)}"
+        )
     if completed.returncode != 0:
         raise ReproducibilityError(
             "command failed "

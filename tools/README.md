@@ -5,10 +5,7 @@ This folder contains project analysis, calibration, validation and release utili
 
 `tools/check_naming.py` validates the naming policy, ordered documentation paths and uncontrolled retired-path references. It is run by `tools/check_release.py`.
 
-`tools/check_dependency_boundary.py` checks that the standard-library-only
-Python contract, Pyodide configuration and immutable GitHub Action pins remain
-explicit. It does not claim a vulnerability audit for the external Pyodide
-distribution.
+`tools/check_dependency_boundary.py` checks the standard-library-only Python contract, direct process-launch prohibition, Pyodide configuration and immutable GitHub Action pins. Native commands are permitted only through `codeprobe_engine.process_control`. The Pyodide check authenticates the measured core startup set but does not claim an ecosystem-wide vulnerability audit.
 
 `tools/check_release_reproducibility.py` is the standalone CI integration gate
 for exact Git-tree, LF/forced-CRLF checkout, `git archive` and three-file packet
@@ -21,6 +18,19 @@ package audit before publication, then attempts to restore the prior packet
 after a detected publication failure. This is not an atomic or crash-recovery
 guarantee for three paths.
 
+
+## Supported-code coverage
+
+```bash
+python -I -S -B tools/check_coverage.py \
+  --json-out /path/outside/the/checkout/codeprobe-supported-coverage.json
+```
+
+The policy is pinned to Python 3.14.7, runs the complete suite and enforces weighted overall, root and high-risk file floors. The JSON output is diagnostic and must remain outside the checkout.
+
+## Local application server
+
+`tools/run_local_server.py` serves only the browser application's declared resources. It does not provide repository directory indexes. Loopback is the default; `--allow-network` is an explicit exposure override, not an authentication mechanism.
 
 ## Browser accessibility gate
 

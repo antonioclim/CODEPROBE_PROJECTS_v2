@@ -19,6 +19,8 @@ normalisation and CI controls without changing the scoring model.
 | 11 | v2.1.11 | documentation, educator and calibration resource migration |
 | 12 | v2.1.12 | browser app, runtime, CLI and test naming migration |
 | 13 | v2.2.0 | final naming-stable audit and release boundary |
+| Audit 4C | branch candidate | constrained serving, bounded process execution and measured Pyodide startup provenance |
+| Audit 4D | branch candidate | supported-code coverage ratchet and focused execution-boundary extraction |
 
 ## Current status
 
@@ -34,7 +36,8 @@ validity for the AI-style concern score.
 - Build a course-local calibration corpus.
 - Generate and archive course-specific calibration profiles.
 - Tune `.codeprobeignore` examples to match each assignment structure.
-- Decide whether institutional deployment should use local Pyodide rather than the default CDN mode.
+- Decide whether institutional deployment requires a fully vendored Pyodide directory for availability and same-origin control.
+- Re-measure the supported-code coverage floors after any supported Python-version or test-harness change.
 - Sign the release externally if required by local policy.
 - Apply and verify the default-branch ruleset described in
   `docs/16-ci-and-repository-controls.md` after its required check is available.

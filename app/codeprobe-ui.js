@@ -1,7 +1,4 @@
     const ENGINE_RELATIVE_URL = "../src/codeprobe_runtime.py";
-    function pyodideIndexURL() {
-      return window.CodeProbeRuntime?.getPyodideIndexURL?.() || "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/";
-    }
     const HISTORY_KEY = "codeprobe_html_history_v2";
     const HISTORY_ENABLED_KEY = "codeprobe_html_history_enabled_v1";
     const MAX_BROWSER_DROP_FILES = 2000;
@@ -1143,14 +1140,11 @@ importlib.import_module("codeprobe_runtime")
         setBusy(true, "Loading the in-browser Python engine…");
         setEngineBadge("warn", "Engine initialising");
         showEngineLoader(false);
-        if (window.CodeProbeRuntime?.ensurePyodideLoader) {
-          await window.CodeProbeRuntime.ensurePyodideLoader();
-        }
-        if (typeof window.loadPyodide !== "function") {
-          throw new Error("The Pyodide runtime script is unavailable.");
+        if (!window.CodeProbeRuntime?.loadVerifiedPyodide) {
+          throw new Error("The verified Pyodide runtime loader is unavailable.");
         }
         if (!appState.pyodide) {
-          appState.pyodide = await window.loadPyodide({ indexURL: pyodideIndexURL() });
+          appState.pyodide = await window.CodeProbeRuntime.loadVerifiedPyodide();
         }
         const engineSource = await getEngineSource();
         await installEngineModule(appState.pyodide, engineSource);

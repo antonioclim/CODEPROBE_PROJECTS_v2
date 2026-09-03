@@ -90,12 +90,19 @@ boundary also rejects top-level standard-library shadow modules. Together these
 controls prevent checkout or ambient modules from pre-empting the gate's own
 standard-library imports before the inventory check runs.
 
-The default browser mode still loads Pyodide 0.25.0 from jsDelivr without a
-complete authenticated distribution inventory. This gate does not report that
-external runtime as vulnerability-audited or provenance-verified. Those tasks
-require an upstream advisory review, complete runtime hashes, licence evidence
-and a live browser test. Until that inventory exists, the gate rejects vendored
-runtime bytes and a production configuration that selects local mode.
+The production browser configuration authenticates the measured Pyodide 0.25.0 core startup set. The packaged provenance record binds exact sizes and SHA-256 values to the official core release, while the browser verifies those bytes before use. The gate deliberately does not report optional packages, future CDN responses or the complete Pyodide vulnerability state as audited. A local vendor directory must satisfy the same record.
+
+## Process-execution boundary
+
+Repository-controlled Python tools launch native commands only through `codeprobe_engine.process_control.run_bounded_process`. The broker prohibits shell execution, applies independent output ceilings and a wall-clock timeout and terminates the process tree. POSIX uses a new session and process-group signals. Windows requires successful Job Object assignment and fails closed when containment cannot be established. The dependency checker rejects direct `subprocess`, `os.system`, spawn and similar launch paths outside this broker.
+
+## Supported-code coverage job
+
+The `Supported-code coverage` job uses Python 3.14.7 and `tools/coverage-policy.json`. It runs the complete test suite while `sys.monitoring` records executable lines only in maintained Python files under `src/` and `tools/`. Each observed line event is disabled after its first observation because coverage is Boolean at that location. This keeps the gate bounded while avoiding the conventional tracer failure exposed by the adversarial deep-syntax test.
+
+The policy enforces weighted overall and root floors plus separate floors for process containment, serving, release handling, project input, dependency policy, Pyodide provenance and final audit code. The coverage driver itself is the only excluded production file because it must configure the monitor before measurement begins. Browser JavaScript and Python child processes remain outside this denominator and are covered by separate Chromium, integration and reproducibility gates.
+
+The aggregate `Required CI` job depends on coverage. A missing, skipped, cancelled or failed coverage job therefore prevents the aggregate check from succeeding.
 
 ## Action and token controls
 

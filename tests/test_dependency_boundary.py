@@ -20,6 +20,7 @@ import check_dependency_boundary as dependency_boundary  # noqa: E402
 
 PRODUCTION_CONFIG = {
     "schema": dependency_boundary.PYODIDE_SCHEMA,
+    "production": True,
     "pyodide": {
         "mode": "cdn",
         "version": dependency_boundary.PYODIDE_VERSION,
@@ -27,8 +28,10 @@ PRODUCTION_CONFIG = {
         "index_url": dependency_boundary.PYODIDE_INDEX_URL,
         "local_loader_url": dependency_boundary.PYODIDE_LOCAL_LOADER_URL,
         "local_index_url": dependency_boundary.PYODIDE_LOCAL_INDEX_URL,
-        "expected_loader_sha256": "",
-        "require_integrity": False,
+        "provenance_url": dependency_boundary.PYODIDE_PROVENANCE_URL,
+        "expected_loader_sha256": dependency_boundary.PYODIDE_LOADER_SHA256,
+        "require_integrity": True,
+        "verify_core_startup_set": True,
     },
     "privacy": {
         "history_enabled_default": False,
@@ -38,13 +41,6 @@ PRODUCTION_CONFIG = {
 }
 
 EXAMPLE_CONFIG = copy.deepcopy(PRODUCTION_CONFIG)
-EXAMPLE_CONFIG["pyodide"].update(
-    {
-        "mode": "local",
-        "expected_loader_sha256": dependency_boundary.EXAMPLE_DIGEST_PLACEHOLDER,
-        "require_integrity": True,
-    }
-)
 
 
 def approved_workflow() -> str:
@@ -340,6 +336,22 @@ class DependencyBoundaryTests(unittest.TestCase):
         )
         self.assert_error_contains("third-party or unresolved import 'requests'")
 
+    def test_coverage_line_inventory_has_one_narrow_compile_exception(self) -> None:
+        coverage_tool = self.root / "tools" / "check_coverage.py"
+        coverage_tool.write_text(
+            "def executable_lines(source):\n"
+            "    return compile(source, '<coverage-source>', 'exec')\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.errors(), [])
+
+        coverage_tool.write_text(
+            "def other(source):\n"
+            "    return compile(source, '<unapproved>', 'exec')\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("dynamic Python code execution is forbidden")
+
     def test_dynamic_python_import_and_package_manager_command_are_rejected(self) -> None:
         (self.root / "tools" / "dynamic.py").write_text(
             "import importlib\n"
@@ -436,7 +448,7 @@ class DependencyBoundaryTests(unittest.TestCase):
         )
         self.assert_error_contains("static analysis limits")
 
-    def test_sequential_safe_reassignment_and_quoted_shell_data_pass(self) -> None:
+    def test_direct_process_launch_is_rejected_even_when_command_text_is_safe(self) -> None:
         (self.root / "tools" / "safe_process.py").write_text(
             "import subprocess\n"
             "command = 'pip install plugin'\n"
@@ -445,14 +457,24 @@ class DependencyBoundaryTests(unittest.TestCase):
             "subprocess.run(\"echo 'safe; pip install is unavailable'\", shell=True)\n",
             encoding="utf-8",
         )
-        self.assertEqual(self.errors(), [])
+        self.assert_error_contains("process launch outside the bounded process broker")
 
-    def test_dormant_function_assignment_does_not_contaminate_module_scope(self) -> None:
+    def test_dormant_assignments_do_not_hide_an_out_of_broker_launch(self) -> None:
         (self.root / "tools" / "safe_scope.py").write_text(
             "import subprocess\n"
             "command = 'echo offline'\n"
             "def dormant():\n    command = 'pip install plugin'\n    return command\n"
             "subprocess.run(command, shell=True)\n",
+            encoding="utf-8",
+        )
+        self.assert_error_contains("process launch outside the bounded process broker")
+
+    def test_central_process_broker_is_the_only_approved_launcher(self) -> None:
+        broker = self.root / "src" / "codeprobe_engine" / "process_control.py"
+        broker.write_text(
+            "import subprocess\n"
+            "def run_bounded_process(command):\n"
+            "    return subprocess.Popen(command)\n",
             encoding="utf-8",
         )
         self.assertEqual(self.errors(), [])
@@ -787,32 +809,35 @@ class DependencyBoundaryTests(unittest.TestCase):
                 path.write_text(f'const loader = "{value}";\n', encoding="utf-8")
                 self.assert_error_contains("protocol-relative remote executable URL")
 
-    def test_production_integrity_requires_lower_case_sha256(self) -> None:
-        for digest in ("", "A" * 64, "a" * 63):
+    def test_production_integrity_requires_the_measured_lower_case_sha256(self) -> None:
+        for digest in ("", "A" * 64, "a" * 63, "a" * 64):
             with self.subTest(digest=digest):
                 payload = copy.deepcopy(PRODUCTION_CONFIG)
-                payload["pyodide"]["require_integrity"] = True
                 payload["pyodide"]["expected_loader_sha256"] = digest
                 self.write_json("app/runtime-config.json", payload)
                 self.assert_error_contains("SHA-256")
-        payload = copy.deepcopy(PRODUCTION_CONFIG)
-        payload["pyodide"]["require_integrity"] = True
-        payload["pyodide"]["expected_loader_sha256"] = "a" * 64
-        self.write_json("app/runtime-config.json", payload)
+        self.write_json("app/runtime-config.json", PRODUCTION_CONFIG)
         self.assertEqual(self.errors(), [])
 
-    def test_example_allows_only_the_documented_placeholder(self) -> None:
-        payload = copy.deepcopy(EXAMPLE_CONFIG)
-        payload["pyodide"]["expected_loader_sha256"] = "a" * 64
-        self.write_json("app/runtime-config.example.json", payload)
-        self.assert_error_contains("documented digest placeholder")
+    def test_example_is_a_fail_closed_production_configuration(self) -> None:
+        for field, value, fragment in (
+            ("require_integrity", False, "must require"),
+            ("verify_core_startup_set", False, "must verify"),
+            ("provenance_url", "other.json", "provenance"),
+        ):
+            with self.subTest(field=field):
+                payload = copy.deepcopy(EXAMPLE_CONFIG)
+                payload["pyodide"][field] = value
+                self.write_json("app/runtime-config.example.json", payload)
+                self.assert_error_contains(fragment)
+                self.write_json("app/runtime-config.example.json", EXAMPLE_CONFIG)
 
     def test_production_local_mode_requires_a_vendored_provenance_inventory(self) -> None:
         payload = copy.deepcopy(PRODUCTION_CONFIG)
         payload["pyodide"].update(
             {
                 "mode": "local",
-                "expected_loader_sha256": "a" * 64,
+                "expected_loader_sha256": dependency_boundary.PYODIDE_LOADER_SHA256,
                 "require_integrity": True,
             }
         )
@@ -1319,7 +1344,7 @@ class DependencyBoundaryTests(unittest.TestCase):
         rendered = output.getvalue()
         self.assertIn("[PASS] dependency-boundary", rendered)
         self.assertIn("[LIMITATION] external-runtime-assurance", rendered)
-        self.assertIn("not audited", rendered)
+        self.assertIn("remain outside", rendered)
 
 
 if __name__ == "__main__":

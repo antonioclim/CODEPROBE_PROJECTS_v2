@@ -42,7 +42,8 @@ PYODIDE_LOADER_URL = f"{PYODIDE_ORIGIN}/pyodide/v{PYODIDE_VERSION}/full/pyodide.
 PYODIDE_INDEX_URL = f"{PYODIDE_ORIGIN}/pyodide/v{PYODIDE_VERSION}/full/"
 PYODIDE_LOCAL_LOADER_URL = f"vendor/pyodide/v{PYODIDE_VERSION}/full/pyodide.js"
 PYODIDE_LOCAL_INDEX_URL = f"vendor/pyodide/v{PYODIDE_VERSION}/full/"
-EXAMPLE_DIGEST_PLACEHOLDER = "PUT_REAL_SHA256_OF_LOCAL_OR_CDN_PYODIDE_JS_HERE"
+PYODIDE_LOADER_SHA256 = "9c79c9999999b15de7587aa220c61d06aa14e76babb75dc50c2f873aa826ad4d"
+PYODIDE_PROVENANCE_URL = "pyodide-provenance.json"
 
 APPROVED_ACTIONS = {
     "actions/checkout": ("3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1"),
@@ -55,9 +56,11 @@ APPROVED_LOCAL_IMPORTS = {
     "build_release",
     "calibrate_corpus",
     "calibrate_profile",
+    "check_coverage",
     "check_dependency_boundary",
     "check_file_references",
     "check_naming",
+    "check_pyodide_provenance",
     "check_release",
     "check_release_reproducibility",
     "codeprobe_engine",
@@ -81,8 +84,10 @@ APPROVED_STDLIB_IMPORTS = {
     "contextlib",
     "copy",
     "csv",
+    "ctypes",
     "dataclasses",
     "difflib",
+    "dis",
     "errno",
     "fnmatch",
     "functools",
@@ -91,14 +96,19 @@ APPROVED_STDLIB_IMPORTS = {
     "http",
     "importlib",
     "io",
+    "ipaddress",
     "json",
     "keyword",
     "math",
+    "mimetypes",
     "os",
     "pathlib",
+    "platform",
+    "posixpath",
     "py_compile",
     "re",
     "shutil",
+    "signal",
     "shlex",
     "socket",
     "stat",
@@ -106,10 +116,13 @@ APPROVED_STDLIB_IMPORTS = {
     "subprocess",
     "sys",
     "tarfile",
+    "threading",
+    "trace",
     "tempfile",
     "time",
     "tokenize",
     "typing",
+    "types",
     "unicodedata",
     "unittest",
     "urllib",
@@ -230,7 +243,7 @@ TAGGED_SECURITY_YAML_KEY = re.compile(
     r"pull_request_target|run|runs|steps|uses|with)[\"']?\s*:"
 )
 
-CONFIG_TOP_LEVEL_FIELDS = {"schema", "pyodide", "privacy"}
+CONFIG_TOP_LEVEL_FIELDS = {"schema", "production", "pyodide", "privacy"}
 PYODIDE_FIELDS = {
     "mode",
     "version",
@@ -238,8 +251,10 @@ PYODIDE_FIELDS = {
     "index_url",
     "local_loader_url",
     "local_index_url",
+    "provenance_url",
     "expected_loader_sha256",
     "require_integrity",
+    "verify_core_startup_set",
 }
 PRIVACY_FIELDS = {
     "history_enabled_default",
@@ -248,8 +263,9 @@ PRIVACY_FIELDS = {
 }
 
 EXTERNAL_RUNTIME_LIMITATION = (
-    "Pyodide vulnerability status, upstream provenance and the complete CDN or "
-    "vendored distribution are not audited by this deterministic offline check."
+    "The measured Pyodide core startup set is authenticated by packaged metadata. "
+    "Optional packages, future CDN responses and the complete vulnerability status "
+    "remain outside this deterministic offline check."
 )
 
 
@@ -1311,10 +1327,22 @@ def check_python_imports(root: Path) -> list[str]:
                         f"{_relative(path, root)}:{node.lineno}"
                     )
                 elif code_execution_call:
-                    errors.append(
-                        f"dynamic Python code execution is forbidden in "
-                        f"{_relative(path, root)}:{node.lineno}"
+                    relative_path = _relative(path, root)
+                    is_coverage_line_inventory = (
+                        relative_path == "tools/check_coverage.py"
+                        and call_name == "compile"
+                        and any(
+                            isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef))
+                            and parent.name == "executable_lines"
+                            and node in ast.walk(parent)
+                            for parent in ast.walk(tree)
+                        )
                     )
+                    if not is_coverage_line_inventory:
+                        errors.append(
+                            f"dynamic Python code execution is forbidden in "
+                            f"{relative_path}:{node.lineno}"
+                        )
                 if call_name in vars_aliases and node.args:
                     namespace_root = _expression_name(node.args[0]).split(".", 1)[0]
                     if namespace_root in dynamic_module_aliases:
@@ -1435,6 +1463,21 @@ def check_python_imports(root: Path) -> list[str]:
                         f"{_relative(path, root)}:{node.lineno}"
                     )
                 if is_process_call:
+                    relative_path = _relative(path, root)
+                    in_central_broker = (
+                        relative_path == "src/codeprobe_engine/process_control.py"
+                        and any(
+                            isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef))
+                            and parent.name in {"_terminate_tree", "run_bounded_process"}
+                            and node in ast.walk(parent)
+                            for parent in ast.walk(tree)
+                        )
+                    )
+                    if not relative_path.startswith("tests/") and not in_central_broker:
+                        errors.append(
+                            f"process launch outside the bounded process broker in "
+                            f"{relative_path}:{node.lineno}"
+                        )
                     if any(keyword.arg is None for keyword in node.keywords):
                         errors.append(
                             f"unsupported indirect process arguments in "
@@ -1486,7 +1529,7 @@ def check_python_imports(root: Path) -> list[str]:
                         )
                     )
                     if analysis_limited:
-                        if not is_reproducibility_broker:
+                        if not is_reproducibility_broker and not in_central_broker:
                             errors.append(
                                 f"process command exceeds static analysis limits in "
                                 f"{_relative(path, root)}:{node.lineno}"
@@ -2231,6 +2274,8 @@ def _validate_runtime_config(
         errors.append(field_error)
     if payload.get("schema") != PYODIDE_SCHEMA:
         errors.append(f"{label} has an invalid schema")
+    if payload.get("production") is not True:
+        errors.append(f"{label} must declare production: true")
 
     pyodide = payload.get("pyodide")
     if not isinstance(pyodide, dict):
@@ -2256,11 +2301,9 @@ def _validate_runtime_config(
     mode = pyodide.get("mode")
     if mode not in {"cdn", "local"}:
         errors.append(f"{label} has an invalid Pyodide mode")
-    if example and mode != "local":
-        errors.append(f"{label} must demonstrate local Pyodide mode")
-    if not example and mode == "local":
+    if mode == "local":
         errors.append(
-            f"{label} cannot select local Pyodide until a vendored provenance inventory exists"
+            f"{label} cannot select local Pyodide until a complete vendored provenance inventory exists"
         )
 
     expected_locations = {
@@ -2278,20 +2321,18 @@ def _validate_runtime_config(
                 errors.append(f"{label} {field_name} is not on the approved HTTPS origin")
 
     require_integrity = pyodide.get("require_integrity")
+    verify_core = pyodide.get("verify_core_startup_set")
     digest = pyodide.get("expected_loader_sha256")
-    if not isinstance(require_integrity, bool):
-        errors.append(f"{label} require_integrity is not Boolean")
-    if not isinstance(digest, str):
-        errors.append(f"{label} expected_loader_sha256 is not a string")
-    elif example:
-        if digest != EXAMPLE_DIGEST_PLACEHOLDER:
-            errors.append(f"{label} does not contain the documented digest placeholder")
-        if require_integrity is not True:
-            errors.append(f"{label} must demonstrate required loader integrity")
-    elif digest and not LOWER_HEX_SHA256.fullmatch(digest):
+    if require_integrity is not True:
+        errors.append(f"{label} must require Pyodide integrity")
+    if verify_core is not True:
+        errors.append(f"{label} must verify the Pyodide core startup set")
+    if pyodide.get("provenance_url") != PYODIDE_PROVENANCE_URL:
+        errors.append(f"{label} must use the packaged Pyodide provenance manifest")
+    if not isinstance(digest, str) or not LOWER_HEX_SHA256.fullmatch(digest):
         errors.append(f"{label} loader SHA-256 is not 64 lower-case hexadecimal characters")
-    elif require_integrity is True and not LOWER_HEX_SHA256.fullmatch(digest):
-        errors.append(f"{label} requires integrity without a valid loader SHA-256")
+    elif digest != PYODIDE_LOADER_SHA256:
+        errors.append(f"{label} loader SHA-256 differs from the measured Pyodide loader")
     return errors
 
 

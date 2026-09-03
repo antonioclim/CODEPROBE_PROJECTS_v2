@@ -8,6 +8,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Add a dependency-free real-browser accessibility gate covering the exposed accessibility tree, roving result tabs, keyboard navigation, focus visibility, live status regions and score semantics.
 - Add programmatic names, skip links, ARIA tab/tabpanel relationships and progressbar state to both browser interfaces.
 - Add bounded project-folder and ZIP intake with pre-read exclusion, stable regular-file reads, symlink/special-entry rejection, compressed and expanded byte budgets, entry limits and compression-ratio controls.
@@ -25,6 +29,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - Reject hard-linked aliases inside project folders, read metric-override JSON through the bounded unambiguous reader and retain exact exclusion reasons for invalid root ignore members.
 - Bound each directory scan before sorting its entries and reject hard-linked calibration aliases, while documenting that copied or semantically dependent samples still require curator grouping.
 - Require the mandatory unit-test floor before tracked release evidence can be
@@ -123,6 +129,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Naming-policy document at `docs/01-naming-policy.md`.
 - Complete file catalogue at `docs/00-file-catalogue.md`.
 - Machine-readable migration map at `release/file-rename-map.csv`.
@@ -137,12 +147,18 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - Path naming is no longer left implicit: every current release file has a documented proposed final location and migration phase.
 
 ## [2.1.9] - 2026-05-28
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Conservative common-root stripping for hosted/GitHub ZIP exports before `.codeprobeignore` evaluation.
 - `input_packaging` metadata in project reports, recording source, detected common root, stripping status and rationale.
 - `docs/09-release-integrity.md`, `tools/compare_releases.py` and package-audit sidecars for release-size reconciliation.
@@ -157,6 +173,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - GitHub-style ZIP exports such as `repo-main/src/app.py` are now analysed as `src/app.py`, so anchored `.codeprobeignore` rules apply as intended.
 - Release-size discrepancies are no longer interpreted from visible ZIP size alone; the release workflow now provides member-level accounting.
 
@@ -164,6 +182,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Global browser drag-and-drop for single files, multiple files, folders and GitHub-generated ZIP exports.
 - Dedicated **Manual review** tab in the main interface and manual-review panel in the project-only interface.
 - Structured report fields: `manual_review_guidance`, `risk_zones` and `manual_review_recommendations`.
@@ -179,6 +201,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - The interface is no longer limited to drag-and-drop inside the editor box; dropping anywhere on the page now opens the appropriate analysis mode.
 - Reports are more defensible because the numerical score is accompanied by a concrete human review plan.
 
@@ -186,6 +210,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Strict browser-resource layout: `app/codeprobe-ui.js`, `app/project-ui.js`, `app/codeprobe.css`, `app/project.css` and `app/pyodide-loader.js`.
 - `app/runtime-config.json` and `app/runtime-config.example.json` for CDN, local and integrity-enforced Pyodide deployment.
 - `app/resource-integrity.json` recording SHA-256 and SRI values for local browser assets.
@@ -203,6 +231,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - Reduced the classroom deployment trust surface by making the Pyodide CDN/local choice explicit in `runtime-config.json`.
 - Added a practical path for offline deployment with a real local SHA-256 digest rather than an invented CDN integrity value.
 
@@ -210,6 +240,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Deterministic report metadata for file and project reports: `generated_at_utc`, `engine_fingerprint`, `metric_config_digest`, `metric_role_summary`, `tool_metadata` and compatible `engine_metadata` alias.
 - Browser-side SHA-256 engine fingerprinting, using Web Crypto when available, for both the main interface and `project.html`.
 - `src/codeprobe_engine/` maintainer support package with API wrappers, metric inventory, shared project-input helpers, release-manifest functions and version constants.
@@ -226,6 +260,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - Release validation now checks Python compilation, unit tests, optional JavaScript syntax, version consistency, smoke reports and manifest integrity.
 - Exported reports expose metric-role separation directly, reducing ambiguity between authorship-style, quality, context and documentation signals.
 
@@ -233,6 +269,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Course-local calibration profiles using schema `codeprobe-calibration-profile/v1`.
 - `tools/calibrate_profile.py` for manifest-driven calibration, JSON/CSV manifests, profile JSON, Markdown summaries, observation CSVs and threshold-sensitivity CSVs.
 - `tools/calibrate_corpus.py` as a labelled-folder convenience wrapper for corpora organised as `human/`, `ai/` and optional `hybrid/`.
@@ -251,12 +291,18 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - Reduced ambiguity between score bands and course review triggers by serialising both into exported reports.
 
 ## [2.1.3] - 2026-05-28
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Project mode for ZIP archives and browser-supported folder uploads in the main browser interface, with an additional compact `app/project.html` page.
 - Automatic `.codeprobeignore` parsing in project mode, including comments, directory patterns, glob patterns and negated re-inclusions.
 - Built-in project exclusions for dependencies, build output, generated artefacts, minified assets, binary files and documentation.
@@ -273,12 +319,18 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - The kit no longer asks users to rely only on manual file selection for multi-file projects; project-mode exclusions are now auditable in the exported report.
 
 ## [2.1.2] - 2026-05-28
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - `docs/history/02-parser-and-metrics.md` documenting parser-correctness and false-positive-control changes.
 - JavaScript parser regression tests in `tests/test_phase2_javascript_parser.py`.
 - False-positive-control tests in `tests/test_phase2_false_positive_controls.py`.
@@ -293,6 +345,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - Masked JavaScript regex literals before brace matching, preventing regex braces from corrupting function ranges.
 - Preserved ordinary division operators during JavaScript scanning.
 - Corrected JavaScript function start-line reporting so preceding semicolon or delimiter lines are not absorbed.
@@ -301,6 +355,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - `docs/10-provenance.md` to disclose the assisted-development status of the kit and the human review obligations.
 - `docs/11-design-decisions.md` with methodological decisions for threshold language, Markdown handling and quality-signal separation.
 - `docs/history/01-stabilisation.md` and `docs/14-optimisation-roadmap.md`.
@@ -321,6 +379,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
 - Removed a duplicate JavaScript metric registry decorator.
 - Made the text export label match the Phase-1 terminology.
 
@@ -328,6 +388,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Public-repository layout with the application moved into `src/`.
 - `docs/` directory for repository media, including an interface preview image.
 - `LICENSE`, `CHANGELOG.md` and `CONTRIBUTING.md` for a more complete GitHub-ready project structure.
@@ -342,6 +406,10 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
 - Transparent browser package with separate `index.html` and `codeprobe_runtime.py` files.
 - Support for Python, JavaScript, Bash, C, C++, C# and Markdown.
 - Low-level quality metrics for register pressure estimation, stack frame depth, redundant memory access, code elegance and preprocessor hygiene.

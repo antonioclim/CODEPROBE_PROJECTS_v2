@@ -1,5 +1,6 @@
 {
   "schema": "codeprobe-runtime-config/v1",
+  "production": true,
   "pyodide": {
     "mode": "cdn",
     "version": "0.25.0",
@@ -7,8 +8,10 @@
     "index_url": "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/",
     "local_loader_url": "vendor/pyodide/v0.25.0/full/pyodide.js",
     "local_index_url": "vendor/pyodide/v0.25.0/full/",
-    "expected_loader_sha256": "",
-    "require_integrity": false
+    "provenance_url": "pyodide-provenance.json",
+    "expected_loader_sha256": "9c79c9999999b15de7587aa220c61d06aa14e76babb75dc50c2f873aa826ad4d",
+    "require_integrity": true,
+    "verify_core_startup_set": true
   },
   "privacy": {
     "history_enabled_default": false,

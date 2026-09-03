@@ -26,7 +26,6 @@ import py_compile
 import re
 import shutil
 import stat
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,8 +41,8 @@ TOOLS = ROOT / "tools"
 MAX_UNITTEST_FAILURE_IDENTIFIERS = 5
 MAX_UNITTEST_FAILURE_IDENTIFIER_CHARACTERS = 300
 MAX_UNITTEST_DETAIL_CHARACTERS = 1_024
-MIN_UNITTEST_DISCOVERED = 247
-MIN_UNITTEST_EXECUTED = 242
+MIN_UNITTEST_DISCOVERED = 352
+MIN_UNITTEST_EXECUTED = 347
 RESOURCE_INTEGRITY_SCHEMA = "codeprobe-browser-resource-integrity/v1"
 REQUIRED_RESOURCE_ASSETS = {
     "codeprobe.css",
@@ -52,6 +51,7 @@ REQUIRED_RESOURCE_ASSETS = {
     "codeprobe-ui.js",
     "project-ui.js",
     "runtime-config.json",
+    "pyodide-provenance.json",
     "../src/codeprobe_runtime.py",
 }
 if str(SRC) not in sys.path:
@@ -61,12 +61,15 @@ if str(TOOLS) not in sys.path:
 
 import codeprobe_runtime as engine  # noqa: E402
 import audit_institutional_pack  # noqa: E402
+import check_coverage  # noqa: E402
 import check_dependency_boundary  # noqa: E402
 import check_file_references  # noqa: E402
+import check_pyodide_provenance  # noqa: E402
 import final_audit  # noqa: E402
 import check_naming  # noqa: E402
 from codeprobe_engine import api as cp_api  # noqa: E402
 from codeprobe_engine import metrics as cp_metrics  # noqa: E402
+from codeprobe_engine.process_control import ProcessControlError, run_bounded_process  # noqa: E402
 from codeprobe_engine.release import (  # noqa: E402
     AtomicWriteReceipt,
     MANIFEST_NAME,
@@ -117,7 +120,7 @@ def check_dependency_policy() -> CheckResult:
     return CheckResult(
         "dependency-boundary",
         True,
-        "declared offline boundary and immutable workflow pins verified; external Pyodide distribution not audited",
+        "declared dependency boundary, bounded process broker, pinned workflow actions and measured Pyodide core metadata verified",
     )
 
 
@@ -130,14 +133,19 @@ def check_unittest_suite(verbose: bool = False) -> CheckResult:
         for key, value in os.environ.items()
         if not key.upper().startswith("PYTHON")
     }
-    completed = subprocess.run(
-        cmd,
-        cwd=ROOT,
-        env=environment,
-        text=True,
-        capture_output=True,
-    )
-    unittest_output = completed.stderr
+    try:
+        completed = run_bounded_process(
+            cmd,
+            cwd=ROOT,
+            environment=environment,
+            replace_environment=True,
+            timeout=900,
+            stdout_limit=1_000_000,
+            stderr_limit=4_000_000,
+        )
+    except (ProcessControlError, OSError, ValueError) as exc:
+        return CheckResult("unit-tests", False, f"unittest launch failed: {exc}")
+    unittest_output = completed.stderr_text
     lines = unittest_output.strip().splitlines()
     count_matches = re.findall(r"^Ran (?P<count>[0-9]{1,9}) tests? in ", unittest_output, re.M)
     pass_count_field = r"(?:skipped|expected failures)=[0-9]{1,9}"
@@ -156,6 +164,8 @@ def check_unittest_suite(verbose: bool = False) -> CheckResult:
     )
     success = (
         completed.returncode == 0
+        and not completed.timed_out
+        and not completed.output_limit_exceeded
         and len(count_matches) == 1
         and terminal_success
         and floor_met
@@ -184,6 +194,10 @@ def check_unittest_suite(verbose: bool = False) -> CheckResult:
                 f"discovered {discovered}, executed {executed}; "
                 f"required {MIN_UNITTEST_DISCOVERED}/{MIN_UNITTEST_EXECUTED}"
             )
+        elif completed.timed_out:
+            summary = "unittest exceeded the 900 second wall-clock limit"
+        elif completed.output_limit_exceeded:
+            summary = "unittest exceeded its captured-output limit"
         elif completed.returncode == 0:
             summary = "unittest output was not a recognised successful run"
         else:
@@ -269,9 +283,19 @@ def check_javascript_syntax(*, require_node: bool = False) -> CheckResult:
         checked = 0
         for script_path in browser_script_files():
             checked += 1
-            completed = subprocess.run([node, "--check", str(script_path)], text=True, capture_output=True)
+            completed = run_bounded_process(
+                [node, "--check", str(script_path)],
+                cwd=ROOT,
+                timeout=30,
+                stdout_limit=64_000,
+                stderr_limit=64_000,
+            )
+            if completed.timed_out:
+                return CheckResult("javascript-syntax", False, f"{script_path.relative_to(ROOT)}: Node.js timed out")
+            if completed.output_limit_exceeded:
+                return CheckResult("javascript-syntax", False, f"{script_path.relative_to(ROOT)}: Node.js output exceeded 64,000 bytes")
             if completed.returncode != 0:
-                return CheckResult("javascript-syntax", False, f"{script_path.relative_to(ROOT)}: {completed.stderr.strip()}")
+                return CheckResult("javascript-syntax", False, f"{script_path.relative_to(ROOT)}: {completed.stderr_text.strip()}")
         return CheckResult("javascript-syntax", True, f"{checked} external browser script(s) pass node --check")
     except Exception as exc:  # pragma: no cover - failure path reported by CLI
         return CheckResult("javascript-syntax", False, str(exc))
@@ -399,6 +423,33 @@ def check_resource_integrity() -> CheckResult:
         return CheckResult("browser-resource-integrity", True, f"{len(assets)} asset(s) verified")
     except Exception as exc:  # pragma: no cover - failure path reported by CLI
         return CheckResult("browser-resource-integrity", False, str(exc))
+
+
+def check_pyodide_boundary() -> CheckResult:
+    errors = check_pyodide_provenance.audit_pyodide_provenance(ROOT)
+    if errors:
+        return CheckResult("pyodide-provenance", False, "; ".join(errors[:10]))
+    return CheckResult(
+        "pyodide-provenance",
+        True,
+        "production configuration and measured core startup metadata are consistent; optional packages and future CDN bytes remain outside the check",
+    )
+
+
+def check_coverage_policy() -> CheckResult:
+    try:
+        policy_path = ROOT / check_coverage.DEFAULT_POLICY
+        policy = check_coverage.load_policy(policy_path)
+        files = check_coverage.discover_source_files(ROOT, policy)
+        floors = policy["floors"]
+        return CheckResult(
+            "coverage-policy",
+            True,
+            f"{len(files)} production Python file(s) are in scope; "
+            f"overall floor {float(floors['overall']):.2f}% on Python {policy['python_runtime']}",
+        )
+    except (OSError, ValueError, check_coverage.CoveragePolicyError) as exc:
+        return CheckResult("coverage-policy", False, str(exc))
 
 def check_version_consistency() -> CheckResult:
     expected = engine.APP_VERSION
@@ -928,6 +979,8 @@ def run_checks(
         check_javascript_syntax(require_node=require_node),
         check_browser_security(),
         check_resource_integrity(),
+        check_pyodide_boundary(),
+        check_coverage_policy(),
         check_version_consistency(),
         check_smoke_reports(),
         check_institutional_package(),

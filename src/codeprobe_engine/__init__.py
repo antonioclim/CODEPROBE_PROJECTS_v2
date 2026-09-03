@@ -5,4 +5,13 @@ load one auditable file. These helpers support CLI workflows, release checks
 and future extraction without changing the browser contract.
 """
 
-__all__ = ["api", "metrics", "paths", "project_io", "release", "version"]
+__all__ = [
+    "api",
+    "metrics",
+    "paths",
+    "process_control",
+    "project_io",
+    "release",
+    "server",
+    "version",
+]

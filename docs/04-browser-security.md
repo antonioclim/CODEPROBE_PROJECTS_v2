@@ -47,43 +47,27 @@ The corresponding hashes are recorded in:
 app/resource-integrity.json
 ```
 
-This manifest covers CodeProbe's local browser files. It does not certify the remote Pyodide CDN asset.
+This manifest covers CodeProbe's packaged browser files. The separate Pyodide provenance manifest authenticates the measured core startup set; neither manifest establishes ecosystem-wide vulnerability status.
 
 ## Pyodide trust boundary
 
-By default, `app/runtime-config.json` uses the Pyodide CDN:
+The committed production configuration uses Pyodide 0.25.0 and requires integrity verification. `app/pyodide-provenance.json` binds the following core startup artefacts by exact byte size and SHA-256:
 
-```json
-{
-  "pyodide": {
-    "mode": "cdn",
-    "loader_url": "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js",
-    "index_url": "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/"
-  }
-}
-```
+- `pyodide.js`;
+- `pyodide-lock.json`;
+- `python_stdlib.zip`;
+- `pyodide.asm.js`;
+- `pyodide.asm.wasm`.
 
-For stronger local control, use local mode instead:
+The recorded files obtained from `https://cdn.jsdelivr.net/pyodide/v0.25.0/full/` were byte-identical to the corresponding members of the official `pyodide-core-0.25.0.tar.bz2` release asset. The upstream tag is bound to commit `6621b6bca72ed2cc4e9e66ed24783cce0e8dd907`.
 
-```json
-{
-  "pyodide": {
-    "mode": "local",
-    "local_loader_url": "vendor/pyodide/v0.25.0/full/pyodide.js",
-    "local_index_url": "vendor/pyodide/v0.25.0/full/",
-    "expected_loader_sha256": "<real SHA-256 hex>",
-    "require_integrity": true
-  }
-}
-```
+Before calling Pyodide, `app/pyodide-loader.js` fetches the provenance manifest and verifies the five startup artefacts. It then executes the loader from verified bytes and checks the loaded Pyodide and Python versions against the recorded lock metadata. A missing artefact, size mismatch, digest mismatch, version mismatch or disabled production integrity setting stops startup.
 
-The configured digest covers the loader processed by the current browser loader;
-it does not authenticate or inventory every WebAssembly and support file fetched
-from the Pyodide `full/` directory. Compute it from the deployed `pyodide.js`
-rather than copying or inventing a value. A genuinely high-assurance deployment
-also needs independently authenticated upstream bytes, a complete local runtime
-inventory, licence review and a live browser test. The present repository does
-not claim that work is complete.
+This boundary is deliberately narrower than a supply-chain certification. It does not authenticate optional packages not used during CodeProbe startup, future CDN responses, upstream build infrastructure or the complete current vulnerability state of the Pyodide ecosystem. A same-origin vendored deployment offers a stronger availability boundary, but it must contain bytes matching the same provenance record.
+
+## Local server boundary
+
+`tools/run_local_server.py` uses `codeprobe_engine.server`. The server publishes an explicit application allowlist and never uses repository-root directory serving. It returns no directory listing and rejects noncanonical paths, traversal, links, special files, oversized responses and unsupported methods. Loopback is the default. `--allow-network` is required for a non-loopback bind and does not add authentication, TLS or multi-user isolation.
 
 ## Browser storage
 

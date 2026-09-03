@@ -35,7 +35,8 @@ This runs:
 - unit-test discovery, only after the dependency boundary succeeds;
 - JavaScript syntax checking through Node.js when available;
 - browser CSP and local SRI checks;
-- browser-resource integrity checks;
+- browser-resource and Pyodide core-startup provenance checks;
+- supported-code coverage policy validation;
 - version-consistency checks;
 - file and project smoke analyses;
 - metric-inventory checks;
@@ -73,6 +74,17 @@ Machine-readable results may be requested with `--json-out`, but that explicit
 diagnostic output must be placed under `dist/` or outside the checkout. The tool
 rejects destinations inside the release set because they would immediately make
 the committed manifest stale.
+
+### Supported-code coverage
+
+Canonical CI runs the complete suite under the pinned Python 3.14.7 coverage policy:
+
+```bash
+python3 -I -S -B tools/check_coverage.py \
+  --json-out /path/outside/the/checkout/codeprobe-supported-coverage.json
+```
+
+The output is diagnostic and must remain outside the release set. Overall, root and selected high-risk file floors are weighted by executable lines. Lowering a floor or adding an exclusion is a policy change that requires explicit review.
 
 ### CI parity gate
 

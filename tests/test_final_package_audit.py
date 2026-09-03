@@ -22,9 +22,20 @@ sys.path.insert(0, str(ROOT / "tools"))
 import build_release  # noqa: E402
 import check_release  # noqa: E402
 import final_audit  # noqa: E402
+from codeprobe_engine.process_control import ProcessResult  # noqa: E402
 from codeprobe_engine.release import ReleaseSetError  # noqa: E402
 
 NESTED_GATE_ENV = "CODEPROBE_NESTED_CANONICAL_GATE"
+
+
+def broker_result(*, returncode: int, stdout: str = "", stderr: str = "") -> ProcessResult:
+    return ProcessResult(
+        args=("python",),
+        returncode=returncode,
+        stdout=stdout.encode("utf-8"),
+        stderr=stderr.encode("utf-8"),
+        duration_seconds=0.01,
+    )
 
 
 class FinalPackageAuditTests(unittest.TestCase):
@@ -754,31 +765,41 @@ class FinalPackageAuditTests(unittest.TestCase):
         self.assertIn("required", ci_result.detail)
 
     def test_unit_test_result_reports_the_discovered_count(self) -> None:
-        completed = subprocess.CompletedProcess(
-            args=[],
+        completed = broker_result(
             returncode=0,
-            stdout="",
-            stderr="-----\nRan 247 tests in 1.250s\n\nOK\n",
+            stderr=(
+                f"-----\nRan {check_release.MIN_UNITTEST_DISCOVERED} tests "
+                "in 1.250s\n\nOK\n"
+            ),
         )
-        with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+        with mock.patch.object(
+            check_release,
+            "run_bounded_process",
+            return_value=completed,
+        ):
             result = check_release.check_unittest_suite()
         self.assertTrue(result.ok)
-        self.assertEqual(result.detail, "247 test(s) passed")
+        self.assertEqual(
+            result.detail,
+            f"{check_release.MIN_UNITTEST_DISCOVERED} test(s) passed",
+        )
 
     def test_empty_or_fully_skipped_suite_cannot_pass(self) -> None:
         cases = (
             "Ran 0 tests in 0.001s\n\nOK\n",
-            "Ran 247 tests in 0.001s\n\nOK (skipped=247)\n",
+            (
+                f"Ran {check_release.MIN_UNITTEST_DISCOVERED} tests in 0.001s\n\n"
+                f"OK (skipped={check_release.MIN_UNITTEST_DISCOVERED})\n"
+            ),
         )
         for stderr in cases:
             with self.subTest(stderr=stderr):
-                completed = subprocess.CompletedProcess(
-                    args=[],
-                    returncode=0,
-                    stdout="",
-                    stderr=stderr,
-                )
-                with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+                completed = broker_result(returncode=0, stderr=stderr)
+                with mock.patch.object(
+                    check_release,
+                    "run_bounded_process",
+                    return_value=completed,
+                ):
                     result = check_release.check_unittest_suite()
                 self.assertFalse(result.ok)
                 self.assertIn("execution floor not met", result.detail)
@@ -788,8 +809,7 @@ class FinalPackageAuditTests(unittest.TestCase):
             f"ERROR: test_{index} (test_example.ExampleTests.test_{index})\n"
             for index in range(7)
         )
-        completed = subprocess.CompletedProcess(
-            args=[],
+        completed = broker_result(
             returncode=1,
             stdout="SECRET-STDOUT\n",
             stderr=(
@@ -800,7 +820,11 @@ class FinalPackageAuditTests(unittest.TestCase):
                 "FAILED (token=123456)\n"
             ),
         )
-        with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+        with mock.patch.object(
+            check_release,
+            "run_bounded_process",
+            return_value=completed,
+        ):
             result = check_release.check_unittest_suite()
         self.assertFalse(result.ok)
         self.assertIn("unittest exited with code 1", result.detail)
@@ -816,10 +840,8 @@ class FinalPackageAuditTests(unittest.TestCase):
         )
 
     def test_unit_test_failure_extracts_identifier_from_subtest_header_only(self) -> None:
-        completed = subprocess.CompletedProcess(
-            args=[],
+        completed = broker_result(
             returncode=1,
-            stdout="",
             stderr=(
                 "ERROR: test_case (test_example.ExampleTests.test_case) "
                 "(secret='must-not-leak')\n"
@@ -827,30 +849,38 @@ class FinalPackageAuditTests(unittest.TestCase):
                 "FAILED (errors=1)\n"
             ),
         )
-        with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+        with mock.patch.object(
+            check_release,
+            "run_bounded_process",
+            return_value=completed,
+        ):
             result = check_release.check_unittest_suite()
         self.assertIn("test_example.ExampleTests.test_case", result.detail)
         self.assertNotIn("must-not-leak", result.detail)
         self.assertNotIn("SECRET", result.detail)
 
     def test_unit_test_success_requires_a_recognised_terminal_summary(self) -> None:
-        completed = subprocess.CompletedProcess(
-            args=[],
+        completed = broker_result(
             returncode=0,
             stdout="Ran 999 tests in 0.001s\nOK\n",
             stderr="OK\n",
         )
-        with mock.patch.object(check_release.subprocess, "run", return_value=completed):
+        with mock.patch.object(
+            check_release,
+            "run_bounded_process",
+            return_value=completed,
+        ):
             result = check_release.check_unittest_suite()
         self.assertFalse(result.ok)
         self.assertIn("not a recognised successful run", result.detail)
 
     def test_unittest_child_removes_all_ambient_python_controls(self) -> None:
-        completed = subprocess.CompletedProcess(
-            args=[],
+        completed = broker_result(
             returncode=0,
-            stdout="",
-            stderr="Ran 247 tests in 0.001s\n\nOK\n",
+            stderr=(
+                f"Ran {check_release.MIN_UNITTEST_DISCOVERED} tests "
+                "in 0.001s\n\nOK\n"
+            ),
         )
         ambient = {
             "PYTHONHASHSEED": "314159",
@@ -860,13 +890,14 @@ class FinalPackageAuditTests(unittest.TestCase):
         }
         with mock.patch.dict(check_release.os.environ, ambient, clear=False):
             with mock.patch.object(
-                check_release.subprocess,
-                "run",
+                check_release,
+                "run_bounded_process",
                 return_value=completed,
             ) as runner:
                 result = check_release.check_unittest_suite()
         self.assertTrue(result.ok, result.detail)
-        environment = runner.call_args.kwargs["env"]
+        environment = runner.call_args.kwargs["environment"]
+        self.assertTrue(runner.call_args.kwargs["replace_environment"])
         self.assertFalse(
             any(key.upper().startswith("PYTHON") for key in environment),
             environment,

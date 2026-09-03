@@ -16,6 +16,7 @@ app/project-ui.js,src/project_index.js,app/project-ui.js,browser app asset,compl
 app/project.css,src/project_index.css,app/project.css,browser app asset,completed_migration,current,app,high,final naming-stable path; previous_path records migration source where applicable
 app/project.html,src/project_index.html,app/project.html,browser app asset,completed_migration,current,app,high,final naming-stable path; previous_path records migration source where applicable
 app/pyodide-loader.js,src/pyodide_loader.js,app/pyodide-loader.js,browser app asset,completed_migration,current,app,high,final naming-stable path; previous_path records migration source where applicable
+app/pyodide-provenance.json,,app/pyodide-provenance.json,browser app asset,added_audit_phase4c,audit-4c,app,high,measured Pyodide core-startup provenance and integrity inventory
 app/resource-integrity.json,src/RESOURCE_INTEGRITY_MANIFEST.json,app/resource-integrity.json,browser app asset,completed_migration,current,app,high,final naming-stable path; previous_path records migration source where applicable
 app/runtime-config.example.json,src/runtime_config.example.json,app/runtime-config.example.json,browser app asset,completed_migration,current,app,high,final naming-stable path; previous_path records migration source where applicable
 app/runtime-config.json,src/runtime_config.json,app/runtime-config.json,browser app asset,completed_migration,current,app,high,final naming-stable path; previous_path records migration source where applicable
@@ -45,6 +46,7 @@ docs/13-signed-release-workflow.md,,docs/13-signed-release-workflow.md,technical
 docs/14-optimisation-roadmap.md,,docs/14-optimisation-roadmap.md,technical documentation or asset,keep,current,docs,medium,canonical current path
 docs/15-final-release-audit.md,,docs/15-final-release-audit.md,technical documentation or asset,added_phase13,13,docs,medium,final naming-stable path; previous_path records migration source where applicable
 docs/16-ci-and-repository-controls.md,,docs/16-ci-and-repository-controls.md,technical documentation or asset,added_audit_phase4,audit-4,docs,medium,added during hostile audit Phase 4 to define CI and repository controls
+docs/17-supported-coverage.md,,docs/17-supported-coverage.md,technical documentation or asset,added_audit_phase4d,audit-4d,docs,medium,"supported-code coverage scope, floors and limitations"
 docs/assets/interface-preview.png,,docs/assets/interface-preview.png,technical documentation or asset,keep,current,docs,medium,canonical current path
 docs/history/01-stabilisation.md,,docs/history/01-stabilisation.md,phase-history note,keep,current,docs,medium,canonical current path
 docs/history/02-parser-and-metrics.md,,docs/history/02-parser-and-metrics.md,phase-history note,keep,current,docs,medium,canonical current path
@@ -78,13 +80,16 @@ src/codeprobe_engine/__init__.py,,src/codeprobe_engine/__init__.py,maintainer en
 src/codeprobe_engine/api.py,,src/codeprobe_engine/api.py,maintainer engine support module,keep,current,src,high,canonical current path
 src/codeprobe_engine/metrics.py,,src/codeprobe_engine/metrics.py,maintainer engine support module,keep,current,src,high,canonical current path
 src/codeprobe_engine/paths.py,,src/codeprobe_engine/paths.py,maintainer engine support module,keep,current,src,high,canonical current path
+src/codeprobe_engine/process_control.py,,src/codeprobe_engine/process_control.py,maintainer engine support module,added_audit_phase4c,audit-4c,src,high,single bounded process-execution and process-tree containment boundary
 src/codeprobe_engine/project_io.py,,src/codeprobe_engine/project_io.py,maintainer engine support module,keep,current,src,high,canonical current path
 src/codeprobe_engine/release.py,,src/codeprobe_engine/release.py,maintainer engine support module,keep,current,src,high,canonical current path
+src/codeprobe_engine/server.py,,src/codeprobe_engine/server.py,maintainer engine support module,added_audit_phase4c,audit-4c,src,high,allowlisted local static-server policy and request handling
 src/codeprobe_engine/version.py,,src/codeprobe_engine/version.py,maintainer engine support module,keep,current,src,high,canonical current path
 src/codeprobe_runtime.py,src/engine.py,src/codeprobe_runtime.py,browser-compatible analysis runtime,completed_migration,current,src,high,final naming-stable path; previous_path records migration source where applicable
 tests/test_app_runtime_tools_paths.py,,tests/test_app_runtime_tools_paths.py,regression test,keep,current,tests,high,canonical current path
 tests/test_browser_security.py,,tests/test_browser_security.py,regression test,keep,current,tests,high,canonical current path
 tests/test_calibration_profiles.py,,tests/test_calibration_profiles.py,regression test,keep,current,tests,high,canonical current path
+tests/test_coverage_policy.py,,tests/test_coverage_policy.py,regression test,added_audit_phase4d,audit-4d,tests,high,"coverage policy, floor and required-CI regressions"
 tests/test_dependency_boundary.py,,tests/test_dependency_boundary.py,regression test,added_audit_phase4,audit-4,tests,high,added during hostile audit Phase 4 to guard dependency-boundary enforcement
 tests/test_documentation_resources.py,,tests/test_documentation_resources.py,regression test,keep,current,tests,high,canonical current path
 tests/test_dynamic_ui_review.py,,tests/test_dynamic_ui_review.py,regression test,keep,current,tests,high,canonical current path
@@ -96,7 +101,10 @@ tests/test_final_release_audit.py,,tests/test_final_release_audit.py,regression 
 tests/test_github_zip_roots.py,,tests/test_github_zip_roots.py,regression test,keep,current,tests,high,canonical current path
 tests/test_institutional_packaging.py,,tests/test_institutional_packaging.py,regression test,keep,current,tests,high,canonical current path
 tests/test_javascript_parser.py,,tests/test_javascript_parser.py,regression test,keep,current,tests,high,canonical current path
+tests/test_local_server.py,,tests/test_local_server.py,regression test,added_audit_phase4c,audit-4c,tests,high,"local-server allowlist, path and HTTP-method regressions"
+tests/test_process_control.py,,tests/test_process_control.py,regression test,added_audit_phase4c,audit-4c,tests,high,"bounded output, timeout, environment and process-tree regressions"
 tests/test_project_mode.py,,tests/test_project_mode.py,regression test,keep,current,tests,high,canonical current path
+tests/test_pyodide_provenance.py,,tests/test_pyodide_provenance.py,regression test,added_audit_phase4c,audit-4c,tests,high,Pyodide production configuration and provenance regressions
 tests/test_reference_integrity.py,,tests/test_reference_integrity.py,regression test,keep,current,tests,high,canonical current path
 tests/test_release_integrity.py,,tests/test_release_integrity.py,regression test,keep,current,tests,high,canonical current path
 tests/test_release_metadata.py,,tests/test_release_metadata.py,regression test,keep,current,tests,high,canonical current path
@@ -110,12 +118,15 @@ tools/build_release.py,src/build_release.py,tools/build_release.py,command-line 
 tools/calibrate_corpus.py,src/calibrate_corpus.py,tools/calibrate_corpus.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/calibrate_profile.py,src/calibrate_profile.py,tools/calibrate_profile.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/check_browser_accessibility.js,,tools/check_browser_accessibility.js,command-line or release utility,added_audit_phase4b,audit-4b,tools,high,dependency-free real-browser accessibility gate used by required CI
+tools/check_coverage.py,,tools/check_coverage.py,command-line or release utility,added_audit_phase4d,audit-4d,tools,high,deterministic supported-code line-coverage gate
 tools/check_dependency_boundary.py,,tools/check_dependency_boundary.py,command-line or release utility,added_audit_phase4,audit-4,tools,high,added during hostile audit Phase 4 to verify the offline dependency contract
 tools/check_file_references.py,tools/check_references.py,tools/check_file_references.py,command-line or release utility,completed_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/check_naming.py,,tools/check_naming.py,command-line or release utility,added_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
+tools/check_pyodide_provenance.py,,tools/check_pyodide_provenance.py,command-line or release utility,added_audit_phase4c,audit-4c,tools,high,static validation of measured Pyodide core-startup provenance
 tools/check_release.py,src/release_check.py,tools/check_release.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/check_release_reproducibility.py,,tools/check_release_reproducibility.py,command-line or release utility,added_audit_phase4,audit-4,tools,high,added during hostile audit Phase 4 to compare Git exports and release packets
 tools/compare_releases.py,,tools/compare_releases.py,command-line or release utility,keep,current,tools,high,canonical current path
+tools/coverage-policy.json,,tools/coverage-policy.json,command-line or release utility,added_audit_phase4d,audit-4d,tools,high,version-pinned supported-code coverage policy and non-regression floors
 tools/final_audit.py,,tools/final_audit.py,command-line or release utility,added_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/run_local_server.py,src/run_local_server.py,tools/run_local_server.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/validate_release.py,src/validate_release.py,tools/validate_release.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable

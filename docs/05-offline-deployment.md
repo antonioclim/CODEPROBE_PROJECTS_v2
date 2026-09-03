@@ -1,92 +1,71 @@
 # Offline classroom deployment
 
-This release can be used immediately with the Pyodide CDN, but institutional deployments often prefer a fully local runtime. Use the following process.
+The release does not bundle the Pyodide distribution because the complete upstream directory is large. Offline deployment is supported only when the local files match the authenticated Pyodide 0.25.0 startup record shipped in `app/pyodide-provenance.json`.
 
-## 1. Copy Pyodide into the vendor directory
+## 1. Obtain the upstream distribution
 
-Obtain Pyodide 0.25.0 from the official upstream distribution and copy the `full/` directory to:
+Use the Pyodide 0.25.0 `full/` directory from a controlled upstream source and place it under:
 
 ```text
 app/vendor/pyodide/v0.25.0/full/
 ```
 
-The directory should contain `pyodide.js`, WebAssembly files and the standard Pyodide support files.
+At minimum, the current CodeProbe startup requires `pyodide.js`, `pyodide-lock.json`, `python_stdlib.zip`, `pyodide.asm.js` and `pyodide.asm.wasm`. Retain the complete `full/` directory when an institutional deployment may load additional standard Pyodide resources.
 
-## 2. Compute the loader digest
+## 2. Verify the core startup bytes
 
-From the kit root:
+The five required files must match the exact sizes and SHA-256 values recorded in `app/pyodide-provenance.json`. The canonical static check is:
 
 ```bash
-python3 -I -S - <<'PY'
-from pathlib import Path
-import hashlib
-path = Path('app/vendor/pyodide/v0.25.0/full/pyodide.js')
-print(hashlib.sha256(path.read_bytes()).hexdigest())
-PY
+python3 -I -S -B tools/check_pyodide_provenance.py
 ```
 
-## 3. Edit `app/runtime-config.json`
+This command validates the provenance record and browser integration. The browser repeats the file verification at startup. Do not edit the recorded values to fit an untrusted local copy; replace the local copy with the measured upstream bytes.
 
-Set:
+## 3. Select local mode
+
+Change only the deployment mode in `app/runtime-config.json`:
 
 ```json
 {
+  "schema": "codeprobe-runtime-config/v1",
+  "production": true,
   "pyodide": {
     "mode": "local",
+    "version": "0.25.0",
     "local_loader_url": "vendor/pyodide/v0.25.0/full/pyodide.js",
     "local_index_url": "vendor/pyodide/v0.25.0/full/",
-    "expected_loader_sha256": "<digest from step 2>",
-    "require_integrity": true
+    "provenance_url": "pyodide-provenance.json",
+    "expected_loader_sha256": "9c79c9999999b15de7587aa220c61d06aa14e76babb75dc50c2f873aa826ad4d",
+    "require_integrity": true,
+    "verify_core_startup_set": true
   }
 }
 ```
 
-## 4. Establish the missing provenance boundary
+Production mode rejects missing provenance, disabled integrity and disabled core-set verification.
 
-The canonical source release currently rejects vendored runtime bytes and a
-production configuration that selects local mode. It does so because the
-repository has no authenticated inventory for the complete Pyodide
-distribution. The loader digest in step 2 is necessary but does not cover the
-WebAssembly and support files loaded later.
+## 4. Refresh tracked integrity and release evidence
 
-Before presenting a local deployment as a validated CodeProbe release, add and
-review all of the following:
-
-- the exact upstream release source and its independently authenticated digest
-  or signature;
-- a complete canonical file inventory with sizes and SHA-256 values;
-- the applicable Pyodide and transitive licence notices;
-- a dependency-boundary check that verifies every deployed runtime file;
-- a live browser test using the local configuration with network access
-  disabled.
-
-This repository does not yet ship that attestation. A downstream deployment may
-stage the files for controlled local evaluation, but it must not describe the
-result as passing the canonical release gate.
-
-## 5. Refresh evidence after attestation support exists
-
-Once the complete inventory and its verifier have been introduced, refresh and
-check the tracked evidence:
+Changing `runtime-config.json` or adding vendor files changes the release set. Refresh `app/resource-integrity.json`, then run the independent checks before regenerating tracked release evidence. Finally run:
 
 ```bash
-python3 -I -S -B tools/check_release.py --write-release-evidence
-python3 -I -S -B tools/check_release.py
+python3 -I -S -B tools/check_release.py --require-node --write-release-evidence
+python3 -I -S -B tools/check_release.py --require-node
 ```
 
-The first command explicitly refreshes the audit reports and release manifest.
-Inspect the resulting diff. The second command is the canonical read-only
-release gate. Large Pyodide files will increase the ZIP size substantially.
+A vendored distribution can increase the release packet substantially. Review the manifest, deterministic ZIP size and institutional storage limits before distribution.
 
-## 6. Distribute the folder or a validated ZIP
+## 5. Test without network access
 
-A validated release ZIP can be produced with:
+Start the constrained server:
 
 ```bash
-python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_offline.zip
+python3 tools/run_local_server.py
 ```
 
-Vendored runtime content must consist of regular files rather than symbolic
-links or special filesystem entries. Archive the final ZIP and both required
-sidecars in your institutional course repository so students and instructors
-use the same runtime.
+Open both browser pages with network access disabled and complete a representative file and project analysis. Confirm that the browser does not request the CDN and that the provenance check succeeds against the same-origin vendor files.
+
+## Assurance boundary
+
+Offline mode removes dependence on CDN availability and mutable future CDN responses. It does not establish that every optional Pyodide package is vulnerability-free, that the upstream build system is reproducible or that a local server is suitable for untrusted multi-user exposure. Preserve upstream notices and licence material for every redistributed component.

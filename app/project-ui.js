@@ -1,6 +1,3 @@
-    function pyodideIndexURL() {
-      return window.CodeProbeRuntime?.getPyodideIndexURL?.() || "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/";
-    }
     const MAX_BROWSER_DROP_FILES = 2000;
     const MAX_BROWSER_PROJECT_TEXT_BYTES = 1000000;
     const MAX_BROWSER_PROJECT_ZIP_BYTES = 8000000;
@@ -147,10 +144,10 @@
     async function initEngine() {
       if (state.ready) return;
       setStatus("Loading Pyodide and src/codeprobe_runtime.py…", { busy: true });
-      if (window.CodeProbeRuntime?.ensurePyodideLoader) {
-        await window.CodeProbeRuntime.ensurePyodideLoader();
+      if (!window.CodeProbeRuntime?.loadVerifiedPyodide) {
+        throw new Error("The verified Pyodide runtime loader is unavailable.");
       }
-      state.pyodide = await loadPyodide({ indexURL: pyodideIndexURL() });
+      state.pyodide = await window.CodeProbeRuntime.loadVerifiedPyodide();
       const engineSource = await (await fetch("../src/codeprobe_runtime.py", { cache: "no-store" })).text();
       state.engineSource = engineSource;
       state.pyodide.FS.writeFile("codeprobe_runtime.py", engineSource);

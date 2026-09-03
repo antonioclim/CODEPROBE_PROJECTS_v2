@@ -78,3 +78,9 @@ The final package includes explicit operational resources for students, instruct
 ## Phase 10 provenance note
 
 The naming migration was treated as a maintainability and auditability task rather than a stylistic rewrite. The release keeps active paths unchanged while adding an explicit map from current names to proposed final names. Future path moves must pass the reference checker and release validation.
+
+## Phase 4C–4D execution and evidence note
+
+The audit branch adds three independently reviewable engineering boundaries: an allowlisted local server, one bounded process broker and a measured Pyodide core-startup provenance record. It also adds version-pinned supported-code coverage with nonzero weighted floors. These controls improve reproducibility and failure containment. They do not validate the scientific accuracy of AI-style authorship inference, certify every optional Pyodide package or establish that no software defect remains.
+
+The coverage result is tied to a specific interpreter and test suite. The Pyodide record is tied to exact startup bytes and the official 0.25.0 core release. Future runtime upgrades require new measurements rather than copying old digests.
