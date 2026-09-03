@@ -68,6 +68,14 @@ class CoveragePolicyTests(unittest.TestCase):
 
 
     def test_monitoring_is_not_silenced_by_a_test_that_clears_sys_trace(self) -> None:
+        if not hasattr(sys, "monitoring"):
+            with self.assertRaisesRegex(
+                coverage.CoveragePolicyError,
+                "requires CPython with the sys.monitoring API",
+            ):
+                coverage._monitoring_api()
+            return
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "src").mkdir()

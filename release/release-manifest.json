@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 130,
-  "total_source_size_bytes": 1683942,
+  "total_source_size_bytes": 1684214,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -452,8 +452,8 @@
     },
     {
       "path": "tests/test_coverage_policy.py",
-      "size_bytes": 8167,
-      "sha256": "35a846dd8dfb970f30e14dd7601339d0d92c3602bc6097b6404676d27548e3bb"
+      "size_bytes": 8439,
+      "sha256": "bdddcaa9e8112dc7c9590b1dea83fbb7c37e331be79b44da57a67b5f13a76bc1"
     },
     {
       "path": "tests/test_dependency_boundary.py",
@@ -656,5 +656,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "529f30c23bd4ef95b62b868e4c7c75627a6db5ed6279c543ff7d0f38915be6ee"
+  "manifest_sha256": "d462bafda07a04c652a3922cd1c847ce3ddc940974971306675d26a3000f3278"
 }
