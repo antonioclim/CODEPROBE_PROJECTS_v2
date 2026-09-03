@@ -175,9 +175,26 @@ jobs:
                 -p '23496aa15cac7a3c2f56d0e4c8de8786f5d39f7b')"
           test "$(git rev-parse "$CANDIDATE_COMMIT^{tree}")" = \
             'e42915c9a7d77bf7ad5e2259660ef3d6d9535700'
-          python -I -S -B tools/check_release_reproducibility.py \
-            --repository . \
+
+          CLEAN_ROOT="$(mktemp -d)"
+          cleanup() {
+            git update-ref -d refs/heads/phase4d-candidate 2>/dev/null || true
+            rm -rf "$CLEAN_ROOT"
+          }
+          trap cleanup EXIT
+
+          git update-ref refs/heads/phase4d-candidate "$CANDIDATE_COMMIT"
+          git clone --local --no-hardlinks --branch phase4d-candidate \
+            --single-branch . "$CLEAN_ROOT/repository"
+          test -z "$(git -C "$CLEAN_ROOT/repository" status \
+            --porcelain=v1 --untracked-files=all)"
+          python -I -S -B \
+            "$CLEAN_ROOT/repository/tools/check_release_reproducibility.py" \
+            --repository "$CLEAN_ROOT/repository" \
             --commit "$CANDIDATE_COMMIT"
+
+          cleanup
+          trap - EXIT
 
       - name: Publish the non-workflow half as a fast-forward
         shell: bash
