@@ -129,7 +129,7 @@ jobs:
             'Enforce supported-code coverage and execution boundaries' \
             | git commit-tree 'dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801' \
                 -p '23496aa15cac7a3c2f56d0e4c8de8786f5d39f7b')"
-          test "$(git rev-parse "$CANDIDATE_COMMIT^{tree})" = \
+          test "$(git rev-parse "$CANDIDATE_COMMIT^{tree}")" = \
             'dcf60da3a54fa4f7f7802b1ceb498b3bdf76a801'
           python -I -S -B tools/check_release_reproducibility.py \
             --repository . \
