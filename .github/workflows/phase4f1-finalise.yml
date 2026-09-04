@@ -1,0 +1,101 @@
+name: Phase 4F1 finalise verified candidate
+
+on:
+  push:
+    branches:
+      - automation/phase4f1-finalise-20260904
+    paths:
+      - .github/workflows/phase4f1-finalise.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalise:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create and publish the exact verified candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_PARENT: da5ef68fbfe02edc96cc0679994266b60c6f0898
+          EXPECTED_TREE: f5e8d04d24f2fdcdb278c7fc166fe501dddf946b
+          TARGET_REF: refs/heads/audit/codeprobe-hostile-remediation
+        run: |
+          set -euo pipefail
+          python -I -S -B - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ["GH_TOKEN"]
+          repository = os.environ["REPOSITORY"]
+          expected_parent = os.environ["EXPECTED_PARENT"]
+          expected_tree = os.environ["EXPECTED_TREE"]
+          target_ref = os.environ["TARGET_REF"]
+          api = f"https://api.github.com/repos/{repository}"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "CodeProbe-Phase4F1-finaliser",
+          }
+
+          def request(method, url, payload=None):
+              data = None
+              request_headers = dict(headers)
+              if payload is not None:
+                  data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                  request_headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(url, data=data, headers=request_headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      raw = response.read()
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode("utf-8", "replace")
+                  raise SystemExit(f"GitHub API {method} {url} failed: {exc.code}: {detail}") from exc
+              return json.loads(raw) if raw else None
+
+          encoded_ref = urllib.parse.quote(target_ref, safe="/")
+          current = request("GET", f"{api}/git/ref/{encoded_ref.removeprefix('refs/')}")
+          actual_parent = current["object"]["sha"]
+          if actual_parent != expected_parent:
+              raise SystemExit(
+                  f"audit ref moved: expected {expected_parent}, received {actual_parent}"
+              )
+
+          tree = request("GET", f"{api}/git/trees/{expected_tree}")
+          if tree.get("sha") != expected_tree:
+              raise SystemExit("candidate tree identity mismatch")
+
+          commit = request(
+              "POST",
+              f"{api}/git/commits",
+              {
+                  "message": "Persist the verified Phase 4F1 runtime-integrity candidate",
+                  "tree": expected_tree,
+                  "parents": [expected_parent],
+              },
+          )
+          commit_sha = commit["sha"]
+          published = request(
+              "PATCH",
+              f"{api}/git/refs/heads/audit/codeprobe-hostile-remediation",
+              {"sha": commit_sha, "force": False},
+          )
+          if published["object"]["sha"] != commit_sha:
+              raise SystemExit("published ref identity mismatch")
+
+          verified_commit = request("GET", f"{api}/git/commits/{commit_sha}")
+          if verified_commit["tree"]["sha"] != expected_tree:
+              raise SystemExit("published commit tree mismatch")
+          if [item["sha"] for item in verified_commit.get("parents", [])] != [expected_parent]:
+              raise SystemExit("published commit parent mismatch")
+
+          print(f"PHASE4F1_COMMIT={commit_sha}")
+          print(f"PHASE4F1_TREE={expected_tree}")
+          PY
