@@ -1,0 +1,25 @@
+{
+  "schema": "codeprobe-pyodide-support-policy/v1",
+  "pinned_version": "0.25.0",
+  "classification": "legacy-frozen-development-runtime",
+  "reviewed_at": "2026-09-04",
+  "next_review_by": "2026-10-15",
+  "maximum_review_interval_days": 45,
+  "supported_until": "2026-12-31",
+  "public_release_status": "blocked-until-measured-upgrade",
+  "upgrade_required_before_public_release": true,
+  "observed_upstream": {
+    "version": "314.0.6",
+    "published_at": "2026-08-25",
+    "observed_at": "2026-09-04",
+    "source": "official-github-release"
+  },
+  "assurance_boundary": {
+    "core_startup_set_only": true,
+    "optional_packages_supported": false,
+    "future_cdn_bytes_covered": false,
+    "current_advisory_absence_claimed": false
+  },
+  "decision": "Retain 0.25.0 only for the reproducible development candidate while a measured compatible upgrade is evaluated. Do not publish a CodeProbe release on this runtime.",
+  "owner": "@antonioclim"
+}
