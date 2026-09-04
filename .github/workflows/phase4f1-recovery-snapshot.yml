@@ -1,4 +1,4 @@
-name: Phase 4F1 recovery snapshot
+name: Phase 4F1 verified recovery transaction
 
 on:
   push:
@@ -8,38 +8,118 @@ on:
       - .github/workflows/phase4f1-recovery-snapshot.yml
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: phase4f1-recovery-transaction
+  cancel-in-progress: false
 
 jobs:
-  export:
+  recover:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
-      - name: Check out exact commit
+      - name: Check out exact transaction commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           clean: true
-          fetch-depth: 1
+          fetch-depth: 0
           lfs: false
-          persist-credentials: false
+          persist-credentials: true
           show-progress: false
           submodules: false
 
-      - name: Export exact tracked tree
+      - name: Reconstruct and verify the exact candidate
+        shell: bash
+        env:
+          BASE_SHA: e6ac407e25a3f52739ad1f079bde65e48e62941e
+          EXPECTED_TREE: f5e8d04d24f2fdcdb278c7fc166fe501dddf946b
+          PATCH_SHA256: 87b3d5e5c2329a2b9ea9799cbcc792b4d1b8b6dd47b0ea8396039b5b11de0591
+        run: |
+          set -euo pipefail
+          patch="$RUNNER_TEMP/phase4f1.patch"
+          candidate="$RUNNER_TEMP/phase4f1-candidate"
+          base64 --decode .github/phase4f1-candidate.patch.gz.b64 | gzip -dc > "$patch"
+          printf '%s  %s\n' "$PATCH_SHA256" "$patch" | sha256sum --check --strict
+          git config user.name "CodeProbe recovery transaction"
+          git config user.email "48681843+antonioclim@users.noreply.github.com"
+          git fetch --no-tags origin "$BASE_SHA"
+          git worktree add --detach "$candidate" "$BASE_SHA"
+          git -C "$candidate" config user.name "Revolvix"
+          git -C "$candidate" config user.email "48681843+antonioclim@users.noreply.github.com"
+          git -C "$candidate" am --committer-date-is-author-date "$patch"
+          actual_tree="$(git -C "$candidate" rev-parse HEAD^{tree})"
+          test "$actual_tree" = "$EXPECTED_TREE"
+          test -z "$(git -C "$candidate" status --porcelain=v1 --untracked-files=all)"
+
+          (
+            cd "$candidate"
+            python -I -S -B -m unittest discover -s tests -v
+            python -I -S -B tools/check_dependency_boundary.py
+            python -I -S -B tools/check_pyodide_provenance.py
+            python -I -S -B tools/check_release.py --require-node
+            python -I -S -B tools/check_release_reproducibility.py --repository . --commit HEAD
+            node tools/check_browser_accessibility.js
+          )
+
+          CANDIDATE="$candidate" python -I -S -B - <<'PY'
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          root = Path.cwd()
+          candidate = Path(os.environ["CANDIDATE"])
+          candidate_paths = set(
+              subprocess.check_output(
+                  ["git", "-C", str(candidate), "ls-files", "-z"]
+              ).decode("utf-8").split("\0")[:-1]
+          )
+          current_paths = set(
+              subprocess.check_output(["git", "ls-files", "-z"])
+              .decode("utf-8").split("\0")[:-1]
+          )
+          preserved = {".github/phase4f1-candidate.patch.gz.b64"}
+          for relative in sorted(current_paths - candidate_paths):
+              if relative.startswith(".github/workflows/") or relative in preserved:
+                  continue
+              target = root / relative
+              if target.is_file() or target.is_symlink():
+                  target.unlink()
+          for relative in sorted(candidate_paths):
+              if relative.startswith(".github/workflows/"):
+                  continue
+              source = candidate / relative
+              target = root / relative
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, target)
+              target.chmod(source.stat().st_mode & 0o777)
+          PY
+
+          git add -A -- . ':(exclude).github/workflows/**' ':(exclude).github/phase4f1-candidate.patch.gz.b64'
+          test -n "$(git diff --cached --name-only)"
+          if git diff --cached --name-only | grep -q '^.github/workflows/'; then
+            printf '%s\n' 'A workflow path entered the intermediate commit.' >&2
+            exit 1
+          fi
+          git commit -m "Materialise the verified Phase 4F1 runtime candidate"
+          git push origin HEAD:refs/heads/audit/codeprobe-hostile-remediation
+
+      - name: Record the intermediate commit
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git archive --format=zip --output="$RUNNER_TEMP/codeprobe-phase4f1-recovery-source.zip" "$GITHUB_SHA"
-          sha256sum "$RUNNER_TEMP/codeprobe-phase4f1-recovery-source.zip" > "$RUNNER_TEMP/codeprobe-phase4f1-recovery-source.zip.sha256"
+          {
+            printf 'commit=%s\n' "$(git rev-parse HEAD)"
+            printf 'tree=%s\n' "$(git rev-parse HEAD^{tree})"
+            printf 'candidate_tree=%s\n' f5e8d04d24f2fdcdb278c7fc166fe501dddf946b
+          } > "$RUNNER_TEMP/phase4f1-intermediate.txt"
 
-      - name: Upload exact source snapshot
+      - name: Upload transaction evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: codeprobe-phase4f1-recovery-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/codeprobe-phase4f1-recovery-source.zip
-            ${{ runner.temp }}/codeprobe-phase4f1-recovery-source.zip.sha256
+          name: phase4f1-recovery-${{ github.sha }}
+          path: ${{ runner.temp }}/phase4f1-intermediate.txt
           if-no-files-found: error
           compression-level: 0
-          retention-days: 1
+          retention-days: 7
