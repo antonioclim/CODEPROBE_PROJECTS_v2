@@ -6,7 +6,7 @@
 2. From the package root, run:
 
 ```bash
-python3 tools/run_local_server.py
+python3 -I -S -B tools/run_local_server.py
 ```
 
 3. Open the printed local address.

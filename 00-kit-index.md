@@ -27,6 +27,7 @@ This page is the quickest way to locate the right part of the package. For curre
 - `docs/13-signed-release-workflow.md` — optional signed-release workflow using the release manifest and external signature tools.
 - `docs/15-final-release-audit.md` — final acceptance checks for naming, references and functionality.
 - `docs/16-ci-and-repository-controls.md` — CI matrix, immutable action pins and required default-branch rules.
+- `docs/18-runtime-integrity.md` — exact Pyodide and Python-engine byte-consumption boundary and functional-browser evidence.
 - `release/release-manifest.json` — strict package allowlist with canonical paths, sizes and SHA-256 digests.
 
 ## For maintainers
@@ -42,6 +43,8 @@ This page is the quickest way to locate the right part of the package. For curre
 - `tools/check_release.py` — full release validation script.
 - `tools/check_dependency_boundary.py` — offline dependency and workflow supply-chain policy check.
 - `tools/check_release_reproducibility.py` — checkout, Git-export and release-packet parity gate.
+- `tools/prepare_pyodide_fixture.py` — exact, bounded Pyodide startup-fixture preparation.
+- `tools/check_browser_functional.js` — real file/project analysis, export and tamper gate in Chromium.
 - `tools/build_release.py` — strict manifest-selected release packet builder.
 - `tools/audit_institutional_pack.py` — checks for the institutional distribution pack.
 - `tests/` — regression tests across the phased hardening work.

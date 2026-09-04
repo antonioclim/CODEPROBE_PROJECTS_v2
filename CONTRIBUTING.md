@@ -58,7 +58,7 @@ python3 -m unittest discover -s tests
 Then launch the browser interface:
 
 ```bash
-python3 tools/run_local_server.py --no-browser
+python3 -I -S -B tools/run_local_server.py --no-browser
 ```
 
 Check at least one representative file for every language family affected by the change.

@@ -12,6 +12,15 @@ app/vendor/pyodide/v0.25.0/full/
 
 At minimum, the current CodeProbe startup requires `pyodide.js`, `pyodide-lock.json`, `python_stdlib.zip`, `pyodide.asm.js` and `pyodide.asm.wasm`. Retain the complete `full/` directory when an institutional deployment may load additional standard Pyodide resources.
 
+Maintainers can prepare the exact five-file functional-test fixture from the recorded distribution, or verify an existing source directory, with:
+
+```bash
+python3 -I -S -B tools/prepare_pyodide_fixture.py \
+  --output-dir /path/outside/the/repository/pyodide-core
+```
+
+The command refuses redirects, enforces the recorded byte count while reading and checks every SHA-256 before publishing a fixture file.
+
 ## 2. Verify the core startup bytes
 
 The five required files must match the exact sizes and SHA-256 values recorded in `app/pyodide-provenance.json`. The canonical static check is:
@@ -20,7 +29,7 @@ The five required files must match the exact sizes and SHA-256 values recorded i
 python3 -I -S -B tools/check_pyodide_provenance.py
 ```
 
-This command validates the provenance record and browser integration. The browser repeats the file verification at startup. Do not edit the recorded values to fit an untrusted local copy; replace the local copy with the measured upstream bytes.
+This command validates the provenance record and browser integration. The browser repeats the file verification at startup and uses the resulting verified buffers during bootstrap. Do not edit the recorded values to fit an untrusted local copy; replace the local copy with the measured upstream bytes.
 
 ## 3. Select local mode
 
@@ -61,7 +70,7 @@ A vendored distribution can increase the release packet substantially. Review th
 Start the constrained server:
 
 ```bash
-python3 tools/run_local_server.py
+python3 -I -S -B tools/run_local_server.py
 ```
 
 Open both browser pages with network access disabled and complete a representative file and project analysis. Confirm that the browser does not request the CDN and that the provenance check succeeds against the same-origin vendor files.

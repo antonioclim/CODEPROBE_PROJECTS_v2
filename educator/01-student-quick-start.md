@@ -13,7 +13,7 @@ Recommended project exclusions are provided in `.codeprobeignore.example`. Copy 
 Run a local server from the package root:
 
 ```bash
-python3 tools/run_local_server.py
+python3 -I -S -B tools/run_local_server.py
 ```
 
 Then open the address printed by the script. Alternatively, open `app/index.html` directly if your browser permits local Pyodide loading.

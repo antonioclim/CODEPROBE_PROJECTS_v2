@@ -155,7 +155,7 @@ the immutable snapshot has been captured.
 Open the browser kit through the local server:
 
 ```bash
-python3 tools/run_local_server.py
+python3 -I -S -B tools/run_local_server.py
 ```
 
 Then verify manually:

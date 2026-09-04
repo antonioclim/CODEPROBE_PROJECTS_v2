@@ -65,7 +65,7 @@ Markdown files are analysed only as documentation-quality context in single-file
 | Browser | Modern Chromium, Firefox or Safari-class browser |
 | Network | Internet access to the configured Pyodide CDN, or a local Pyodide copy configured in `app/runtime-config.json` |
 | Python | 3.10–3.14 for the command-line tools, calibration and tests; optional for browser-only use |
-| Node.js | 24.20.0 in CI; used for JavaScript syntax checks and the dependency-free Chromium accessibility harness |
+| Node.js | 24.20.0 in CI; used for JavaScript syntax checks and the dependency-free Chromium accessibility and functional harnesses |
 
 No build step is required.
 
@@ -73,9 +73,9 @@ No build step is required.
 
 Browser JavaScript and CSS are external resources. The HTML pages use a Content Security Policy without `unsafe-inline`; local CodeProbe browser assets carry SRI attributes and `app/resource-integrity.json` records their SHA-256 values.
 
-Pyodide loading is controlled by `app/runtime-config.json` and fails closed in the committed production configuration. `app/pyodide-provenance.json` records the exact sizes and SHA-256 values of the five core startup artefacts used by CodeProbe. Those bytes were matched against the official Pyodide 0.25.0 core release. This boundary authenticates the measured startup set, not every optional package, future CDN response or current vulnerability claim. A local deployment must provide the same authenticated bytes. See `docs/04-browser-security.md` and `docs/05-offline-deployment.md`.
+Pyodide loading is controlled by `app/runtime-config.json` and fails closed in the committed production configuration. `app/pyodide-provenance.json` records the exact sizes and SHA-256 values of the five core startup artefacts used by CodeProbe. The loader retains those verified bytes: `pyodide.js` and `pyodide.asm.js` execute from verified Blob URLs, while the lockfile, standard library and WebAssembly requests are satisfied from the already verified in-memory buffers. The packaged `src/codeprobe_runtime.py` bytes are also checked against the embedded and resource-integrity records before import. A manual engine file is an explicitly unverified recovery override. This boundary does not authenticate optional packages, upstream build infrastructure or the complete current vulnerability state. See `docs/04-browser-security.md`, `docs/05-offline-deployment.md` and `docs/18-runtime-integrity.md`.
 
-The committed CI workflow validates Python 3.10–3.14, runs the real-browser accessibility gate, enforces the version-pinned supported-code coverage policy and compares normalised checkouts, an exact Git archive and the complete three-file release packet. Its least-privilege design, immutable action pins and required repository settings are recorded in `docs/16-ci-and-repository-controls.md`.
+The committed CI workflow validates Python 3.10–3.14, runs real-browser accessibility and functional integrity gates, enforces the version-pinned supported-code coverage policy and compares normalised checkouts, an exact Git archive and the complete three-file release packet. The functional Chromium gate performs actual file and project analyses with an authenticated local Pyodide fixture, validates JSON/text downloads and proves that hostile second responses are not consumed. Its least-privilege design, immutable action pins and required repository settings are recorded in `docs/16-ci-and-repository-controls.md`.
 
 Browser report history is disabled by default. It stores reports, not source code, when explicitly enabled. The main interface includes **Clear privacy data**, which clears local report history, disables history and clears the current editor/project payload from the page state.
 
@@ -87,13 +87,13 @@ Both browser pages expose labelled inputs, polite status announcements, visible 
 ### Windows
 
 ```powershell
-py -3 tools/run_local_server.py
+py -3 -I -S -B tools/run_local_server.py
 ```
 
 or:
 
 ```powershell
-python tools/run_local_server.py
+python -I -S -B tools/run_local_server.py
 ```
 
 Open the printed local address, usually similar to `http://127.0.0.1:8123/app/index.html`. The dedicated project page is available at `http://127.0.0.1:8123/app/project.html`. The server publishes only the declared browser resources: repository source, tests, documentation indexes and release metadata are not exposed. A non-loopback bind is rejected unless `--allow-network` is supplied explicitly.
@@ -101,7 +101,7 @@ Open the printed local address, usually similar to `http://127.0.0.1:8123/app/in
 ### Linux and macOS
 
 ```bash
-python3 tools/run_local_server.py
+python3 -I -S -B tools/run_local_server.py
 ```
 
 Then open the printed local address. The same allowlist and loopback policy applies on every platform.

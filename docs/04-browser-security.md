@@ -3,14 +3,14 @@
 CodeProbe is a static browser application. The intended classroom deployment is through the local helper server:
 
 ```bash
-python3 tools/run_local_server.py
+python3 -I -S -B tools/run_local_server.py
 ```
 
 The server binds to `127.0.0.1` by default. The browser still executes JavaScript locally, loads Pyodide, and runs `codeprobe_runtime.py` inside the Pyodide runtime.
 
 ## Content Security Policy
 
-The Phase 6 HTML interfaces use this security posture:
+The shipped HTML interfaces use this security posture:
 
 ```text
 default-src 'self';
@@ -61,9 +61,11 @@ The committed production configuration uses Pyodide 0.25.0 and requires integrit
 
 The recorded files obtained from `https://cdn.jsdelivr.net/pyodide/v0.25.0/full/` were byte-identical to the corresponding members of the official `pyodide-core-0.25.0.tar.bz2` release asset. The upstream tag is bound to commit `6621b6bca72ed2cc4e9e66ed24783cce0e8dd907`.
 
-Before calling Pyodide, `app/pyodide-loader.js` fetches the provenance manifest and verifies the five startup artefacts. It then executes the loader from verified bytes and checks the loaded Pyodide and Python versions against the recorded lock metadata. A missing artefact, size mismatch, digest mismatch, version mismatch or disabled production integrity setting stops startup.
+Before calling Pyodide, `app/pyodide-loader.js` fetches and verifies the five startup artefacts once. It executes `pyodide.js` and `pyodide.asm.js` from Blob URLs created from the verified buffers. During bootstrap, exact lockfile, standard-library and WebAssembly requests are intercepted and answered from the corresponding verified in-memory buffers, so a later origin response cannot replace the inspected bytes. Startup also fails if Pyodide does not consume each required verified artefact.
 
-This boundary is deliberately narrower than a supply-chain certification. It does not authenticate optional packages not used during CodeProbe startup, future CDN responses, upstream build infrastructure or the complete current vulnerability state of the Pyodide ecosystem. A same-origin vendored deployment offers a stronger availability boundary, but it must contain bytes matching the same provenance record.
+The same loader verifies the exact packaged `src/codeprobe_runtime.py` size and SHA-256 before either interface writes or imports the module in Pyodide. `app/resource-integrity.json`, the embedded engine record and the actual file must agree. The main page retains a manual engine-file route only as an explicitly unverified recovery override and marks its report fingerprint accordingly.
+
+This boundary is deliberately narrower than a supply-chain certification. It does not authenticate optional packages not used during CodeProbe startup, upstream build infrastructure, runtime availability or the complete current vulnerability state of the Pyodide ecosystem. A same-origin vendored deployment offers a stronger availability boundary, but it must contain bytes matching the same provenance record. `docs/18-runtime-integrity.md` records the consumption and browser-test contract.
 
 ## Local server boundary
 

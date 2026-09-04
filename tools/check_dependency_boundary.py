@@ -67,6 +67,7 @@ APPROVED_LOCAL_IMPORTS = {
     "codeprobe_runtime",
     "compare_releases",
     "final_audit",
+    "prepare_pyodide_fixture",
 }
 APPROVED_SOURCE_ENTRIES = {"codeprobe_engine", "codeprobe_runtime.py"}
 APPROVED_SOURCE_ENTRY_TYPES = {
@@ -264,7 +265,7 @@ PRIVACY_FIELDS = {
 
 EXTERNAL_RUNTIME_LIMITATION = (
     "The measured Pyodide core startup set is authenticated by packaged metadata. "
-    "Optional packages, future CDN responses and the complete vulnerability status "
+    "Optional-package integrity, upstream build reproducibility, runtime availability and the complete vulnerability status "
     "remain outside this deterministic offline check."
 )
 

@@ -8,6 +8,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 - `added_audit_phase4b`: 1
 - `added_audit_phase4c`: 7
 - `added_audit_phase4d`: 4
+- `added_audit_phase4f1`: 4
 - `added_phase13`: 10
 - `completed_migration`: 30
 - `completed_phase13`: 4
@@ -65,6 +66,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `docs/15-final-release-audit.md` | `—` | `docs` | technical documentation or asset | `added_phase13` | 13 | `medium` |
 | `docs/16-ci-and-repository-controls.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4` | audit-4 | `medium` |
 | `docs/17-supported-coverage.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4d` | audit-4d | `medium` |
+| `docs/18-runtime-integrity.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4f1` | audit-4f1 | `medium` |
 | `docs/assets/interface-preview.png` | `—` | `docs` | technical documentation or asset | `keep` | current | `medium` |
 | `docs/history/01-stabilisation.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
 | `docs/history/02-parser-and-metrics.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
@@ -122,6 +124,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tests/test_local_server.py` | `—` | `tests` | regression test | `added_audit_phase4c` | audit-4c | `high` |
 | `tests/test_process_control.py` | `—` | `tests` | regression test | `added_audit_phase4c` | audit-4c | `high` |
 | `tests/test_project_mode.py` | `—` | `tests` | regression test | `keep` | current | `high` |
+| `tests/test_pyodide_fixture.py` | `—` | `tests` | regression test | `added_audit_phase4f1` | audit-4f1 | `high` |
 | `tests/test_pyodide_provenance.py` | `—` | `tests` | regression test | `added_audit_phase4c` | audit-4c | `high` |
 | `tests/test_reference_integrity.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_release_integrity.py` | `—` | `tests` | regression test | `keep` | current | `high` |
@@ -136,6 +139,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tools/calibrate_corpus.py` | `src/calibrate_corpus.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/calibrate_profile.py` | `src/calibrate_profile.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/check_browser_accessibility.js` | `—` | `tools` | command-line or release utility | `added_audit_phase4b` | audit-4b | `high` |
+| `tools/check_browser_functional.js` | `—` | `tools` | command-line or release utility | `added_audit_phase4f1` | audit-4f1 | `high` |
 | `tools/check_coverage.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4d` | audit-4d | `high` |
 | `tools/check_dependency_boundary.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4` | audit-4 | `high` |
 | `tools/check_file_references.py` | `tools/check_references.py` | `tools` | command-line or release utility | `completed_phase13` | 13 | `high` |
@@ -146,6 +150,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tools/compare_releases.py` | `—` | `tools` | command-line or release utility | `keep` | current | `high` |
 | `tools/coverage-policy.json` | `—` | `tools` | command-line or release utility | `added_audit_phase4d` | audit-4d | `high` |
 | `tools/final_audit.py` | `—` | `tools` | command-line or release utility | `added_phase13` | 13 | `high` |
+| `tools/prepare_pyodide_fixture.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4f1` | audit-4f1 | `high` |
 | `tools/run_local_server.py` | `src/run_local_server.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/validate_release.py` | `src/validate_release.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 

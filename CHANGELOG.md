@@ -8,6 +8,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Added
 
+- Add a real-browser functional-integrity gate that runs authenticated Pyodide bytes, performs single-file and project analyses, validates JSON/text downloads and exercises tamper and reload-recovery paths.
+- Add a bounded Pyodide fixture-preparation utility that refuses redirects and verifies exact sizes and SHA-256 values before publishing test files.
 - Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
 - Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
 - Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
@@ -29,6 +31,9 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Bind each verified Pyodide startup artefact to the bytes actually consumed during bootstrap instead of permitting a second unchecked network response.
+- Verify the exact packaged Python engine before import in both browser interfaces and label the manual engine route as an explicitly unverified override.
+- Use one strict UTF-8-then-Latin-1 source-decoding contract and Unicode-NFC project-path identity across browser, ZIP and local-folder entry points.
 - Keep the ordinary release gate importable on Python 3.10–3.13 by deferring the version-specific `sys.monitoring` lookup until the dedicated Python 3.14 coverage measurement starts.
 - Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
 - Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.

@@ -6,9 +6,8 @@ CodeProbe v2.2.0
 Browser-oriented heuristic analyser for source code and technical Markdown.
 
 The engine is designed for execution inside Pyodide and uses only the Python
-standard library. Phase 6 keeps the browser runtime self-contained while adding
-harder browser packaging around it: external JS/CSS resources, runtime Pyodide
-configuration, local resource integrity metadata and privacy controls.
+standard library. Browser packaging keeps the analysis runtime self-contained
+behind explicit resource-integrity, input-boundary and privacy controls.
 
 The output is a heuristic concern signal. It supports local classroom
 self-review and code-quality discussion, but it is not evidence of misconduct.
@@ -4437,8 +4436,8 @@ class ProjectExcludedFile:
 
 
 def normalise_project_path(path: str) -> str:
-    """Normalise a browser/ZIP path without allowing absolute or parent traversal."""
-    raw = str(path or "").replace("\\", "/").strip()
+    """Return a canonical NFC project path after separator normalisation."""
+    raw = unicodedata.normalize("NFC", str(path or "")).replace("\\", "/").strip()
     raw = re.sub(r"^[A-Za-z]:/", "", raw)
     raw = raw.lstrip("/")
     parts: List[str] = []
@@ -4447,15 +4446,16 @@ def normalise_project_path(path: str) -> str:
             continue
         if part == "..":
             continue
-        parts.append(part)
+        parts.append(unicodedata.normalize("NFC", part))
     return "/".join(parts) or "fragment.txt"
 
 
 def project_path_is_unsafe(path: str) -> bool:
     """Return True for paths that should never be analysed from an archive/list."""
-    raw = str(path or "").replace("\\", "/").strip()
-    if not raw:
+    original = str(path or "").replace("\\", "/").strip()
+    if not original or "\x00" in original:
         return True
+    raw = unicodedata.normalize("NFC", original)
     if raw.startswith("/") or re.match(r"^[A-Za-z]:/", raw):
         return True
     return any(part == ".." for part in raw.split("/"))
@@ -4533,7 +4533,7 @@ def project_packaging_profile(files: Sequence[ProjectCandidateFile], source: str
         "common_root_detected": root,
         "common_root_stripped": bool(root),
         "common_root_reason": reason,
-        "path_normalisation": "safe path normalisation plus conservative common-root stripping",
+        "path_normalisation": "Unicode NFC and safe separator normalisation plus conservative common-root stripping",
     }
 
 
@@ -4562,7 +4562,7 @@ def parse_ignore_patterns(text: str) -> List[IgnoreRule]:
     """
     rules: List[IgnoreRule] = []
     for raw in str(text or "").splitlines():
-        line = raw.strip()
+        line = unicodedata.normalize("NFC", raw.strip())
         if not line or line.startswith("#"):
             continue
         negated = line.startswith("!")

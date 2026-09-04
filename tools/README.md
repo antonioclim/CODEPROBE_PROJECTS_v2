@@ -5,7 +5,7 @@ This folder contains project analysis, calibration, validation and release utili
 
 `tools/check_naming.py` validates the naming policy, ordered documentation paths and uncontrolled retired-path references. It is run by `tools/check_release.py`.
 
-`tools/check_dependency_boundary.py` checks the standard-library-only Python contract, direct process-launch prohibition, Pyodide configuration and immutable GitHub Action pins. Native commands are permitted only through `codeprobe_engine.process_control`. The Pyodide check authenticates the measured core startup set but does not claim an ecosystem-wide vulnerability audit.
+`tools/check_dependency_boundary.py` checks the standard-library-only Python contract, direct process-launch prohibition, Pyodide configuration and immutable GitHub Action pins. Native commands are permitted only through `codeprobe_engine.process_control`. The Pyodide check verifies that the measured core startup bytes are bound to bootstrap consumption but does not claim an ecosystem-wide vulnerability audit.
 
 `tools/check_release_reproducibility.py` is the standalone CI integration gate
 for exact Git-tree, LF/forced-CRLF checkout, `git archive` and three-file packet
@@ -39,3 +39,14 @@ node tools/check_browser_accessibility.js
 ```
 
 This command starts the shipped local server and a Chromium-family browser, then verifies accessible names, live regions, progressbar state, focus visibility and keyboard-operated result tabs through the Chrome DevTools Protocol. It has no npm dependency and fails when no supported browser is available.
+
+## Browser functional-integrity gate
+
+```bash
+python -I -S -B tools/prepare_pyodide_fixture.py \
+  --output-dir /path/outside/the/checkout/pyodide-core
+CODEPROBE_PYODIDE_FIXTURE_DIR=/path/outside/the/checkout/pyodide-core \
+  node tools/check_browser_functional.js
+```
+
+The preparation command verifies the exact five-file Pyodide startup fixture. The Chromium gate then performs real single-file and project analyses, downloads and validates JSON/text reports, checks Latin-1 and Unicode-NFC boundaries, proves that a hostile second runtime response is not consumed and requires tampered runtime or Python-engine bytes to fail before import. It uses no npm dependency graph. The fixture directory and browser downloads must remain outside the tracked checkout.

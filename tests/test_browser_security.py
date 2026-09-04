@@ -272,15 +272,47 @@ class BrowserAccessibilityContractTests(unittest.TestCase):
             self.assertIn("outline: 3px solid", css)
             self.assertNotRegex(css, r"outline\s*:\s*(?:0|none)\s*;")
 
-    def test_required_ci_includes_the_real_browser_gate(self) -> None:
+    def test_required_ci_includes_real_accessibility_and_functional_browser_gates(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("browser_accessibility:", workflow)
         self.assertIn("name: Browser accessibility (Chromium)", workflow)
         self.assertIn('CODEPROBE_REQUIRE_HTTP_NAVIGATION: "1"', workflow)
         self.assertIn("run: node tools/check_browser_accessibility.js", workflow)
+        self.assertIn("browser_functional:", workflow)
+        self.assertIn("name: Browser functional integrity (Chromium)", workflow)
+        self.assertIn("run: node tools/check_browser_functional.js", workflow)
+        self.assertIn("tools/prepare_pyodide_fixture.py", workflow)
         self.assertIn("- browser_accessibility", workflow)
+        self.assertIn("- browser_functional", workflow)
         self.assertIn("BROWSER_ACCESSIBILITY_RESULT", workflow)
+        self.assertIn("BROWSER_FUNCTIONAL_RESULT", workflow)
         self.assertIn('test "$BROWSER_ACCESSIBILITY_RESULT" = "success"', workflow)
+        self.assertIn('test "$BROWSER_FUNCTIONAL_RESULT" = "success"', workflow)
+        harness = (ROOT / "tools" / "check_browser_functional.js").read_text(encoding="utf-8")
+        self.assertIn("testTamperedCoreFailsClosedAndReloadRetries", harness)
+        self.assertIn("testTamperedEngineFailsClosed", harness)
+        self.assertIn("assertSingleVerifiedRequests", harness)
+
+    def test_browser_inputs_share_decoding_and_unicode_path_boundaries(self) -> None:
+        loader = (APP / "pyodide-loader.js").read_text(encoding="utf-8")
+        main_script = (APP / "codeprobe-ui.js").read_text(encoding="utf-8")
+        project_script = (APP / "project-ui.js").read_text(encoding="utf-8")
+        self.assertIn("function decodeSourceBytes", loader)
+        self.assertIn("function decodeLatin1", loader)
+        self.assertIn('new TextDecoder("utf-8", { fatal: true })', loader)
+        self.assertIn('rawPart.normalize("NFC")', loader)
+        for script in (main_script, project_script):
+            self.assertIn("CodeProbeRuntime.decodeSourceBytes", script)
+            self.assertIn("CodeProbeRuntime.normaliseProjectPath", script)
+            self.assertNotIn('new TextDecoder("utf-8", { fatal: false })', script)
+
+    def test_manual_engine_override_is_explicitly_unverified(self) -> None:
+        html = (APP / "index.html").read_text(encoding="utf-8")
+        script = (APP / "codeprobe-ui.js").read_text(encoding="utf-8")
+        self.assertIn("Load unverified engine file", html)
+        self.assertIn("window.confirm", script)
+        self.assertIn("manual-unverified", script)
+        self.assertIn("bypasses the packaged Python-engine integrity check", script)
 
     def test_progress_updates_keep_visual_and_accessibility_state_together(self) -> None:
         main_script = (APP / "codeprobe-ui.js").read_text(encoding="utf-8")

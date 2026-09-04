@@ -1,4 +1,3 @@
-    const ENGINE_RELATIVE_URL = "../src/codeprobe_runtime.py";
     const HISTORY_KEY = "codeprobe_html_history_v2";
     const HISTORY_ENABLED_KEY = "codeprobe_html_history_enabled_v1";
     const MAX_BROWSER_DROP_FILES = 2000;
@@ -79,7 +78,7 @@
       engineReady: false,
       engineFailed: false,
       enginePromise: null,
-      engineSource: null,
+      engineBundle: null,
       engineSourceMode: null,
       engineFingerprint: null,
       localEngineFile: null,
@@ -168,66 +167,68 @@
       return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
-    async function readLocalTextFile(file) {
-      if (!file) {
-        throw new Error("No local engine file was selected.");
+    async function sha256Bytes(bytes) {
+      if (!window.crypto || !window.crypto.subtle) {
+        throw new Error("Browser WebCrypto SHA-256 is unavailable.");
       }
-      return file.text();
+      const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+      return Array.from(new Uint8Array(digest))
+        .map(byte => byte.toString(16).padStart(2, "0"))
+        .join("");
     }
 
-    async function sha256Hex(text) {
-      if (!window.crypto || !window.crypto.subtle || typeof TextEncoder === "undefined") {
-        return "";
+    async function loadManualEngineBundle(file) {
+      if (!file) throw new Error("No local engine file was selected.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let text = "";
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch (_) {
+        throw new Error("The selected engine file is not valid UTF-8.");
       }
-      const data = new TextEncoder().encode(String(text));
-      const digest = await window.crypto.subtle.digest("SHA-256", data);
-      return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, "0")).join("");
+      const value = await sha256Bytes(bytes);
+      return Object.freeze({
+        text,
+        size_bytes: bytes.byteLength,
+        trusted: false,
+        source: "manual-unverified",
+        fingerprint: Object.freeze({
+          algorithm: "sha256",
+          value,
+          available: true,
+          scope: "src/codeprobe_runtime.py",
+          source: "manual-unverified"
+        }),
+        copyBytes() { return bytes.slice(); }
+      });
+    }
+
+    async function getEngineBundle() {
+      if (appState.engineBundle) return appState.engineBundle;
+      if (appState.localEngineFile) {
+        appState.engineBundle = await loadManualEngineBundle(appState.localEngineFile);
+        appState.engineSourceMode = "manual-unverified";
+      } else {
+        if (!window.CodeProbeRuntime?.loadVerifiedEngine) {
+          throw new Error("The verified Python engine loader is unavailable.");
+        }
+        appState.engineBundle = await window.CodeProbeRuntime.loadVerifiedEngine();
+        appState.engineSourceMode = "packaged-verified";
+      }
+      appState.engineFingerprint = appState.engineBundle.fingerprint;
+      return appState.engineBundle;
     }
 
     async function getEngineFingerprint() {
-      if (appState.engineFingerprint) {
-        return appState.engineFingerprint;
-      }
-      const source = await getEngineSource();
-      const value = await sha256Hex(source);
-      appState.engineFingerprint = {
-        algorithm: "sha256",
-        value,
-        available: Boolean(value),
-        scope: "src/codeprobe_runtime.py",
-        source: appState.engineSourceMode || "browser-runtime"
-      };
-      return appState.engineFingerprint;
+      if (appState.engineFingerprint) return appState.engineFingerprint;
+      return (await getEngineBundle()).fingerprint;
     }
 
     function showEngineLoader(show) {
       els.loadEngineBtn.classList.toggle("hidden", !show);
     }
 
-    async function getEngineSource() {
-      if (appState.engineSource) {
-        return appState.engineSource;
-      }
-      const engineUrl = new URL(ENGINE_RELATIVE_URL, window.location.href).href;
-      try {
-        const response = await fetch(engineUrl, { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`The engine file could not be loaded (${response.status}).`);
-        }
-        appState.engineSource = await response.text();
-        appState.engineSourceMode = "relative-file";
-        return appState.engineSource;
-      } catch (error) {
-        if (appState.localEngineFile) {
-          appState.engineSource = await readLocalTextFile(appState.localEngineFile);
-          appState.engineSourceMode = "manual-file";
-          return appState.engineSource;
-        }
-        throw error;
-      }
-    }
-
-    async function installEngineModule(pyodide, engineSource) {
+    async function installEngineModule(pyodide, engineBundle) {
       const moduleDir = "/codeprobe";
       const modulePath = moduleDir + "/codeprobe_runtime.py";
       try {
@@ -235,7 +236,7 @@
       } catch (error) {
         pyodide.FS.mkdir(moduleDir);
       }
-      pyodide.FS.writeFile(modulePath, engineSource, { encoding: "utf8" });
+      pyodide.FS.writeFile(modulePath, engineBundle.copyBytes());
       pyodide.runPython(`
 import importlib
 import sys
@@ -805,34 +806,15 @@ importlib.import_module("codeprobe_runtime")
     }
 
     async function decodeFile(file) {
-      const buffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
+      const bytes = new Uint8Array(await file.arrayBuffer());
       if (looksBinary(bytes)) {
         throw new Error("The file appears to be binary rather than source text.");
       }
-      const warnings = [];
-      const decoders = [
-        ["utf-8", true],
-        ["windows-1252", true],
-        ["iso-8859-1", true]
-      ];
-      for (const [encoding, fatal] of decoders) {
-        try {
-          let text = new TextDecoder(encoding, { fatal }).decode(bytes);
-          text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-          if (encoding !== "utf-8") {
-            warnings.push(`Fallback decoding: ${encoding}`);
-          }
-          return { text, warnings };
-        } catch (error) {
-          continue;
-        }
+      if (!window.CodeProbeRuntime?.decodeSourceBytes) {
+        throw new Error("The shared source-decoding boundary is unavailable.");
       }
-      warnings.push("UTF-8 decoding used substitution characters.");
-      return {
-        text: new TextDecoder("utf-8").decode(bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n"),
-        warnings
-      };
+      const decoded = window.CodeProbeRuntime.decodeSourceBytes(bytes);
+      return { text: decoded.text, warnings: decoded.warning ? [decoded.warning] : [] };
     }
 
     function assertPlainObject(value, label) {
@@ -982,7 +964,15 @@ importlib.import_module("codeprobe_runtime")
       const warnings = [];
       let acceptedBytes = 0;
       for (const file of files) {
-        const path = file._codeprobeRelativePath || file.webkitRelativePath || file.name || "file";
+        const rawPath = file._codeprobeRelativePath || file.webkitRelativePath || file.name || "file";
+        let path = rawPath;
+        try {
+          path = window.CodeProbeRuntime.normaliseProjectPath(rawPath);
+        } catch (error) {
+          payloadFiles.push({ path: rawPath, content: "", size_bytes: file.size || 0 });
+          warnings.push(`${rawPath}: ${error.message}`);
+          continue;
+        }
         if (!projectTextCandidate(path) || file.size > MAX_BROWSER_PROJECT_TEXT_BYTES) {
           payloadFiles.push({ path, content: "", size_bytes: file.size || 0 });
           continue;
@@ -1146,15 +1136,15 @@ importlib.import_module("codeprobe_runtime")
         if (!appState.pyodide) {
           appState.pyodide = await window.CodeProbeRuntime.loadVerifiedPyodide();
         }
-        const engineSource = await getEngineSource();
-        await installEngineModule(appState.pyodide, engineSource);
+        const engineBundle = await getEngineBundle();
+        await installEngineModule(appState.pyodide, engineBundle);
         appState.engineReady = true;
         appState.engineFailed = false;
         setEngineBadge("ready", "Engine ready");
         setBusy(false, "The analysis engine is ready.");
-        els.contextText.textContent = appState.engineSourceMode === "manual-file"
-          ? "Engine source loaded from a local file."
-          : "Engine source loaded from the runtime file at ../src/codeprobe_runtime.py.";
+        els.contextText.textContent = appState.engineSourceMode === "manual-unverified"
+          ? "Unverified local engine override is active. Do not treat its reports as packaged CodeProbe evidence."
+          : "The packaged Python engine passed its SHA-256 check before import.";
         showEngineLoader(false);
         els.analyzeBtn.disabled = false;
       })().catch(error => {
@@ -1166,10 +1156,10 @@ importlib.import_module("codeprobe_runtime")
         setBusy(false, "The in-browser Python engine could not be loaded.");
         if (location.protocol === "file:" && !appState.localEngineFile) {
           els.contextText.textContent =
-            "Open the folder through a local server, or click 'Load engine file' and select src/codeprobe_runtime.py.";
+            "Open the folder through the constrained local server, or use the explicitly unverified engine override only for recovery.";
         } else {
           els.contextText.textContent =
-            "Check app/runtime-config.json, network access to Pyodide, and ensure src/codeprobe_runtime.py is present.";
+            "Check the runtime configuration, verified Pyodide source and packaged engine integrity record.";
         }
         appState.enginePromise = null;
         throw error;
@@ -1528,16 +1518,24 @@ importlib.import_module("codeprobe_runtime")
       if (!file) {
         return;
       }
+      const approved = window.confirm(
+        "This bypasses the packaged Python-engine integrity check. Continue with an explicitly unverified local engine?"
+      );
+      if (!approved) {
+        setStatus("The unverified local engine override was cancelled.");
+        return;
+      }
       appState.localEngineFile = file;
-      appState.engineSource = null;
+      appState.engineBundle = null;
       appState.engineSourceMode = null;
-      setStatus(`Local engine file selected: ${file.name}.`);
-      if (!appState.engineReady) {
-        try {
-          await initEngine();
-        } catch (error) {
-          /* the status bar already shows the failure */
-        }
+      appState.engineFingerprint = null;
+      appState.engineReady = false;
+      appState.enginePromise = null;
+      setStatus(`Unverified local engine selected: ${file.name}.`);
+      try {
+        await initEngine();
+      } catch (error) {
+        /* the status bar already shows the failure */
       }
     });
 

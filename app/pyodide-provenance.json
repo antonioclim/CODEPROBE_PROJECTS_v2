@@ -52,5 +52,5 @@
       "sri_sha256": "sha256-NpR1RCnFev+Dzz+Fktgwhejl7dftUul/u5/5Bl1pjvQ="
     }
   ],
-  "assurance_boundary": "The recorded hashes authenticate the measured core startup set for Pyodide 0.25.0. They do not audit optional packages, future CDN responses or the complete vulnerability status of the Pyodide ecosystem."
+  "assurance_boundary": "The recorded hashes authenticate the measured core startup set for Pyodide 0.25.0. They do not establish upstream build reproducibility, optional-package integrity, runtime availability or the complete vulnerability status of the Pyodide ecosystem."
 }

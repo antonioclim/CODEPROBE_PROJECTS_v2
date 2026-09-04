@@ -16,21 +16,21 @@
     },
     {
       "path": "pyodide-loader.js",
-      "size_bytes": 12008,
-      "sha256_hex": "3713ba171718069271cd2c04b5b211965d99c68443f7a5f569b81750eb7164a6",
-      "sri_sha256": "sha256-NxO6FxcYBpJxzSwEtbIRll2ZxoRD96X1abgXUOtxZKY="
+      "size_bytes": 22581,
+      "sha256_hex": "23019df5878e9d80dd13b8bded25524b367158e12177e303e7d0ca1967424558",
+      "sri_sha256": "sha256-IwGd9YeOnYDdE7i97SVSSzZxWOEhd+MD59DKGWdCRVg="
     },
     {
       "path": "codeprobe-ui.js",
-      "size_bytes": 74367,
-      "sha256_hex": "2d46e1238dd589c457d0eaf33037aa6c9a3ed30ee2d2dd3fd620be0902fca532",
-      "sri_sha256": "sha256-LUbhI43VicRX0OrzMDeqbJo+0w7i0t0/1iC+CQL8pTI="
+      "size_bytes": 74735,
+      "sha256_hex": "c5e8ef60f778ef49bd4959c2f9c9aed264182a455cab3ca9d18344f5d92b540c",
+      "sri_sha256": "sha256-xejvYPd470m9SVnC+cmu0mQYKkVcqzyp0YNE9dkrVAw="
     },
     {
       "path": "project-ui.js",
-      "size_bytes": 16449,
-      "sha256_hex": "083f26ea8efb70012f3193d35aaec4e7389f6f2376ecd8564e5842eadc1d183e",
-      "sri_sha256": "sha256-CD8m6o77cAEvMZPTWq7E5zifbyN27NhWTlhC6twdGD4="
+      "size_bytes": 16704,
+      "sha256_hex": "60eabdd986bc1deed9c9dfd356e933f06dc9792fae214d79685f2999f9838383",
+      "sri_sha256": "sha256-YOq92Ya8He7Zyd/TVukz8G3JeS+uIU15aF8pmfmDg4M="
     },
     {
       "path": "runtime-config.json",
@@ -40,15 +40,15 @@
     },
     {
       "path": "pyodide-provenance.json",
-      "size_bytes": 2152,
-      "sha256_hex": "9a7f4f334366bfe0baa545900485bd5d28b42d5f40791290a8e6b3f685b1d694",
-      "sri_sha256": "sha256-mn9PM0Nmv+C6pUWQBIW9XSi0LV9AeRKQqOaz9oWx1pQ="
+      "size_bytes": 2197,
+      "sha256_hex": "fbc32054bc8aa3a991c3f6a020719286e2485417f4eba6eb3726498e3db2a58f",
+      "sri_sha256": "sha256-+8MgVLyKo6mRw/agIHGShuJIVBf066brNyZJjj2ypY8="
     },
     {
       "path": "../src/codeprobe_runtime.py",
-      "size_bytes": 264527,
-      "sha256_hex": "fc7c2a4d8a624dc54293befff44eb34c59195b2d1892b24454539520b279471e",
-      "sri_sha256": "sha256-/HwqTYpiTcVCk77/9E6zTFkZWy0YkrJEVFOVILJ5Rx4="
+      "size_bytes": 264631,
+      "sha256_hex": "5575a1005894b1d4035787f8a964113b849ad6d8ec3bf5041c850e2ba8c6f378",
+      "sri_sha256": "sha256-VXWhAFiUsdQDV4f4qWQRO4Sa1tjsO/UEHIUOK6jG83g="
     }
   ]
 }

@@ -41,7 +41,7 @@ TOOLS = ROOT / "tools"
 MAX_UNITTEST_FAILURE_IDENTIFIERS = 5
 MAX_UNITTEST_FAILURE_IDENTIFIER_CHARACTERS = 300
 MAX_UNITTEST_DETAIL_CHARACTERS = 1_024
-MIN_UNITTEST_DISCOVERED = 353
+MIN_UNITTEST_DISCOVERED = 369
 MIN_UNITTEST_EXECUTED = 347
 RESOURCE_INTEGRITY_SCHEMA = "codeprobe-browser-resource-integrity/v1"
 REQUIRED_RESOURCE_ASSETS = {
@@ -432,7 +432,7 @@ def check_pyodide_boundary() -> CheckResult:
     return CheckResult(
         "pyodide-provenance",
         True,
-        "production configuration and measured core startup metadata are consistent; optional packages and future CDN bytes remain outside the check",
+        "production configuration and measured core startup metadata are consistent; optional-package integrity, upstream build reproducibility, availability and vulnerability status remain outside the check",
     )
 
 

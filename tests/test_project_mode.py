@@ -131,6 +131,47 @@ class HostileProjectInputTests(unittest.TestCase):
         report = self._report({"zip_base64": encoded})
         self.assertIn("duplicate_path", {item["reason"] for item in report["excluded_files"]})
 
+    def test_unicode_equivalent_file_list_paths_collide_after_nfc_normalisation(self):
+        decomposed = "cafe\u0301.py"
+        report = self._report({
+            "files": [
+                {"path": "caf\u00e9.py", "content": "print(1)\n"},
+                {"path": decomposed, "content": "print(2)\n"},
+            ]
+        })
+        self.assertIn("duplicate_path", {item["reason"] for item in report["excluded_files"]})
+        self.assertEqual({item["path"] for item in report["files"]}, {"caf\u00e9.py"})
+
+    def test_unicode_equivalent_zip_paths_collide_after_nfc_normalisation(self):
+        decomposed = "cafe\u0301.py"
+        encoded, _ = zip_payload([
+            ("caf\u00e9.py", "print(1)\n"),
+            (decomposed, "print(2)\n"),
+        ])
+        report = self._report({"zip_base64": encoded})
+        self.assertIn("duplicate_path", {item["reason"] for item in report["excluded_files"]})
+        self.assertEqual({item["path"] for item in report["files"]}, {"caf\u00e9.py"})
+
+    def test_folder_path_is_returned_in_nfc_form(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "cafe\u0301.py"
+            target.write_text("print(1)\n", encoding="utf-8")
+            files = project_io.read_folder_files(root)
+            self.assertEqual([item["path"] for item in files], ["caf\u00e9.py"])
+
+    def test_folder_unicode_equivalent_paths_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            composed = root / "caf\u00e9.py"
+            decomposed = root / "cafe\u0301.py"
+            composed.write_text("print(1)\n", encoding="utf-8")
+            decomposed.write_text("print(2)\n", encoding="utf-8")
+            if composed.samefile(decomposed):
+                self.skipTest("filesystem canonicalises Unicode-equivalent names")
+            with self.assertRaisesRegex(project_io.ProjectInputError, "Unicode/case-equivalent"):
+                project_io.read_folder_files(root)
+
     def test_ignore_file_below_ignored_directory_cannot_control_project(self):
         payload = {"files": [{"path": "node_modules/.codeprobeignore", "content": "src/\n"}, {"path": "src/main.py", "content": "print(1)\n"}]}
         report = self._report(payload)

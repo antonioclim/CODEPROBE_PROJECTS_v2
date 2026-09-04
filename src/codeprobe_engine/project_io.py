@@ -83,6 +83,17 @@ def _relative_parts(path: Path, root: Path) -> tuple[str, ...]:
     return relative.parts
 
 
+def _canonical_relative(path: Path, root: Path) -> str:
+    """Return the engine's Unicode-NFC portable identity for a local path."""
+    relative = path.relative_to(root).as_posix()
+    if engine.project_path_is_unsafe(relative):
+        raise ProjectInputError(f"project path is unsafe: {_safe_text(relative)}")
+    canonical = engine.normalise_project_path(relative)
+    if not canonical or canonical == "fragment.txt" and relative not in {"fragment.txt", "./fragment.txt"}:
+        raise ProjectInputError(f"project path is not canonical: {_safe_text(relative)}")
+    return canonical
+
+
 def _inspect_no_redirects(path: Path, root: Path, *, final_directory: bool = False) -> os.stat_result:
     root = _absolute(root)
     path = _absolute(path)
@@ -204,6 +215,7 @@ def _walk_metadata(root: Path, *, max_entries: int) -> list[tuple[Path, os.stat_
     pending = [root]
     captured: list[tuple[Path, os.stat_result]] = []
     seen_physical_entries: dict[tuple[int, int], str] = {}
+    seen_portable_paths: dict[str, str] = {}
     root_inode = int(getattr(root_metadata, "st_ino", 0) or 0)
     if root_inode:
         seen_physical_entries[(int(getattr(root_metadata, "st_dev", 0) or 0), root_inode)] = "."
@@ -229,7 +241,16 @@ def _walk_metadata(root: Path, *, max_entries: int) -> list[tuple[Path, os.stat_
         child_directories: list[Path] = []
         for entry in entries:
             path = Path(entry.path)
-            relative = path.relative_to(root).as_posix()
+            raw_relative = path.relative_to(root).as_posix()
+            relative = _canonical_relative(path, root)
+            portable = relative.casefold()
+            previous_path = seen_portable_paths.get(portable)
+            if previous_path is not None:
+                raise ProjectInputError(
+                    "Unicode/case-equivalent project paths are forbidden: "
+                    f"{_safe_text(raw_relative)} collides with {_safe_text(previous_path)}"
+                )
+            seen_portable_paths[portable] = raw_relative
             try:
                 # DirEntry.stat() exposes zero identity fields on Windows.  A
                 # fresh lstat supplies the file index needed to detect aliases.
@@ -258,7 +279,7 @@ def _walk_metadata(root: Path, *, max_entries: int) -> list[tuple[Path, os.stat_
         pending.extend(reversed(child_directories))
     return sorted(
         captured,
-        key=lambda item: item[0].relative_to(root).as_posix().casefold(),
+        key=lambda item: _canonical_relative(item[0], root).casefold(),
     )
 
 
@@ -310,7 +331,7 @@ def read_folder_files(
     built_in_text = engine.default_project_ignore_text()
     embedded_text = ""
     ignore_entry = next(
-        ((path, metadata) for path, metadata in metadata_entries if path.relative_to(root).as_posix() == ".codeprobeignore"),
+        ((path, metadata) for path, metadata in metadata_entries if _canonical_relative(path, root) == ".codeprobeignore"),
         None,
     )
     if ignore_entry is not None:
@@ -333,7 +354,7 @@ def read_folder_files(
     total_read = 0
     analysable_seen = 0
     for path, metadata in metadata_entries:
-        relative = path.relative_to(root).as_posix()
+        relative = _canonical_relative(path, root)
         if relative == ".codeprobeignore":
             files.append({"path": relative, "content": embedded_text, "size_bytes": metadata.st_size})
             continue

@@ -83,11 +83,14 @@ def audit_pyodide_provenance(root: Path) -> list[str]:
     config_path = root_path / "app" / "runtime-config.json"
     provenance_path = root_path / "app" / "pyodide-provenance.json"
     loader_path = root_path / "app" / "pyodide-loader.js"
+    resource_integrity_path = root_path / "app" / "resource-integrity.json"
     main_ui_path = root_path / "app" / "codeprobe-ui.js"
     project_ui_path = root_path / "app" / "project-ui.js"
+    engine_path = root_path / "src" / "codeprobe_runtime.py"
     try:
         config = load_unique_json(config_path)
         provenance = load_unique_json(provenance_path)
+        resource_integrity = load_unique_json(resource_integrity_path)
     except (OSError, UnicodeError, json.JSONDecodeError, PyodideProvenanceError) as exc:
         return [str(exc)]
 
@@ -180,20 +183,82 @@ def audit_pyodide_provenance(root: Path) -> list[str]:
         errors.append(str(exc))
     else:
         required_loader_fragments = (
-            "verifyCoreStartupSet",
-            "fetchVerifiedArtifact",
+            "loadVerifiedStartupSet",
+            "withVerifiedBootstrapFetch",
+            "responseForVerifiedArtifact",
+            'appendVerifiedScript("pyodide.js"',
+            'appendVerifiedScript("pyodide.asm.js"',
+            "lockFileURL:",
+            "stdLibURL:",
             "loadVerifiedPyodide",
+            "loadVerifiedEngine",
+            "decodeSourceBytes",
+            "normaliseProjectPath",
             "Loaded Pyodide version mismatch",
             "Loaded Python version mismatch",
+            "Pyodide bootstrap did not consume the verified",
         )
         for fragment in required_loader_fragments:
             if fragment not in loader:
                 errors.append(f"pyodide-loader.js is missing {fragment}")
+
+        record_match = re.search(
+            r"const\s+PACKAGED_ENGINE_RECORD\s*=\s*Object\.freeze\(\{(?P<body>.*?)\}\);",
+            loader,
+            re.S,
+        )
+        if not record_match:
+            errors.append("pyodide-loader.js is missing the packaged engine integrity record")
+        else:
+            body = record_match.group("body")
+            path_match = re.search(r'path:\s*"(?P<value>[^"]+)"', body)
+            size_match = re.search(r"size_bytes:\s*(?P<value>[0-9]+)", body)
+            digest_match = re.search(r'sha256_hex:\s*"(?P<value>[0-9a-f]{64})"', body)
+            if not path_match or path_match.group("value") != "../src/codeprobe_runtime.py":
+                errors.append("packaged engine record path is invalid")
+            try:
+                engine_bytes = engine_path.read_bytes()
+            except OSError as exc:
+                errors.append(f"packaged engine could not be read: {type(exc).__name__}")
+            else:
+                if not size_match or int(size_match.group("value")) != len(engine_bytes):
+                    errors.append("packaged engine record size differs from the exact engine bytes")
+                actual_digest = hashlib.sha256(engine_bytes).hexdigest()
+                if not digest_match or digest_match.group("value") != actual_digest:
+                    errors.append("packaged engine record digest differs from the exact engine bytes")
+                integrity_records = resource_integrity.get("assets")
+                if not isinstance(integrity_records, list):
+                    errors.append("resource-integrity.json assets must be an array")
+                else:
+                    engine_records = [
+                        item for item in integrity_records
+                        if isinstance(item, dict) and item.get("path") == "../src/codeprobe_runtime.py"
+                    ]
+                    if len(engine_records) != 1:
+                        errors.append("resource-integrity.json must contain exactly one packaged engine record")
+                    else:
+                        integrity_record = engine_records[0]
+                        if integrity_record.get("size_bytes") != len(engine_bytes):
+                            errors.append("resource-integrity packaged engine size differs from exact bytes")
+                        if integrity_record.get("sha256_hex") != actual_digest:
+                            errors.append("resource-integrity packaged engine digest differs from exact bytes")
+                        if size_match and integrity_record.get("size_bytes") != int(size_match.group("value")):
+                            errors.append("embedded and resource-integrity engine sizes disagree")
+                        if digest_match and integrity_record.get("sha256_hex") != digest_match.group("value"):
+                            errors.append("embedded and resource-integrity engine digests disagree")
+
+        direct_engine_fetch = re.compile(
+            r"""fetch\s*\(\s*(?:new\s+URL\s*\(\s*)?["'](?:\.\./)?src/codeprobe_runtime\.py["']"""
+        )
         for name, source in (("codeprobe-ui.js", main_ui), ("project-ui.js", project_ui)):
             if "CodeProbeRuntime.loadVerifiedPyodide" not in source:
                 errors.append(f"{name} does not use the verified Pyodide entry point")
+            if "CodeProbeRuntime.loadVerifiedEngine" not in source:
+                errors.append(f"{name} does not use the verified Python-engine entry point")
             if re.search(r"\bwindow\.loadPyodide\s*\(|(?<![.\w])loadPyodide\s*\(", source):
                 errors.append(f"{name} bypasses the verified Pyodide entry point")
+            if direct_engine_fetch.search(source):
+                errors.append(f"{name} fetches the Python engine outside the verified entry point")
     return errors
 
 
@@ -209,8 +274,8 @@ def main() -> int:
         "and verified browser entry points are consistent"
     )
     print(
-        "[LIMITATION] pyodide-provenance: optional packages, future CDN bytes and the complete "
-        "current vulnerability status remain outside this deterministic check"
+        "[LIMITATION] pyodide-provenance: optional packages, upstream build reproducibility, "
+        "availability and the complete current vulnerability status remain outside this deterministic check"
     )
     return 0
 

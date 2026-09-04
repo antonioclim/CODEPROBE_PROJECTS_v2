@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sys
@@ -22,11 +23,15 @@ class PyodideProvenanceTests(unittest.TestCase):
         for name in (
             "runtime-config.json",
             "pyodide-provenance.json",
+            "resource-integrity.json",
             "pyodide-loader.js",
             "codeprobe-ui.js",
             "project-ui.js",
         ):
             shutil.copyfile(ROOT / "app" / name, target / name)
+        source = root / "src"
+        source.mkdir()
+        shutil.copyfile(ROOT / "src" / "codeprobe_runtime.py", source / "codeprobe_runtime.py")
         return root
 
     def test_repository_provenance_boundary_passes(self) -> None:
@@ -73,6 +78,73 @@ class PyodideProvenanceTests(unittest.TestCase):
             )
             errors = provenance.audit_pyodide_provenance(root)
         self.assertTrue(any("bypasses the verified" in error for error in errors))
+
+
+    def test_verified_support_bytes_are_bound_to_bootstrap_consumption(self) -> None:
+        loader = (ROOT / "app" / "pyodide-loader.js").read_text(encoding="utf-8")
+        for fragment in (
+            "loadVerifiedStartupSet",
+            "withVerifiedBootstrapFetch",
+            "responseForVerifiedArtifact",
+            'appendVerifiedScript("pyodide.asm.js"',
+            "lockFileURL",
+            "stdLibURL",
+        ):
+            self.assertIn(fragment, loader)
+        self.assertIn("return responseForVerifiedArtifact", loader)
+
+    def test_packaged_engine_record_matches_exact_engine_bytes(self) -> None:
+        self.assertEqual(provenance.audit_pyodide_provenance(ROOT), [])
+        loader = (ROOT / "app" / "pyodide-loader.js").read_text(encoding="utf-8")
+        self.assertIn("PACKAGED_ENGINE_RECORD", loader)
+        self.assertIn("loadVerifiedEngine", loader)
+        self.assertIn("copyBytes() { return copyBytes(bytes); }", loader)
+        for name in ("codeprobe-ui.js", "project-ui.js"):
+            source = (ROOT / "app" / name).read_text(encoding="utf-8")
+            self.assertIn("CodeProbeRuntime.loadVerifiedEngine", source)
+            self.assertNotRegex(
+                source,
+                r"fetch\s*\(\s*['\"]\.\./src/codeprobe_runtime\.py['\"]",
+            )
+
+    def test_stale_embedded_engine_digest_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.fixture(Path(tmp))
+            path = root / "app" / "pyodide-loader.js"
+            text = path.read_text(encoding="utf-8")
+            engine_digest = hashlib.sha256(
+                (root / "src" / "codeprobe_runtime.py").read_bytes()
+            ).hexdigest()
+            text = text.replace(engine_digest, "0" * 64, 1)
+            path.write_text(text, encoding="utf-8")
+            errors = provenance.audit_pyodide_provenance(root)
+        self.assertTrue(any("packaged engine record digest" in error for error in errors))
+
+    def test_stale_resource_integrity_engine_digest_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.fixture(Path(tmp))
+            path = root / "app" / "resource-integrity.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            record = next(
+                item for item in data["assets"]
+                if item["path"] == "../src/codeprobe_runtime.py"
+            )
+            record["sha256_hex"] = "0" * 64
+            path.write_text(json.dumps(data), encoding="utf-8")
+            errors = provenance.audit_pyodide_provenance(root)
+        self.assertTrue(any("resource-integrity packaged engine digest" in error for error in errors))
+
+    def test_direct_ui_engine_fetch_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.fixture(Path(tmp))
+            path = root / "app" / "project-ui.js"
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + '\nfetch("../src/codeprobe_runtime.py");\n',
+                encoding="utf-8",
+            )
+            errors = provenance.audit_pyodide_provenance(root)
+        self.assertTrue(any("outside the verified entry point" in error for error in errors))
 
     def test_duplicate_json_keys_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

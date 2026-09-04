@@ -84,3 +84,7 @@ The naming migration was treated as a maintainability and auditability task rath
 The audit branch adds three independently reviewable engineering boundaries: an allowlisted local server, one bounded process broker and a measured Pyodide core-startup provenance record. It also adds version-pinned supported-code coverage with nonzero weighted floors. These controls improve reproducibility and failure containment. They do not validate the scientific accuracy of AI-style authorship inference, certify every optional Pyodide package or establish that no software defect remains.
 
 The coverage result is tied to a specific interpreter and test suite. The Pyodide record is tied to exact startup bytes and the official 0.25.0 core release. Future runtime upgrades require new measurements rather than copying old digests.
+
+## Phase 4F1 runtime-integrity note
+
+The browser no longer treats a successful preflight hash as sufficient if Pyodide later requests a fresh copy of the same resource. The verified loader and ASM JavaScript execute from verified Blob URLs, while lockfile, standard-library and WebAssembly bootstrap requests are served from the retained verified buffers. The packaged Python engine is also checked before import in both interfaces. The required functional Chromium job proves file and project analysis, report download and fail-closed tamper handling against a hermetic local fixture. These controls strengthen software provenance; they do not validate the scientific interpretation of the AI-style concern score.

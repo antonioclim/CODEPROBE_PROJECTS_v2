@@ -90,7 +90,7 @@ boundary also rejects top-level standard-library shadow modules. Together these
 controls prevent checkout or ambient modules from pre-empting the gate's own
 standard-library imports before the inventory check runs.
 
-The production browser configuration authenticates the measured Pyodide 0.25.0 core startup set. The packaged provenance record binds exact sizes and SHA-256 values to the official core release, while the browser verifies those bytes before use. The gate deliberately does not report optional packages, future CDN responses or the complete Pyodide vulnerability state as audited. A local vendor directory must satisfy the same record.
+The production browser configuration authenticates the measured Pyodide 0.25.0 core startup set. The packaged provenance record binds exact sizes and SHA-256 values to the official core release. The browser retains the verified buffers and makes those exact buffers the loader, ASM JavaScript, lockfile, standard-library and WebAssembly inputs consumed during bootstrap. The packaged Python engine is independently checked before import. The gate deliberately does not report optional packages, upstream build reproducibility, availability or the complete Pyodide vulnerability state as audited. A local vendor directory must satisfy the same record.
 
 ## Process-execution boundary
 
@@ -152,3 +152,11 @@ is applied.
 The `Browser accessibility (Chromium)` job runs on Ubuntu with the same pinned checkout, Python and Node setup actions as the other CI jobs. It invokes `node tools/check_browser_accessibility.js`, which uses only Node's standard modules and the runner's installed Chromium-family browser. The gate inspects the browser accessibility tree and exercises keyboard interaction through the Chrome DevTools Protocol. It deliberately blocks the external Pyodide CDN so a remote runtime outage cannot make an accessibility regression appear to pass or fail.
 
 The aggregate `Required CI` job depends on this browser job. A skipped, cancelled or failed browser run therefore prevents the aggregate check from succeeding.
+
+## Real-browser functional-integrity job
+
+The `Browser functional integrity (Chromium)` job prepares the five-file Pyodide 0.25.0 fixture from the pinned provenance record and then invokes `node tools/check_browser_functional.js`. Both tools use only the Python and Node.js standard libraries plus the Chromium-family browser already installed on the runner.
+
+The fixture server deliberately corrupts any second origin response for a core startup artefact. A successful run therefore demonstrates that the browser consumes the already verified buffers rather than downloading a second unchecked copy. The job also performs one real single-file analysis and one real project analysis, downloads and parses both JSON and text exports, checks the packaged Python-engine fingerprint, exercises the shared Latin-1 and Unicode-NFC contracts and verifies fail-closed behaviour for a tampered core artefact and a tampered engine. A clean page reload must recover after a transient integrity failure.
+
+The aggregate `Required CI` job depends on this functional job. A missing, skipped, cancelled or failed functional run therefore prevents the aggregate check from succeeding.

@@ -47,6 +47,7 @@ docs/14-optimisation-roadmap.md,,docs/14-optimisation-roadmap.md,technical docum
 docs/15-final-release-audit.md,,docs/15-final-release-audit.md,technical documentation or asset,added_phase13,13,docs,medium,final naming-stable path; previous_path records migration source where applicable
 docs/16-ci-and-repository-controls.md,,docs/16-ci-and-repository-controls.md,technical documentation or asset,added_audit_phase4,audit-4,docs,medium,added during hostile audit Phase 4 to define CI and repository controls
 docs/17-supported-coverage.md,,docs/17-supported-coverage.md,technical documentation or asset,added_audit_phase4d,audit-4d,docs,medium,"supported-code coverage scope, floors and limitations"
+docs/18-runtime-integrity.md,,docs/18-runtime-integrity.md,technical documentation or asset,added_audit_phase4f1,audit-4f1,docs,medium,documents byte-consumption integrity and the real functional browser gate
 docs/assets/interface-preview.png,,docs/assets/interface-preview.png,technical documentation or asset,keep,current,docs,medium,canonical current path
 docs/history/01-stabilisation.md,,docs/history/01-stabilisation.md,phase-history note,keep,current,docs,medium,canonical current path
 docs/history/02-parser-and-metrics.md,,docs/history/02-parser-and-metrics.md,phase-history note,keep,current,docs,medium,canonical current path
@@ -104,6 +105,7 @@ tests/test_javascript_parser.py,,tests/test_javascript_parser.py,regression test
 tests/test_local_server.py,,tests/test_local_server.py,regression test,added_audit_phase4c,audit-4c,tests,high,"local-server allowlist, path and HTTP-method regressions"
 tests/test_process_control.py,,tests/test_process_control.py,regression test,added_audit_phase4c,audit-4c,tests,high,"bounded output, timeout, environment and process-tree regressions"
 tests/test_project_mode.py,,tests/test_project_mode.py,regression test,keep,current,tests,high,canonical current path
+tests/test_pyodide_fixture.py,,tests/test_pyodide_fixture.py,regression test,added_audit_phase4f1,audit-4f1,tests,high,hermetic regression coverage for authenticated Pyodide fixture preparation
 tests/test_pyodide_provenance.py,,tests/test_pyodide_provenance.py,regression test,added_audit_phase4c,audit-4c,tests,high,Pyodide production configuration and provenance regressions
 tests/test_reference_integrity.py,,tests/test_reference_integrity.py,regression test,keep,current,tests,high,canonical current path
 tests/test_release_integrity.py,,tests/test_release_integrity.py,regression test,keep,current,tests,high,canonical current path
@@ -118,6 +120,7 @@ tools/build_release.py,src/build_release.py,tools/build_release.py,command-line 
 tools/calibrate_corpus.py,src/calibrate_corpus.py,tools/calibrate_corpus.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/calibrate_profile.py,src/calibrate_profile.py,tools/calibrate_profile.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/check_browser_accessibility.js,,tools/check_browser_accessibility.js,command-line or release utility,added_audit_phase4b,audit-4b,tools,high,dependency-free real-browser accessibility gate used by required CI
+tools/check_browser_functional.js,,tools/check_browser_functional.js,command-line or release utility,added_audit_phase4f1,audit-4f1,tools,high,required real-browser analysis export and runtime-tamper gate
 tools/check_coverage.py,,tools/check_coverage.py,command-line or release utility,added_audit_phase4d,audit-4d,tools,high,deterministic supported-code line-coverage gate
 tools/check_dependency_boundary.py,,tools/check_dependency_boundary.py,command-line or release utility,added_audit_phase4,audit-4,tools,high,added during hostile audit Phase 4 to verify the offline dependency contract
 tools/check_file_references.py,tools/check_references.py,tools/check_file_references.py,command-line or release utility,completed_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
@@ -128,5 +131,6 @@ tools/check_release_reproducibility.py,,tools/check_release_reproducibility.py,c
 tools/compare_releases.py,,tools/compare_releases.py,command-line or release utility,keep,current,tools,high,canonical current path
 tools/coverage-policy.json,,tools/coverage-policy.json,command-line or release utility,added_audit_phase4d,audit-4d,tools,high,version-pinned supported-code coverage policy and non-regression floors
 tools/final_audit.py,,tools/final_audit.py,command-line or release utility,added_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
+tools/prepare_pyodide_fixture.py,,tools/prepare_pyodide_fixture.py,command-line or release utility,added_audit_phase4f1,audit-4f1,tools,high,bounded exact-hash preparation of the functional Pyodide fixture
 tools/run_local_server.py,src/run_local_server.py,tools/run_local_server.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/validate_release.py,src/validate_release.py,tools/validate_release.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable

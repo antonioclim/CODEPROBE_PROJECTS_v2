@@ -15,7 +15,7 @@
       reviewPanel: document.getElementById("reviewPanel"), dropOverlay: document.getElementById("dropOverlay"),
       textReport: document.getElementById("textReport"), jsonReport: document.getElementById("jsonReport")
     };
-    const state = { pyodide: null, ready: false, payload: null, projectName: "project", text: "", json: "", engineSource: null, engineFingerprint: null };
+    const state = { pyodide: null, ready: false, payload: null, projectName: "project", text: "", json: "", engineBundle: null, engineFingerprint: null };
     function setStatus(text, { busy = false } = {}) {
       els.status.textContent = String(text);
       els.status.setAttribute("aria-busy", busy ? "true" : "false");
@@ -113,19 +113,15 @@
       if (files.length === 1 && /\.zip$/i.test(files[0].name || "")) await loadZip(files[0]);
       else await loadFolder(files);
     }
-    async function sha256Hex(text) {
-      if (!window.crypto || !window.crypto.subtle || typeof TextEncoder === "undefined") return "";
-      const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text)));
-      return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, "0")).join("");
-    }
     async function engineFingerprint() {
       if (state.engineFingerprint) return state.engineFingerprint;
-      if (!state.engineSource) {
-        const response = await fetch("../src/codeprobe_runtime.py", { cache: "no-store" });
-        state.engineSource = await response.text();
+      if (!state.engineBundle) {
+        if (!window.CodeProbeRuntime?.loadVerifiedEngine) {
+          throw new Error("The verified Python engine loader is unavailable.");
+        }
+        state.engineBundle = await window.CodeProbeRuntime.loadVerifiedEngine();
       }
-      const value = await sha256Hex(state.engineSource);
-      state.engineFingerprint = { algorithm: "sha256", value, available: Boolean(value), scope: "src/codeprobe_runtime.py", source: "browser-fetch" };
+      state.engineFingerprint = state.engineBundle.fingerprint;
       return state.engineFingerprint;
     }
     function looksBinary(bytes) {
@@ -135,11 +131,19 @@
       for (const value of bytes.slice(0, 4096)) if (value < 7 || (value > 14 && value < 32)) suspicious += 1;
       return suspicious > Math.max(8, bytes.length * 0.2);
     }
-    async function decodeTextFile(file) {
-      const buffer = await file.arrayBuffer(); const bytes = new Uint8Array(buffer);
+    async function decodeTextFile(file, path) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
       if (looksBinary(bytes)) throw new Error("binary file");
-      const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-      return { path: file._codeprobeRelativePath || file.webkitRelativePath || file.name, content: text, size_bytes: file.size };
+      if (!window.CodeProbeRuntime?.decodeSourceBytes) {
+        throw new Error("the shared source-decoding boundary is unavailable");
+      }
+      const decoded = window.CodeProbeRuntime.decodeSourceBytes(bytes);
+      return {
+        path,
+        content: decoded.text,
+        size_bytes: file.size,
+        decoding_warning: decoded.warning
+      };
     }
     async function initEngine() {
       if (state.ready) return;
@@ -148,9 +152,9 @@
         throw new Error("The verified Pyodide runtime loader is unavailable.");
       }
       state.pyodide = await window.CodeProbeRuntime.loadVerifiedPyodide();
-      const engineSource = await (await fetch("../src/codeprobe_runtime.py", { cache: "no-store" })).text();
-      state.engineSource = engineSource;
-      state.pyodide.FS.writeFile("codeprobe_runtime.py", engineSource);
+      state.engineBundle = await window.CodeProbeRuntime.loadVerifiedEngine();
+      state.engineFingerprint = state.engineBundle.fingerprint;
+      state.pyodide.FS.writeFile("codeprobe_runtime.py", state.engineBundle.copyBytes());
       state.pyodide.runPython("import codeprobe_runtime");
       state.ready = true;
       setStatus("Engine ready.");
@@ -171,10 +175,25 @@
       }
       const files = []; const warnings = []; let acceptedBytes = 0;
       for (const file of selected) {
-        const path = file._codeprobeRelativePath || file.webkitRelativePath || file.name;
+        const rawPath = file._codeprobeRelativePath || file.webkitRelativePath || file.name;
+        let path = rawPath;
+        try {
+          path = window.CodeProbeRuntime.normaliseProjectPath(rawPath);
+        } catch (error) {
+          files.push({ path: rawPath, content: "", size_bytes: file.size || 0 });
+          warnings.push(`${rawPath}: ${error.message}`);
+          continue;
+        }
         if ((file.size || 0) > MAX_BROWSER_PROJECT_TEXT_BYTES) { warnings.push(`${path}: skipped in browser because it exceeds 1 MB`); continue; }
         if (acceptedBytes + (file.size || 0) > MAX_BROWSER_PROJECT_TOTAL_BYTES) { warnings.push(`${path}: skipped because the browser project budget is ${MAX_BROWSER_PROJECT_TOTAL_BYTES} bytes`); continue; }
-        try { files.push(await decodeTextFile(file)); acceptedBytes += file.size || 0; } catch (error) { warnings.push(`${path}: ${error.message}`); }
+        try {
+          const decoded = await decodeTextFile(file, path);
+          files.push({ path: decoded.path, content: decoded.content, size_bytes: decoded.size_bytes });
+          acceptedBytes += file.size || 0;
+          if (decoded.decoding_warning) warnings.push(`${path}: ${decoded.decoding_warning}`);
+        } catch (error) {
+          warnings.push(`${path}: ${error.message}`);
+        }
       }
       const first = files[0]?.path || "project";
       state.projectName = first.split("/").filter(Boolean)[0] || "project";

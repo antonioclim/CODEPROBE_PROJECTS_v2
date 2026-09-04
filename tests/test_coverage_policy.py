@@ -121,7 +121,7 @@ class CoveragePolicyTests(unittest.TestCase):
 
     def test_repository_floors_form_a_nonzero_high_risk_ratchet(self) -> None:
         policy = coverage.load_policy(ROOT / "tools" / "coverage-policy.json")
-        self.assertGreaterEqual(policy["minimum_tests"], 353)
+        self.assertGreaterEqual(policy["minimum_tests"], 369)
         self.assertGreaterEqual(policy["floors"]["overall"], 72.0)
         self.assertGreaterEqual(policy["floors"]["roots"]["src"], 69.0)
         self.assertGreaterEqual(policy["floors"]["roots"]["tools"], 75.0)

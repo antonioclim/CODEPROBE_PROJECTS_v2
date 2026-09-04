@@ -35,7 +35,7 @@ The initial floors are set several percentage points below the measured passing 
 
 The Python 3.14.7 hosted-runner measurement used to ratify these floors reported 74.29% overall, 71.52% for `src/` and 76.99% for `tools/`. `tools/build_release.py` measured 77.72%; its 75% ratchet therefore retains a 2.72 percentage-point margin rather than relying on the higher result observed under a different interpreter.
 
-The policy also requires at least 353 discovered tests. A lower test count fails before coverage is accepted. The coverage module defers access to `sys.monitoring` until measurement begins, so the ordinary release gate remains importable on the supported Python 3.10–3.13 validation interpreters while the dedicated coverage job stays pinned to Python 3.14.7.
+The policy also requires at least 369 discovered tests. A lower test count fails before coverage is accepted. The coverage module defers access to `sys.monitoring` until measurement begins, so the ordinary release gate remains importable on the supported Python 3.10–3.13 validation interpreters while the dedicated coverage job stays pinned to Python 3.14.7.
 
 ## Deliberate limitations
 
