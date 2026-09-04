@@ -1,0 +1,198 @@
+name: Phase 4F1 exact-head checkpoint
+
+on:
+  push:
+    branches:
+      - automation/phase4f1-finalise-20260904
+    paths:
+      - .github/workflows/phase4f1-checkpoint.yml
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  checkpoint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Require the exact candidate, exact-head CI and durable PR ledger
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_TREE: f5e8d04d24f2fdcdb278c7fc166fe501dddf946b
+          AUDIT_BRANCH: audit/codeprobe-hostile-remediation
+          PR_NUMBER: "1"
+        run: |
+          set -euo pipefail
+          python -I -S -B - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ["GH_TOKEN"]
+          repository = os.environ["REPOSITORY"]
+          expected_tree = os.environ["EXPECTED_TREE"]
+          audit_branch = os.environ["AUDIT_BRANCH"]
+          pr_number = int(os.environ["PR_NUMBER"])
+          api = f"https://api.github.com/repos/{repository}"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "CodeProbe-Phase4F1-checkpoint",
+          }
+
+          def request(method, url, payload=None, allow_404=False):
+              data = None
+              request_headers = dict(headers)
+              if payload is not None:
+                  data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                  request_headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(url, data=data, headers=request_headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      raw = response.read()
+              except urllib.error.HTTPError as exc:
+                  if allow_404 and exc.code == 404:
+                      return None
+                  detail = exc.read().decode("utf-8", "replace")
+                  raise SystemExit(f"GitHub API {method} {url} failed: {exc.code}: {detail}") from exc
+              return json.loads(raw) if raw else None
+
+          ref = request(
+              "GET",
+              f"{api}/git/ref/heads/{urllib.parse.quote(audit_branch, safe='/')}",
+          )
+          head_sha = ref["object"]["sha"]
+          commit = request("GET", f"{api}/git/commits/{head_sha}")
+          actual_tree = commit["tree"]["sha"]
+          if actual_tree != expected_tree:
+              raise SystemExit(
+                  f"audit tree mismatch: expected {expected_tree}, received {actual_tree}"
+              )
+
+          run = None
+          deadline = time.monotonic() + 900
+          encoded_sha = urllib.parse.quote(head_sha, safe="")
+          while time.monotonic() < deadline:
+              runs = request(
+                  "GET",
+                  f"{api}/actions/workflows/ci.yml/runs?event=pull_request&head_sha={encoded_sha}&per_page=30",
+              )["workflow_runs"]
+              exact = [item for item in runs if item.get("head_sha") == head_sha]
+              exact.sort(key=lambda item: int(item["id"]), reverse=True)
+              if exact:
+                  run = exact[0]
+                  if run.get("status") == "completed":
+                      break
+              time.sleep(10)
+          if not run or run.get("status") != "completed":
+              raise SystemExit(f"exact-head CI did not complete for {head_sha}")
+          if run.get("conclusion") != "success":
+              raise SystemExit(
+                  f"exact-head CI failed: run {run.get('id')} conclusion={run.get('conclusion')}"
+              )
+
+          jobs = request("GET", f"{api}/actions/runs/{run['id']}/jobs?per_page=100")["jobs"]
+          failed = [
+              {"name": item.get("name"), "status": item.get("status"), "conclusion": item.get("conclusion")}
+              for item in jobs
+              if item.get("status") != "completed" or item.get("conclusion") != "success"
+          ]
+          if failed:
+              raise SystemExit("not every exact-head CI job passed: " + json.dumps(failed, sort_keys=True))
+          names = {item.get("name") for item in jobs}
+          required_fragments = {
+              "Required CI",
+              "Release reproducibility",
+              "Supported-code coverage",
+              "Browser accessibility (Chromium)",
+              "Browser functional integrity (Chromium)",
+          }
+          missing = sorted(required_fragments - names)
+          if missing:
+              raise SystemExit("exact-head CI is missing required jobs: " + ", ".join(missing))
+
+          pr = request("GET", f"{api}/pulls/{pr_number}")
+          if pr.get("state") != "open" or not pr.get("draft") or pr.get("merged"):
+              raise SystemExit("PR #1 is not open, draft and unmerged")
+          if pr["head"]["sha"] != head_sha:
+              raise SystemExit("PR head does not equal the audit head")
+
+          body = f"""## Status
+
+**Draft — Phase 4F1 passed; repository remains NO-GO for merge, tag or release.**
+
+Phase 4F1 closes the browser runtime-integrity defects identified by the Phase 4E hostile gate. The exact audit head is `{head_sha}` and its Git tree is `{expected_tree}`.
+
+Canonical exact-head CI [run #{run['run_number']}]({run['html_url']}) completed successfully. All {len(jobs)} jobs passed, including release reproducibility, supported-code coverage, real-browser accessibility, real Pyodide functional analysis and `Required CI`.
+
+## Phase 4F1 — closed findings
+
+- **P1-SEC-01:** verified Pyodide loader, lockfile, standard library, ASM JavaScript and WebAssembly bytes are retained and are the bytes consumed during bootstrap. Mutable-origin second-response substitution is rejected.
+- **P1-SEC-02:** the packaged Python engine is checked against its exact size and SHA-256 before filesystem installation or import. Manual loading remains an explicit `manual-unverified` override.
+- **P2-E2E-01:** a required Chromium job performs real Pyodide startup, file analysis, project analysis and JSON/text export and exercises integrity failure and recovery.
+- **P2-DATA-01:** browser and Python intake use a shared UTF-8-strict then Latin-1 fallback contract with an explicit warning.
+- **P2-DATA-02:** project identity is NFC-normalised before duplicate, collision and ignore processing.
+- **P2-DOC-01:** recipient validation examples use isolated, site-free Python invocation.
+
+## Verification boundary
+
+- PR #1 remains open, draft and unmerged.
+- `main` is unchanged by Phase 4F1.
+- No force-push, history rewrite, tag, GitHub Release or licence change was performed.
+- Temporary schema probes, bridge probes and standalone Phase 4F1 workflows are absent from the exact candidate tree.
+
+## Remaining blockers
+
+The repository is still **NO-GO** pending Phase 4F2 and later decisions, including abrupt-interruption release recovery, browser responsiveness/cancellation, Pyodide lifecycle policy, stronger calibration pseudonymisation, effective `main` protection, scientific validation and the explicit licence/ownership decision.
+
+<!-- phase4f1-runtime-integrity:start -->
+phase=4F1
+verdict=PASS
+head={head_sha}
+tree={expected_tree}
+ci_run={run['run_number']}
+ci_run_id={run['id']}
+ci_conclusion=success
+jobs={len(jobs)}/{len(jobs)}
+<!-- phase4f1-runtime-integrity:end -->
+"""
+          updated = request(
+              "PATCH",
+              f"{api}/pulls/{pr_number}",
+              {
+                  "title": "Phases 1–4F1: runtime-integrity candidate — NO-GO pending recovery, science and governance",
+                  "body": body,
+                  "state": "open",
+              },
+          )
+          if updated["head"]["sha"] != head_sha or not updated.get("draft"):
+              raise SystemExit("PR update did not preserve the exact draft head")
+
+          print(f"PHASE4F1_STATUS=PASS")
+          print(f"PHASE4F1_HEAD={head_sha}")
+          print(f"PHASE4F1_TREE={expected_tree}")
+          print(f"PHASE4F1_CI_RUN={run['run_number']}")
+          print(f"PHASE4F1_CI_RUN_ID={run['id']}")
+          print(f"PHASE4F1_JOBS={len(jobs)}")
+
+          for branch in (
+              "automation/phase4f1-repair-staging",
+              "automation/phase4f1-finalise-20260904",
+          ):
+              encoded = urllib.parse.quote(branch, safe="/")
+              existing = request("GET", f"{api}/git/ref/heads/{encoded}", allow_404=True)
+              if existing is not None:
+                  try:
+                      request("DELETE", f"{api}/git/refs/heads/{encoded}")
+                      print(f"DELETED_TEMP_BRANCH={branch}")
+                  except SystemExit as exc:
+                      print(f"WARNING_TEMP_BRANCH_NOT_DELETED={branch}: {exc}")
+          PY
