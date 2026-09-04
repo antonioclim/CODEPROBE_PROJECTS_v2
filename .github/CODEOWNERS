@@ -1,0 +1,16 @@
+# Default ownership
+* @antonioclim
+
+# High-risk trust and release boundaries
+/.github/workflows/ @antonioclim
+/app/pyodide-loader.js @antonioclim
+/app/analysis-watchdog.js @antonioclim
+/app/pyodide-provenance.json @antonioclim
+/app/pyodide-support-policy.json @antonioclim
+/src/codeprobe_engine/process_control.py @antonioclim
+/src/codeprobe_engine/release.py @antonioclim
+/src/codeprobe_engine/release_recovery.py @antonioclim
+/tools/build_release.py @antonioclim
+/tools/check_release.py @antonioclim
+/tools/check_release_reproducibility.py @antonioclim
+/release/ @antonioclim
