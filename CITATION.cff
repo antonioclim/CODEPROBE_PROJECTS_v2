@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "Please cite CodeProbe by its software title, author, version and repository URL."
+title: "CodeProbe: A local-first heuristic code-review framework"
+type: software
+authors:
+  - family-names: Clim
+    given-names: Antonio
+repository-code: "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2"
+url: "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2"
+license: MIT
+version: 2.2.0
+keywords:
+  - static analysis
+  - research software
+  - formative assessment
+  - code review
+abstract: >-
+  CodeProbe is a local-first, evidence-preserving framework for bounded heuristic
+  review of source code. Its scores are not authorship determinations or validated
+  forensic classifications.
