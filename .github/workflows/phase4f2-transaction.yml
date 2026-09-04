@@ -1,0 +1,417 @@
+name: Phase 4F2 verified recovery and lifecycle transaction
+
+on:
+  push:
+    branches:
+      - automation/phase4f2-transaction-20260904
+    paths:
+      - .github/workflows/phase4f2-transaction.yml
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: phase4f2-transaction
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUTF8: "1"
+  PYTHONHASHSEED: "31412"
+  EXPECTED_BASE_TREE: f5e8d04d24f2fdcdb278c7fc166fe501dddf946b
+  AUDIT_BRANCH: audit/codeprobe-hostile-remediation
+
+jobs:
+  verify_publish_checkpoint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Check out the isolated transaction source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: automation/phase4f2-transaction-20260904
+          path: automation
+          clean: true
+          fetch-depth: 1
+          lfs: false
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+
+      - name: Check out the exact audit branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: audit/codeprobe-hostile-remediation
+          path: work
+          clean: true
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: true
+          show-progress: false
+          submodules: false
+
+      - name: Set up canonical Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          python-version: "3.14.7"
+
+      - name: Set up canonical Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          node-version: "24.20.0"
+          package-manager-cache: false
+
+      - name: Apply the deterministic transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C work rev-parse 'HEAD^{tree}')" = "$EXPECTED_BASE_TREE"
+          test -z "$(git -C work status --porcelain=v1 --untracked-files=all)"
+          python -I -S -B automation/tools/phase4f2_apply.py \
+            --source-root automation \
+            --work-root work
+          test -z "$(find work/.github/workflows -maxdepth 1 -type f ! -name ci.yml -print -quit)"
+          test ! -e work/tools/phase4f2_apply.py
+          test ! -e work/.github/workflows/phase4f2-transaction.yml
+
+      - name: Compile and syntax-check the candidate
+        shell: bash
+        working-directory: work
+        run: |
+          set -euo pipefail
+          python -I -S -B -m compileall -q src tools tests
+          while IFS= read -r -d '' script; do
+            node --check "$script"
+          done < <(find app tools -type f -name '*.js' -print0 | sort -z)
+
+      - name: Run independent high-risk regressions before evidence generation
+        shell: bash
+        working-directory: work
+        run: |
+          set -euo pipefail
+          python -I -S -B -m unittest -v \
+            tests.test_release_recovery \
+            tests.test_pseudonymisation \
+            tests.test_pyodide_lifecycle \
+            tests.test_analysis_deadline \
+            tests.test_phase4f2_governance \
+            tests.test_process_control \
+            tests.test_local_server \
+            tests.test_calibration_profiles \
+            tests.test_project_mode \
+            tests.test_runtime_byte_integrity
+          python -I -S -B tools/check_dependency_boundary.py
+          python -I -S -B tools/check_pyodide_provenance.py
+          python -I -S -B tools/check_pyodide_lifecycle.py --today 2026-09-04
+
+      - name: Prepare the authenticated Pyodide core fixture
+        shell: bash
+        working-directory: work
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/prepare_pyodide_fixture.py \
+            --output-dir "$RUNNER_TEMP/pyodide-v0.25.0-core"
+
+      - name: Run real-browser gates before evidence generation
+        shell: bash
+        working-directory: work
+        env:
+          CODEPROBE_REQUIRE_HTTP_NAVIGATION: "1"
+          CODEPROBE_PYODIDE_FIXTURE_DIR: ${{ runner.temp }}/pyodide-v0.25.0-core
+        run: |
+          set -euo pipefail
+          node tools/check_browser_accessibility.js
+          node tools/check_browser_functional.js
+
+      - name: Regenerate canonical release evidence only after independent gates pass
+        shell: bash
+        working-directory: work
+        run: |
+          set -euo pipefail
+          help="$(python -I -S -B tools/check_release.py --help)"
+          flag=""
+          for candidate in --write-evidence --refresh-evidence --update-evidence; do
+            if grep -Fq -- "$candidate" <<<"$help"; then
+              flag="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$flag" ]]; then
+            printf '%s\n' "$help"
+            echo "No canonical evidence-refresh flag was found." >&2
+            exit 1
+          fi
+          python -I -S -B tools/check_release.py --require-node "$flag"
+
+      - name: Run the complete post-refresh verification
+        shell: bash
+        working-directory: work
+        run: |
+          set -euo pipefail
+          python -I -S -B -m unittest discover -s tests -v 2>&1 | tee "$RUNNER_TEMP/phase4f2-tests.log"
+          python -I -S -B tools/check_dependency_boundary.py
+          python -I -S -B tools/check_pyodide_provenance.py
+          python -I -S -B tools/check_pyodide_lifecycle.py --today 2026-09-04
+          python -I -S -B tools/check_release.py --require-node
+          python -I -S -B tools/check_coverage.py \
+            --policy tools/coverage-policy.json \
+            --output "$RUNNER_TEMP/phase4f2-coverage.json"
+          CODEPROBE_REQUIRE_HTTP_NAVIGATION=1 node tools/check_browser_accessibility.js
+          CODEPROBE_PYODIDE_FIXTURE_DIR="$RUNNER_TEMP/pyodide-v0.25.0-core" \
+            node tools/check_browser_functional.js
+          test -z "$(git status --porcelain=v1 --untracked-files=all | grep -v '^?? ' || true)"
+
+      - name: Fix the exact candidate commit and verify it from a clean clone
+        id: candidate
+        shell: bash
+        working-directory: work
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "Revolvix"
+          git config user.email "48681843+antonioclim@users.noreply.github.com"
+          git add --all
+          git diff --cached --check
+          git commit -m "Complete Phase 4F2 recovery, deadline and lifecycle controls"
+          commit="$(git rev-parse HEAD)"
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          parent="$(git rev-parse HEAD^)"
+          remote="$(git ls-remote --heads origin "$AUDIT_BRANCH" | awk '{print $1}')"
+          test -n "$remote"
+          test "$remote" = "$parent"
+
+          clone="$RUNNER_TEMP/phase4f2-clean"
+          git clone --quiet --no-local . "$clone"
+          git -C "$clone" checkout --quiet --detach "$commit"
+          test -z "$(git -C "$clone" status --porcelain=v1 --untracked-files=all)"
+          python -I -S -B "$clone/tools/check_release_reproducibility.py" \
+            --repository "$clone" \
+            --commit "$commit" 2>&1 | tee "$RUNNER_TEMP/phase4f2-reproducibility.log"
+          git -C "$clone" fsck --full --strict
+
+          git push origin "HEAD:refs/heads/$AUDIT_BRANCH"
+          printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
+          printf 'tree=%s\n' "$tree" >> "$GITHUB_OUTPUT"
+          printf 'parent=%s\n' "$parent" >> "$GITHUB_OUTPUT"
+
+          tests="$(python -I -S -B - "$RUNNER_TEMP/phase4f2-tests.log" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          matches = re.findall(r"^Ran ([0-9]+) tests?", text, flags=re.M)
+          if not matches:
+              raise SystemExit("cannot parse test count")
+          print(matches[-1])
+          PY
+          )"
+          printf 'tests=%s\n' "$tests" >> "$GITHUB_OUTPUT"
+
+      - name: Require canonical CI for the exact published head and update PR #1
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ steps.candidate.outputs.commit }}
+          TREE: ${{ steps.candidate.outputs.tree }}
+          PARENT: ${{ steps.candidate.outputs.parent }}
+          TESTS: ${{ steps.candidate.outputs.tests }}
+        run: |
+          set -euo pipefail
+          python -I -S -B - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ["GH_TOKEN"]
+          repository = os.environ["REPOSITORY"]
+          commit_sha = os.environ["COMMIT"]
+          tree_sha = os.environ["TREE"]
+          parent_sha = os.environ["PARENT"]
+          tests = os.environ["TESTS"]
+          api = f"https://api.github.com/repos/{repository}"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "CodeProbe-Phase4F2-checkpoint",
+          }
+
+          def request(method, url, payload=None, allow_404=False):
+              data = None
+              request_headers = dict(headers)
+              if payload is not None:
+                  data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                  request_headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(url, data=data, headers=request_headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      raw = response.read()
+              except urllib.error.HTTPError as exc:
+                  if allow_404 and exc.code == 404:
+                      return None
+                  detail = exc.read().decode("utf-8", "replace")
+                  raise SystemExit(f"GitHub API {method} {url} failed: {exc.code}: {detail}") from exc
+              return json.loads(raw) if raw else None
+
+          published = request(
+              "GET",
+              f"{api}/git/ref/heads/audit/codeprobe-hostile-remediation",
+          )
+          if published["object"]["sha"] != commit_sha:
+              raise SystemExit("audit branch does not point to the published Phase 4F2 commit")
+          commit = request("GET", f"{api}/git/commits/{commit_sha}")
+          if commit["tree"]["sha"] != tree_sha:
+              raise SystemExit("published Phase 4F2 tree mismatch")
+          if [item["sha"] for item in commit.get("parents", [])] != [parent_sha]:
+              raise SystemExit("published Phase 4F2 parent mismatch")
+
+          run = None
+          deadline = time.monotonic() + 1800
+          encoded_sha = urllib.parse.quote(commit_sha, safe="")
+          while time.monotonic() < deadline:
+              runs = request(
+                  "GET",
+                  f"{api}/actions/workflows/ci.yml/runs?head_sha={encoded_sha}&per_page=30",
+              )["workflow_runs"]
+              exact = [item for item in runs if item.get("head_sha") == commit_sha]
+              exact.sort(key=lambda item: int(item["id"]), reverse=True)
+              if exact:
+                  run = exact[0]
+                  if run.get("status") == "completed":
+                      break
+              time.sleep(12)
+          if not run or run.get("status") != "completed":
+              raise SystemExit("exact-head Phase 4F2 CI did not complete")
+          if run.get("conclusion") != "success":
+              raise SystemExit(
+                  f"exact-head Phase 4F2 CI failed: {run.get('html_url')} "
+                  f"conclusion={run.get('conclusion')}"
+              )
+          jobs = request("GET", f"{api}/actions/runs/{run['id']}/jobs?per_page=100")["jobs"]
+          failed = [
+              item.get("name")
+              for item in jobs
+              if item.get("status") != "completed" or item.get("conclusion") != "success"
+          ]
+          if failed:
+              raise SystemExit("not every exact-head job passed: " + ", ".join(failed))
+          names = {item.get("name") for item in jobs}
+          required = {
+              "Required CI",
+              "Release reproducibility",
+              "Supported-code coverage",
+              "Browser accessibility (Chromium)",
+              "Browser functional integrity (Chromium)",
+          }
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit("exact-head CI is missing: " + ", ".join(missing))
+
+          main = request("GET", f"{api}/git/ref/heads/main")
+          if main["object"]["sha"] != "d31291593f7da4cb600251e82ad9de4be95ca5dd":
+              raise SystemExit("main moved during the Phase 4F2 transaction")
+          pr = request("GET", f"{api}/pulls/1")
+          if pr.get("state") != "open" or not pr.get("draft") or pr.get("merged"):
+              raise SystemExit("PR #1 is not open, draft and unmerged")
+          if pr["head"]["sha"] != commit_sha:
+              raise SystemExit("PR #1 head does not equal the Phase 4F2 head")
+
+          body = f"""## Status
+
+**Draft — Phase 4F2 passed; repository remains NO-GO for merge, tag or release.**
+
+The exact Phase 4F2 audit head is `{commit_sha}` with Git tree `{tree_sha}`. Canonical exact-head CI [run #{run['run_number']}]({run['html_url']}) completed successfully; all {len(jobs)} jobs passed. The complete post-refresh suite contained {tests} tests.
+
+## Phase 4F2 — completed controls
+
+- **Abrupt-interruption recovery:** public packet replacement records byte-exact preceding state in a durable rollback journal. The next publication or `tools/recover_release.py` retains only a complete, internally consistent new packet; otherwise it restores the preceding generation. Forced-process-death tests cover each public replacement point.
+- **Analysis deadline:** a Web Worker writes Pyodide's shared interrupt signal independently of the blocked main thread. Production startup fails closed when cross-origin isolation, `SharedArrayBuffer`, Web Workers or the Pyodide interrupt API are unavailable. Chromium verifies interruption of a non-terminating Python loop.
+- **Runtime lifecycle:** `pyodide-support-policy.json` records an expirable review and explicitly blocks public release on the legacy 0.25.0 development pin until a measured upgrade is approved. The release gate fails after the review date.
+- **Calibration privacy:** deterministic public unsalted path hashes were replaced by domain-separated HMAC-SHA-256 tokens under a private per-process key. An optional private environment key permits controlled reproducibility and is never serialised.
+- **Governance metadata:** project-specific `SECURITY.md`, `.github/CODEOWNERS` and `CITATION.cff` are present without an invented DOI, ORCID or security address.
+- **Documentation correction:** recipient validation uses isolated, site-free Python invocation.
+
+## Assurance boundary
+
+- Release recovery establishes deterministic rollback after abrupt process death; it does not claim one atomic filesystem operation across three public names.
+- The watchdog bounds a blocked analysis but does not yet move the complete Pyodide application into a dedicated long-lived worker UI architecture.
+- The pinned Pyodide runtime remains release-blocked by policy.
+- Scientific validation, the licence/ownership decision and effective `main` protection remain independent blockers.
+
+## Repository boundary
+
+- PR #1 remains open, draft and unmerged.
+- `main` remained `d31291593f7da4cb600251e82ad9de4be95ca5dd` throughout Phase 4F2.
+- No force-push, history rewrite, tag, GitHub Release or licence change was performed.
+- The final candidate contains only `.github/workflows/ci.yml`; transaction workflows and scripts remain outside the audit tree.
+
+<!-- phase4f2-recovery-lifecycle:start -->
+phase=4F2
+verdict=PASS
+head={commit_sha}
+tree={tree_sha}
+ci_run={run['run_number']}
+ci_run_id={run['id']}
+ci_conclusion=success
+jobs={len(jobs)}/{len(jobs)}
+tests={tests}
+<!-- phase4f2-recovery-lifecycle:end -->
+"""
+          updated = request(
+              "PATCH",
+              f"{api}/pulls/1",
+              {
+                  "title": "Phases 1–4F2: hardened development candidate — NO-GO pending science, licence and enforced governance",
+                  "body": body,
+                  "state": "open",
+              },
+          )
+          if updated["head"]["sha"] != commit_sha or not updated.get("draft"):
+              raise SystemExit("PR update did not preserve the exact draft head")
+
+          print("PHASE4F2_STATUS=PASS")
+          print(f"PHASE4F2_HEAD={commit_sha}")
+          print(f"PHASE4F2_TREE={tree_sha}")
+          print(f"PHASE4F2_CI_RUN={run['run_number']}")
+          print(f"PHASE4F2_CI_RUN_ID={run['id']}")
+          print(f"PHASE4F2_JOBS={len(jobs)}")
+          print(f"PHASE4F2_TESTS={tests}")
+
+          for branch in (
+              "automation/phase4f2-transaction-20260904",
+              "automation/phase4f1-finalise-20260904",
+              "automation/phase4f1-repair-staging",
+          ):
+              encoded = urllib.parse.quote(branch, safe="/")
+              existing = request("GET", f"{api}/git/ref/heads/{encoded}", allow_404=True)
+              if existing is not None:
+                  try:
+                      request("DELETE", f"{api}/git/refs/heads/{encoded}")
+                      print(f"DELETED_TEMP_BRANCH={branch}")
+                  except SystemExit as exc:
+                      print(f"WARNING_TEMP_BRANCH_NOT_DELETED={branch}: {exc}")
+          PY
+
+      - name: Confirm no uncommitted transaction residue
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d work/.git ]]; then
+            dirty="$(git -C work status --porcelain=v1 --untracked-files=all)"
+            if [[ -n "$dirty" ]]; then
+              printf '%s\n' "$dirty"
+              exit 1
+            fi
+          fi
