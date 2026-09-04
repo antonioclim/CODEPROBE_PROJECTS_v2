@@ -37,13 +37,48 @@ jobs:
           BASE64_SHA256: 6f9a2b3cf08bf973ced4b7039bffbcf978316ba849eaa0bb58482329013f796e
           GZIP_SHA256: cb84fd0274fdecf08620f6184b686447f6e719c48c5a3ce047e72ebfeb9c4838
           PATCH_SHA256: 87b3d5e5c2329a2b9ea9799cbcc792b4d1b8b6dd47b0ea8396039b5b11de0591
+          PART03_SHA256: aa33fea1bb21b768d067af394e1adbee52899ec53216dcec53a12f91084ee475
         run: |
           set -euo pipefail
           encoded="$RUNNER_TEMP/phase4f1.patch.gz.b64"
           compressed="$RUNNER_TEMP/phase4f1.patch.gz"
           patch="$RUNNER_TEMP/phase4f1.patch"
           candidate="$RUNNER_TEMP/phase4f1-candidate"
-          cat .github/phase4f1-patch/part-*.b64 | tr -d '\r\n' > "$encoded"
+          ENCODED="$encoded" PART03_SHA256="$PART03_SHA256" python -I -S -B - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          root = Path('.github/phase4f1-patch')
+          parts = []
+          for index in range(9):
+              path = root / f'part-{index:02d}.b64'
+              data = path.read_bytes().replace(b'\r', b'').replace(b'\n', b'')
+              if index == 3:
+                  expected = os.environ['PART03_SHA256']
+                  if hashlib.sha256(data).hexdigest() != expected:
+                      if len(data) != 8191:
+                          raise SystemExit(f'part-03 has unexpected size {len(data)}')
+                      alphabet = b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+                      repaired = None
+                      for offset in range(len(data) + 1):
+                          prefix = data[:offset]
+                          suffix = data[offset:]
+                          for value in alphabet:
+                              candidate = prefix + bytes((value,)) + suffix
+                              if hashlib.sha256(candidate).hexdigest() == expected:
+                                  repaired = candidate
+                                  break
+                          if repaired is not None:
+                              break
+                      if repaired is None:
+                          raise SystemExit('part-03 could not be repaired against its pinned digest')
+                      data = repaired
+                  if hashlib.sha256(data).hexdigest() != expected:
+                      raise SystemExit('part-03 digest mismatch after repair')
+              parts.append(data)
+          Path(os.environ['ENCODED']).write_bytes(b''.join(parts))
+          PY
           printf '%s  %s\n' "$BASE64_SHA256" "$encoded" | sha256sum --check --strict
           base64 --decode "$encoded" > "$compressed"
           printf '%s  %s\n' "$GZIP_SHA256" "$compressed" | sha256sum --check --strict
@@ -77,25 +112,25 @@ jobs:
           from pathlib import Path
 
           root = Path.cwd()
-          candidate = Path(os.environ["CANDIDATE"])
+          candidate = Path(os.environ['CANDIDATE'])
           candidate_paths = set(
               subprocess.check_output(
-                  ["git", "-C", str(candidate), "ls-files", "-z"]
-              ).decode("utf-8").split("\0")[:-1]
+                  ['git', '-C', str(candidate), 'ls-files', '-z']
+              ).decode('utf-8').split('\0')[:-1]
           )
           current_paths = set(
-              subprocess.check_output(["git", "ls-files", "-z"])
-              .decode("utf-8").split("\0")[:-1]
+              subprocess.check_output(['git', 'ls-files', '-z'])
+              .decode('utf-8').split('\0')[:-1]
           )
-          preserved = {".github/phase4f1-candidate.patch.gz.b64"}
+          preserved = {'.github/phase4f1-candidate.patch.gz.b64'}
           for relative in sorted(current_paths - candidate_paths):
-              if relative.startswith(".github/workflows/") or relative in preserved:
+              if relative.startswith('.github/workflows/') or relative in preserved:
                   continue
               target = root / relative
               if target.is_file() or target.is_symlink():
                   target.unlink()
           for relative in sorted(candidate_paths):
-              if relative.startswith(".github/workflows/"):
+              if relative.startswith('.github/workflows/'):
                   continue
               source = candidate / relative
               target = root / relative
