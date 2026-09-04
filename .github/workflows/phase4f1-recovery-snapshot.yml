@@ -1,4 +1,4 @@
-name: Phase 4F1 verified recovery transaction
+name: Phase 4F1 exact CI blob
 
 on:
   push:
@@ -10,166 +10,70 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: phase4f1-recovery-transaction
-  cancel-in-progress: false
-
 jobs:
-  recover:
+  create_blob:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 5
     steps:
-      - name: Check out exact transaction commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          clean: true
-          fetch-depth: 0
-          lfs: false
-          persist-credentials: true
-          show-progress: false
-          submodules: false
-
-      - name: Set up the canonical Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          architecture: x64
-          check-latest: false
-          python-version: "3.14.7"
-
-      - name: Reconstruct and verify the exact candidate
+      - name: Materialise and create the exact candidate CI blob
         shell: bash
         env:
-          BASE_SHA: e6ac407e25a3f52739ad1f079bde65e48e62941e
-          EXPECTED_TREE: f5e8d04d24f2fdcdb278c7fc166fe501dddf946b
-          BASE64_SHA256: 6f9a2b3cf08bf973ced4b7039bffbcf978316ba849eaa0bb58482329013f796e
-          GZIP_SHA256: cb84fd0274fdecf08620f6184b686447f6e719c48c5a3ce047e72ebfeb9c4838
-          PATCH_SHA256: 87b3d5e5c2329a2b9ea9799cbcc792b4d1b8b6dd47b0ea8396039b5b11de0591
-          PART03_SHA256: aa33fea1bb21b768d067af394e1adbee52899ec53216dcec53a12f91084ee475
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_GZIP_SHA256: 3197c9f49cd80eb7b9c76525d93d0aa679f5b7e8bba772f8606e3d3e7c1c5918
+          EXPECTED_RAW_SHA256: 86456dc1157288ba61b6bbc36d5486861d903bacc6814e44762a07557a04cf8a
+          EXPECTED_BLOB_SHA: d7d46fedcb5fa431d42bc8e75f584105e5f37a0b
         run: |
           set -euo pipefail
-          encoded="$RUNNER_TEMP/phase4f1.patch.gz.b64"
-          compressed="$RUNNER_TEMP/phase4f1.patch.gz"
-          patch="$RUNNER_TEMP/phase4f1.patch"
-          candidate="$RUNNER_TEMP/phase4f1-candidate"
-          ENCODED="$encoded" PART03_SHA256="$PART03_SHA256" python -I -S -B - <<'PY'
-          import hashlib
+          encoded="$RUNNER_TEMP/ci.yml.gz.b64"
+          compressed="$RUNNER_TEMP/ci.yml.gz"
+          raw="$RUNNER_TEMP/ci.yml"
+          cat > "$encoded" <<'B64'
+H4sIAAAAAAAC/+1bbVPjRhL+7l8x5+wVcBUplt8hoWrBaIOrwHC2ISGbLe9IGtnDypIyIwEOy39Pj96sN9vxblLcpUxt1cJMT09Pd8/zdA/GxnNyhHr9SsWxjyoIub5lTRj5zSfcEz8jpDFs6zPCw58QktAcUzsQ5bMNIgh5eJoarj78pwo/PDrsk2k5jxODchd7OqipuITNKefUsfkRen6pVHTH1n3GiK0vhIIpc3z3COlUevP8jKbUm/maHCtCLy/pYfJAbE9OH0W2/blGGPr8OZZhvj2hBiwE3TqYTyyJ2pLLnCkjHEzIq5vY4Cl0fIz20nr3hIIKsR+Eidd34/OrwdnVYPzTsD9WT+/Gau/qTD1CVaWaTN+M33XDkcq9owW+ecAWNbBHwwggZAcxuU1G0b4wZo49Rp9kh8OW36LrhTeDmdSEG468vBwESuB8XAKNKL82DAudE8f3pDm1fQ8Ch5RWMJ6OQhQ1iIMH5wcZRrARDHKPYY9MF7GIiaklmRgyBr61OImGw11jIYSorVu+QZYDIiUcUOxrvu35Ur0p15qpSTAnOBO4qyErNbkeuHH5hZk+ox7RPZ+Bv57aZWsncwxCtpjvtic5EdsxyERoKa6eYT6bcEIMsblSy269hdWKrLRfy2olu/UWVtdlpflaVtezW29hNfxrvZbVjezWW1jdlDuvZXSz1ika/Uhtw3nkUr1Wb/1dRp9cnn25zd2izaDY4ZLyxfZiNt9gcVEiZXFxMm/zYbh7RBTiK2SD85PR+UhVzzIwnSyO0Zp7xE2xaMgPvRnRPyEAccBl1+HUc9giscHnAtSxLuiDf6cLUZB82zAaerNOWhjrLQ13a61uvWXgTrup1HSlq9Q7DQ0f1jQFfYMeOnJNVhKFj0CFaeDWLYLBtx7zSWrUJEDmkkFcEEZKasIyeZYbIrLhlHuSzogBDENhuijEZ85jipYL0742dwzfIslczk0j4iHfjfhyhX848XxXCkP+tmUauKEdtnCT4EOlfniIG03SPWy2ug290W3XlVaDNLXDTuyj2kofZXMsFeD0RBzjyK0iUpIF7Jon02VSSg/CbzlqT9h/xfkHkK3yPV/rAJHRb7v1Wqdd73TbtXq706zpnbbZaNe6La1GTL3ZwQ3FJK1avfYKxxf2LQ9fBVitw/7pe+1i/ROeEmmObfiPSTpcX7IiMYZEd5iBsG0g0EnNBfJmBHmOY+mzuHoNE5BY1hHS4FImY6l7LL7Un6/V3lg9mwzCcq/EsozI5GTYO8+4JAGTrD+SVSFarIj4SvnJ5UnvvD9QS9bFyJZeDyXjEfqcvlyQOxLxHeRSl4gir5CLSOojaQQ+/eGHveu7vdQ8nbsO8wCdi2MuBNh02Lw487tFtUpqmDy5kCYAhMegSAavU+bY76u5Y1Y/pLMO0gpbsCDeJT5wlDj7B+ltzVj+X8fJZkcZJAe3YMoJGi0AhefqE/X2zWpiV1SGP8cDUJkzohP6AHPPoeqX6kHJiRL/rz1ZHMCSE6YUJCeNhsqPmCxIHTXht01Hzs0HWF/wQrzBc159iVeSqWpOddp2l1FbuDv2cplDczKJDfltytaIdEOaTy3j+Fl8L/9y0T+d3KrDUf9q8CLug+iT0nPDm8G4f6kmMhm113c5sILLg/Yy54No7AOZ6cBlcpSQPLj8EBUIZDQD6SBnAOMAPefc5M0YtL02eUQqYw7b/5gEQyA93PeVutLBWIpljHn5ePB9Zr+XlYcIMGut7QHYbX2ADEesOU2gvfxIQsWGk0Bvyx2LyJYz3f+Yc1zWI6IHzyg+yGpOh3lKATZjosrTzm3INXFJBnnC5tDp86DTX0s6W8GzsAEbBtjBSLTF75CPErbyUgY1TZgIqFLIB5ZtkCGACZIOfimQqm8HNKpj27GpDsAqHg0kx7YWaAq0vvmAWV45DQg5qmAnjEDVyQkgenCu33zKSFC15M3oObZJ2RxMwV7qeQVZxAS3hMVrEoLl+4QZEiW2HvGC7x+kufGrA2JQ5i2Oq2/2hT+5hz2fwyGA9XRiQblx/KDAjwA4DEoYYkgmhZL2GKJ1UM2C+fv3SLJR9U2gr4o+fPheONzONi8C30y092/+q72XyGZERAQzFbpJhRMjD4OnIdkNX6catai3SL9LDUMRlBPJPjoVOt/Cg1N9mwenNX2TaK+UVtRf7Rqlf0CjlO3/t+uIkl7/f7QL2uZs/7R2J3v2QmtT8kyzsp3JPXrtGpdd47JrXHaNy65x2TUu/9+NS87J34bp9EAC3hZ0T7zSwvtrLcsX/GDp2p4qJx4azHf91fr+qiI+KuE8csImpm8HVSe20r3VaTiLlrMIdiJTJny83wPkmVN/frB1r1X7C3ut+q7V2rVau1ZrTat1DcmPgf0Fn2BfoIcHjBLWm45BgayhFSOACE/C0r8OAstx3g2tmbjh3pNoW8FFv2YgS5LgOrqAGwBnAGpQMQ7U4WSsXl5/F62VhN3VwrJ7DnkhLv3qRbKQqZaRLuCOhQQahxTHnHsIIHyPrQVkTBDjsGGl4L+osEXaAuK4TcsqPod1Pbw6VaE/uTrrQ/n1rv/z+GaoTs76w5CVQLdNmAyNgwvElLE+G46g6k1zaBHTReKvo88UvkeLdwy6LYNiXdS0JQ+UMYlmBL6CPZUvZM9lzg3V/970IdfOx+PryeDktv/jybgfvHkkHysrpVplR7U7qt1R7bpXzahtEywiaaUX/891bytBPaNsE67vwHy7XzfpDmQCBDkN3yPfFU+qYJTo0xORV+15ajsg3gHxGiC+JJiL9z5RwhLbFLcMPLI6j//Gcj9Er3i3sip/RbkurIT4akRKWx6pKS3fM9AXi+5Ab/Pv2IP3PyP7S/VwTPwlzjo32YQYKQRafrQhGVrxoJfMl/JaYXbZoCRTXwzEBRwWf96zEk4jTyACuy3AHeje0bbp9E6HVz+NIKdPej11NOqf9i/64zuowEc3F+PQp4EP5XJ+B3DzLS/7ocpY47ubQU+U7ScXa9SlesAyXb2rW3V48qNaoiG5a2XrhqKTOLvprT7PqofcMm23Jxf9s6AFKVG0zKmStVtdR4GpcDMKu1XRMapyP3B8tShfftYNi9aF/U8uLcR3w7pcLLPSfwAQimIFWDcAAA==
+B64
+          tr -d '\r\n' < "$encoded" | base64 --decode > "$compressed"
+          printf '%s  %s\n' "$EXPECTED_GZIP_SHA256" "$compressed" | sha256sum --check --strict
+          gzip -dc "$compressed" > "$raw"
+          printf '%s  %s\n' "$EXPECTED_RAW_SHA256" "$raw" | sha256sum --check --strict
+          test "$(git hash-object "$raw")" = "$EXPECTED_BLOB_SHA"
+          RAW="$raw" python -I -S -B - <<'PY'
+          import base64
+          import json
           import os
+          import urllib.request
           from pathlib import Path
 
-          root = Path('.github/phase4f1-patch')
-          parts = []
-          for index in range(9):
-              path = root / f'part-{index:02d}.b64'
-              data = path.read_bytes().replace(b'\r', b'').replace(b'\n', b'')
-              if index == 3:
-                  expected = os.environ['PART03_SHA256']
-                  if hashlib.sha256(data).hexdigest() != expected:
-                      if len(data) != 8191:
-                          raise SystemExit(f'part-03 has unexpected size {len(data)}')
-                      alphabet = b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-                      repaired = None
-                      for offset in range(len(data) + 1):
-                          prefix = data[:offset]
-                          suffix = data[offset:]
-                          for value in alphabet:
-                              candidate = prefix + bytes((value,)) + suffix
-                              if hashlib.sha256(candidate).hexdigest() == expected:
-                                  repaired = candidate
-                                  break
-                          if repaired is not None:
-                              break
-                      if repaired is None:
-                          raise SystemExit('part-03 could not be repaired against its pinned digest')
-                      data = repaired
-                  if hashlib.sha256(data).hexdigest() != expected:
-                      raise SystemExit('part-03 digest mismatch after repair')
-              parts.append(data)
-          Path(os.environ['ENCODED']).write_bytes(b''.join(parts))
-          PY
-          printf '%s  %s\n' "$BASE64_SHA256" "$encoded" | sha256sum --check --strict
-          base64 --decode "$encoded" > "$compressed"
-          printf '%s  %s\n' "$GZIP_SHA256" "$compressed" | sha256sum --check --strict
-          gzip -dc "$compressed" > "$patch"
-          printf '%s  %s\n' "$PATCH_SHA256" "$patch" | sha256sum --check --strict
-          git config user.name "CodeProbe recovery transaction"
-          git config user.email "48681843+antonioclim@users.noreply.github.com"
-          git fetch --no-tags origin "$BASE_SHA"
-          git worktree add --detach "$candidate" "$BASE_SHA"
-          git -C "$candidate" config user.name "Revolvix"
-          git -C "$candidate" config user.email "48681843+antonioclim@users.noreply.github.com"
-          git -C "$candidate" am --committer-date-is-author-date "$patch"
-          actual_tree="$(git -C "$candidate" rev-parse HEAD^{tree})"
-          test "$actual_tree" = "$EXPECTED_TREE"
-          test -z "$(git -C "$candidate" status --porcelain=v1 --untracked-files=all)"
-
-          (
-            cd "$candidate"
-            python -I -S -B -m unittest discover -s tests -v
-            python -I -S -B tools/check_dependency_boundary.py
-            python -I -S -B tools/check_pyodide_provenance.py
-            python -I -S -B tools/check_release.py --require-node
-            python -I -S -B tools/check_release_reproducibility.py --repository . --commit HEAD
-            node tools/check_browser_accessibility.js
+          raw = Path(os.environ['RAW']).read_bytes()
+          payload = json.dumps({
+              'content': base64.b64encode(raw).decode('ascii'),
+              'encoding': 'base64',
+          }).encode('utf-8')
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/git/blobs",
+              data=payload,
+              method='POST',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Content-Type': 'application/json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
           )
-
-          CANDIDATE="$candidate" python -I -S -B - <<'PY'
-          import os
-          import shutil
-          import subprocess
-          from pathlib import Path
-
-          root = Path.cwd()
-          candidate = Path(os.environ['CANDIDATE'])
-          candidate_paths = set(
-              subprocess.check_output(
-                  ['git', '-C', str(candidate), 'ls-files', '-z']
-              ).decode('utf-8').split('\0')[:-1]
+          with urllib.request.urlopen(request, timeout=30) as response:
+              result = json.load(response)
+          expected = os.environ['EXPECTED_BLOB_SHA']
+          if result.get('sha') != expected:
+              raise SystemExit(f"blob SHA mismatch: {result.get('sha')} != {expected}")
+          Path(os.environ['RUNNER_TEMP'], 'phase4f1-ci-blob.json').write_text(
+              json.dumps(result, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
           )
-          current_paths = set(
-              subprocess.check_output(['git', 'ls-files', '-z'])
-              .decode('utf-8').split('\0')[:-1]
-          )
-          preserved = {'.github/phase4f1-candidate.patch.gz.b64'}
-          for relative in sorted(current_paths - candidate_paths):
-              if relative.startswith('.github/workflows/') or relative in preserved:
-                  continue
-              target = root / relative
-              if target.is_file() or target.is_symlink():
-                  target.unlink()
-          for relative in sorted(candidate_paths):
-              if relative.startswith('.github/workflows/'):
-                  continue
-              source = candidate / relative
-              target = root / relative
-              target.parent.mkdir(parents=True, exist_ok=True)
-              shutil.copyfile(source, target)
-              target.chmod(source.stat().st_mode & 0o777)
           PY
 
-          git add -A -- . ':(exclude).github/workflows/**' ':(exclude).github/phase4f1-candidate.patch.gz.b64'
-          test -n "$(git diff --cached --name-only)"
-          if git diff --cached --name-only | grep -q '^.github/workflows/'; then
-            printf '%s\n' 'A workflow path entered the intermediate commit.' >&2
-            exit 1
-          fi
-          git commit -m "Materialise the verified Phase 4F1 runtime candidate"
-          git push origin HEAD:refs/heads/audit/codeprobe-hostile-remediation
-
-      - name: Record the intermediate commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            printf 'commit=%s\n' "$(git rev-parse HEAD)"
-            printf 'tree=%s\n' "$(git rev-parse HEAD^{tree})"
-            printf 'candidate_tree=%s\n' f5e8d04d24f2fdcdb278c7fc166fe501dddf946b
-          } > "$RUNNER_TEMP/phase4f1-intermediate.txt"
-
-      - name: Upload transaction evidence
+      - name: Upload exact blob evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: phase4f1-recovery-${{ github.sha }}
-          path: ${{ runner.temp }}/phase4f1-intermediate.txt
+          name: phase4f1-ci-blob-${{ github.sha }}
+          path: ${{ runner.temp }}/phase4f1-ci-blob.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
