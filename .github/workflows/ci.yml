@@ -200,19 +200,41 @@ jobs:
 
       - name: Record and verify the toolchain
         shell: bash
+        env:
+          EXPECTED_NODE: "24.20.0"
+          EXPECTED_NODE_ARCH: x64
+          EXPECTED_PYTHON: "3.14.7"
+          EXPECTED_PYTHON_MACHINE: x86_64
         run: |
           set -euo pipefail
           python -I -S - <<'PY'
+          import os
           import platform
           import zlib
-          if platform.python_version() != "3.14.7":
-              raise SystemExit(f"expected Python 3.14.7, received {platform.python_version()}")
-          if platform.machine() != "x86_64":
-              raise SystemExit(f"expected x86_64, received {platform.machine()}")
-          print(f"Python {platform.python_version()}")
+
+          expected = os.environ["EXPECTED_PYTHON"]
+          actual = platform.python_version()
+          if actual != expected:
+              raise SystemExit(f"expected Python {expected}, received {actual}")
+          expected_machine = os.environ["EXPECTED_PYTHON_MACHINE"]
+          actual_machine = platform.machine()
+          if actual_machine != expected_machine:
+              raise SystemExit(
+                  f"expected Python machine {expected_machine}, received {actual_machine}"
+              )
+          print(f"Python {actual}")
+          print(f"Python machine {actual_machine}")
           print(f"zlib build={zlib.ZLIB_VERSION} runtime={zlib.ZLIB_RUNTIME_VERSION}")
           PY
-          node -e 'if (process.versions.node !== "24.20.0" || process.arch !== "x64") process.exit(1)'
+          node -e '
+            if (process.versions.node !== process.env.EXPECTED_NODE) {
+              throw new Error(`expected Node ${process.env.EXPECTED_NODE}, received ${process.versions.node}`);
+            }
+            if (process.arch !== process.env.EXPECTED_NODE_ARCH) {
+              throw new Error(`expected Node architecture ${process.env.EXPECTED_NODE_ARCH}, received ${process.arch}`);
+            }
+            console.log(`Node ${process.versions.node} (${process.arch})`);
+          '
           git --version
 
       - name: Verify checkout normalisation
@@ -241,6 +263,67 @@ jobs:
             printf '%s\n' "$dirty"
             exit 1
           fi
+
+
+  browser_functional:
+    name: Browser functional integrity (Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      PYTHONHASHSEED: "31412"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+          lfs: false
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          python-version: "3.14.7"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          node-version: "24.20.0"
+          package-manager-cache: false
+
+      - name: Prepare the authenticated Pyodide core fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/prepare_pyodide_fixture.py \
+            --output-dir "$RUNNER_TEMP/pyodide-core" \
+            --json-out "$RUNNER_TEMP/pyodide-core.json"
+
+      - name: Run real file and project analyses with verified runtime bytes
+        shell: bash
+        env:
+          CODEPROBE_PYODIDE_FIXTURE_DIR: ${{ runner.temp }}/pyodide-core
+        run: node tools/check_browser_functional.js
+
+      - name: Confirm that functional browser checks left a clean checkout
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dirty="$(git status --porcelain=v1 --untracked-files=all)"
+          if [[ -n "$dirty" ]]; then
+            printf '%s\n' "$dirty"
+            exit 1
+          fi
+
 
   browser_accessibility:
     name: Browser accessibility (Chromium)
@@ -282,64 +365,6 @@ jobs:
         run: node tools/check_browser_accessibility.js
 
       - name: Confirm that browser checks left a clean checkout
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          dirty="$(git status --porcelain=v1 --untracked-files=all)"
-          if [[ -n "$dirty" ]]; then
-            printf '%s\n' "$dirty"
-            exit 1
-          fi
-
-  browser_functional:
-    name: Browser functional integrity (Chromium)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    env:
-      PYTHONHASHSEED: "31412"
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          clean: true
-          fetch-depth: 1
-          lfs: false
-          persist-credentials: false
-          show-progress: false
-          submodules: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          architecture: x64
-          check-latest: false
-          python-version: "3.14.7"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          architecture: x64
-          check-latest: false
-          node-version: "24.20.0"
-          package-manager-cache: false
-
-      - name: Prepare the authenticated Pyodide core fixture
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -I -S -B tools/prepare_pyodide_fixture.py \
-            --output-dir "$RUNNER_TEMP/pyodide-v0.25.0-core"
-
-      - name: Run real functional analysis through Pyodide
-        shell: bash
-        env:
-          CODEPROBE_PYODIDE_FIXTURE_DIR: ${{ runner.temp }}/pyodide-v0.25.0-core
-        run: node tools/check_browser_functional.js
-
-      - name: Confirm that functional browser checks left a clean checkout
         if: ${{ always() }}
         shell: bash
         run: |
@@ -410,24 +435,15 @@ jobs:
       - name: Require every CI job
         shell: bash
         env:
-          VALIDATION_RESULT: ${{ needs.validation.result }}
-          REPRODUCIBILITY_RESULT: ${{ needs.release_reproducibility.result }}
           BROWSER_ACCESSIBILITY_RESULT: ${{ needs.browser_accessibility.result }}
           BROWSER_FUNCTIONAL_RESULT: ${{ needs.browser_functional.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
+          REPRODUCIBILITY_RESULT: ${{ needs.release_reproducibility.result }}
+          VALIDATION_RESULT: ${{ needs.validation.result }}
         run: |
           set -euo pipefail
-          printf 'validation=%s\n' "$VALIDATION_RESULT"
-          printf 'reproducibility=%s\n' "$REPRODUCIBILITY_RESULT"
-          printf 'browser_accessibility=%s\n' "$BROWSER_ACCESSIBILITY_RESULT"
-          printf 'browser_functional=%s\n' "$BROWSER_FUNCTIONAL_RESULT"
-          printf 'coverage=%s\n' "$COVERAGE_RESULT"
-          for result in \
-            "$VALIDATION_RESULT" \
-            "$REPRODUCIBILITY_RESULT" \
-            "$BROWSER_ACCESSIBILITY_RESULT" \
-            "$BROWSER_FUNCTIONAL_RESULT" \
-            "$COVERAGE_RESULT"
-          do
-            test "$result" = "success"
-          done
+          test "$VALIDATION_RESULT" = "success"
+          test "$REPRODUCIBILITY_RESULT" = "success"
+          test "$BROWSER_ACCESSIBILITY_RESULT" = "success"
+          test "$BROWSER_FUNCTIONAL_RESULT" = "success"
+          test "$COVERAGE_RESULT" = "success"
