@@ -1,0 +1,45 @@
+name: Phase 4F1 recovery snapshot
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-hostile-remediation
+    paths:
+      - .github/workflows/phase4f1-recovery-snapshot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+          lfs: false
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+
+      - name: Export exact tracked tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git archive --format=zip --output="$RUNNER_TEMP/codeprobe-phase4f1-recovery-source.zip" "$GITHUB_SHA"
+          sha256sum "$RUNNER_TEMP/codeprobe-phase4f1-recovery-source.zip" > "$RUNNER_TEMP/codeprobe-phase4f1-recovery-source.zip.sha256"
+
+      - name: Upload exact source snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codeprobe-phase4f1-recovery-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/codeprobe-phase4f1-recovery-source.zip
+            ${{ runner.temp }}/codeprobe-phase4f1-recovery-source.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
