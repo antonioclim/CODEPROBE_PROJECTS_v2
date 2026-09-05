@@ -15,11 +15,27 @@ python3 -I -S -B tools/check_release.py
 
 Inspect the evidence diff between these commands.
 
-## 2. Build the release packet
+## 2. Recover and build the release packet
+
+First reconcile any interrupted publication for the same output target:
+
+```bash
+python3 -I -S -B tools/build_release.py \
+  --recover-only \
+  --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+```
+
+Then build the packet:
 
 ```bash
 python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
 ```
+
+Do not delete a retained publication lock or transaction directory manually.
+A non-zero recovery result means the tool observed an ambiguous or concurrent
+state and preserved the evidence needed for diagnosis. Do not sign or distribute
+a packet until recovery, the build and independent checksum verification have
+all completed successfully.
 
 ## 3. Verify the generated ZIP hash sidecar
 

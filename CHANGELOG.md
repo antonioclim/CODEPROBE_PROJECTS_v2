@@ -6,8 +6,13 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ## [Unreleased]
 
+### Reconciliation
+
+- Run normal-command release recovery before current-checkout validation, with regressions for an invalid checkout and an unknown concurrent packet change.
+
 ### Added
 
+- Add a durable release-publication lock and journal with checksum-as-readiness semantics, explicit `--recover-only` operation and abrupt-process-termination recovery tests.
 - Add a real-browser functional-integrity gate that runs authenticated Pyodide bytes, performs single-file and project analyses, validates JSON/text downloads and exercises tamper and reload-recovery paths.
 - Add a bounded Pyodide fixture-preparation utility that refuses redirects and verifies exact sizes and SHA-256 values before publishing test files.
 - Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
@@ -31,6 +36,7 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Fixed
 
+- Recover interrupted release publication deterministically by retaining a complete new packet, restoring the recorded prior packet or stopping fail-closed on an unknown concurrent state.
 - Bind each verified Pyodide startup artefact to the bytes actually consumed during bootstrap instead of permitting a second unchecked network response.
 - Verify the exact packaged Python engine before import in both browser interfaces and label the manual engine route as an explicitly unverified override.
 - Use one strict UTF-8-then-Latin-1 source-decoding contract and Unicode-NFC project-path identity across browser, ZIP and local-folder entry points.

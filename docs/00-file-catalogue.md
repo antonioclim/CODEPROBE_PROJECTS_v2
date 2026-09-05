@@ -9,6 +9,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 - `added_audit_phase4c`: 7
 - `added_audit_phase4d`: 4
 - `added_audit_phase4f1`: 4
+- `added_audit_phase4f2`: 3
 - `added_phase13`: 10
 - `completed_migration`: 30
 - `completed_phase13`: 4
@@ -67,6 +68,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `docs/16-ci-and-repository-controls.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4` | audit-4 | `medium` |
 | `docs/17-supported-coverage.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4d` | audit-4d | `medium` |
 | `docs/18-runtime-integrity.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4f1` | audit-4f1 | `medium` |
+| `docs/19-release-recovery.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4f2` | audit-4f2 | `high` |
 | `docs/assets/interface-preview.png` | `—` | `docs` | technical documentation or asset | `keep` | current | `medium` |
 | `docs/history/01-stabilisation.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
 | `docs/history/02-parser-and-metrics.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
@@ -127,8 +129,10 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tests/test_pyodide_fixture.py` | `—` | `tests` | regression test | `added_audit_phase4f1` | audit-4f1 | `high` |
 | `tests/test_pyodide_provenance.py` | `—` | `tests` | regression test | `added_audit_phase4c` | audit-4c | `high` |
 | `tests/test_reference_integrity.py` | `—` | `tests` | regression test | `keep` | current | `high` |
+| `tests/test_release_crash_driver.py` | `—` | `tests` | automated regression test | `added_audit_phase4f2` | audit-4f2 | `high` |
 | `tests/test_release_integrity.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_release_metadata.py` | `—` | `tests` | regression test | `keep` | current | `high` |
+| `tests/test_release_recovery.py` | `—` | `tests` | automated regression test | `added_audit_phase4f2` | audit-4f2 | `high` |
 | `tests/test_release_reproducibility.py` | `—` | `tests` | regression test | `added_audit_phase4` | audit-4 | `high` |
 | `tests/test_report_schema.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_runtime_smoke.py` | `—` | `tests` | regression test | `keep` | current | `high` |
@@ -153,9 +157,3 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tools/prepare_pyodide_fixture.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4f1` | audit-4f1 | `high` |
 | `tools/run_local_server.py` | `src/run_local_server.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/validate_release.py` | `src/validate_release.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
-
-## Use of this catalogue
-
-- Use `Current path` in active commands, documentation and code references.
-- Retain `Previous path` only as migration evidence; do not recreate retired aliases.
-- Keep this catalogue, the machine-readable map and the release manifest in agreement whenever a tracked release file is added, removed or renamed.

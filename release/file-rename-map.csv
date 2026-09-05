@@ -48,6 +48,7 @@ docs/15-final-release-audit.md,,docs/15-final-release-audit.md,technical documen
 docs/16-ci-and-repository-controls.md,,docs/16-ci-and-repository-controls.md,technical documentation or asset,added_audit_phase4,audit-4,docs,medium,added during hostile audit Phase 4 to define CI and repository controls
 docs/17-supported-coverage.md,,docs/17-supported-coverage.md,technical documentation or asset,added_audit_phase4d,audit-4d,docs,medium,"supported-code coverage scope, floors and limitations"
 docs/18-runtime-integrity.md,,docs/18-runtime-integrity.md,technical documentation or asset,added_audit_phase4f1,audit-4f1,docs,medium,documents byte-consumption integrity and the real functional browser gate
+docs/19-release-recovery.md,,docs/19-release-recovery.md,technical documentation or asset,added_audit_phase4f2,audit-4f2,docs,high,"durable release-publication journal, recovery state machine and operator procedure"
 docs/assets/interface-preview.png,,docs/assets/interface-preview.png,technical documentation or asset,keep,current,docs,medium,canonical current path
 docs/history/01-stabilisation.md,,docs/history/01-stabilisation.md,phase-history note,keep,current,docs,medium,canonical current path
 docs/history/02-parser-and-metrics.md,,docs/history/02-parser-and-metrics.md,phase-history note,keep,current,docs,medium,canonical current path
@@ -108,8 +109,10 @@ tests/test_project_mode.py,,tests/test_project_mode.py,regression test,keep,curr
 tests/test_pyodide_fixture.py,,tests/test_pyodide_fixture.py,regression test,added_audit_phase4f1,audit-4f1,tests,high,hermetic regression coverage for authenticated Pyodide fixture preparation
 tests/test_pyodide_provenance.py,,tests/test_pyodide_provenance.py,regression test,added_audit_phase4c,audit-4c,tests,high,Pyodide production configuration and provenance regressions
 tests/test_reference_integrity.py,,tests/test_reference_integrity.py,regression test,keep,current,tests,high,canonical current path
+tests/test_release_crash_driver.py,,tests/test_release_crash_driver.py,automated regression test,added_audit_phase4f2,audit-4f2,tests,high,abrupt process-termination driver for the release-publication state machine
 tests/test_release_integrity.py,,tests/test_release_integrity.py,regression test,keep,current,tests,high,canonical current path
 tests/test_release_metadata.py,,tests/test_release_metadata.py,regression test,keep,current,tests,high,canonical current path
+tests/test_release_recovery.py,,tests/test_release_recovery.py,automated regression test,added_audit_phase4f2,audit-4f2,tests,high,"hostile crash, stale-lock, journal and concurrent-change recovery matrix"
 tests/test_release_reproducibility.py,,tests/test_release_reproducibility.py,regression test,added_audit_phase4,audit-4,tests,high,added during hostile audit Phase 4 to guard clone and archive safety
 tests/test_report_schema.py,,tests/test_report_schema.py,regression test,keep,current,tests,high,canonical current path
 tests/test_runtime_smoke.py,,tests/test_runtime_smoke.py,regression test,keep,current,tests,high,canonical current path

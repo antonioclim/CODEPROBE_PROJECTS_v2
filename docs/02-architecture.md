@@ -173,6 +173,18 @@ The browser application does not launch native processes. Maintainer tools that 
 
 `codeprobe_engine.server` is similarly narrow. It serves only the browser pages, their declared assets, the browser-compatible runtime and an optional versioned Pyodide vendor subtree. Repository documents, tests and release metadata are outside the HTTP allowlist. The reusable factory enforces loopback by default rather than relying on the CLI alone.
 
+## Release publication recovery boundary
+
+`tools/build_release.py` owns release-packet orchestration while
+`codeprobe_engine.release` owns the manifest-verified snapshot and archive
+semantics. Publication uses a packet-specific JSON lock and a versioned,
+fsynchronised transaction journal. The checksum sidecar is withdrawn before
+public mutation and installed last as the readiness marker. Recovery compares
+public bytes with the recorded new and prior identities, then retains the
+complete new packet, restores the prior packet or stops fail-closed on an
+unknown concurrent value. The detailed state machine and platform limitations
+are defined in `docs/19-release-recovery.md`.
+
 ## Coverage extraction seam
 
 Coverage policy and collection live in `tools/check_coverage.py` rather than in the release builder or the analysis engine. This keeps measurement orthogonal to product behaviour. The collector uses `sys.monitoring` to observe executable lines in maintained Python files, while the full test suite, Chromium job and release reproducibility remain separate gates. The sole excluded production path is the coverage driver itself because it must configure the monitor before measurement begins.

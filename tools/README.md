@@ -13,10 +13,12 @@ parity. It uses `--skip-tests` only inside isolated candidate trees; CI runs the
 full canonical gate immediately before starting this integration check.
 
 `tools/build_release.py` packages only the immutable snapshot authorised by the
-strict release manifest. It stages and verifies the required ZIP, checksum and
-package audit before publication, then attempts to restore the prior packet
-after a detected publication failure. This is not an atomic or crash-recovery
-guarantee for three paths.
+strict release manifest. It records a durable transaction journal, withdraws
+the checksum readiness marker before public mutation and installs the checksum
+last. Automatic recovery retains a complete new packet, restores the complete
+prior packet or stops fail-closed on an unknown concurrent state. Use
+`--recover-only` after an interrupted process; see
+`docs/19-release-recovery.md` for the exact guarantee boundary.
 
 
 ## Supported-code coverage

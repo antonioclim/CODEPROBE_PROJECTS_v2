@@ -174,9 +174,13 @@ evidence. It captures immutable bytes for every manifest-listed regular file and
 for the verified manifest itself, then packages them under the stable
 `CodeProbe_Project_Kit_v2.2.0/` archive root. The ZIP, its required SHA-256
 sidecar and its required `.package_audit.json` member-accounting sidecar are
-staged and verified before their public paths are replaced. A detected publication failure attempts
-to restore the prior three-file packet and reports an incomplete rollback. See
-`docs/08-release-process.md` for the crash and filesystem guarantee boundary.
+prepared under a durable transaction journal. The checksum is withdrawn before
+public mutation and installed last as the readiness marker. Before a new build,
+or explicitly with `--recover-only`, the publisher retains a complete new
+packet, restores the complete prior packet or stops fail-closed on an unknown
+concurrent state. See `docs/08-release-process.md` and
+`docs/19-release-recovery.md` for the process-crash and filesystem guarantee
+boundary.
 
 ## Final naming-stable audit
 

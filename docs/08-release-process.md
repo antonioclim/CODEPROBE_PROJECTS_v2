@@ -114,7 +114,22 @@ listed source must be a regular file rather than a symbolic link or special
 filesystem entry. Current regular-file membership must match the manifest
 exactly; an extra or missing release file fails verification.
 
-## 4. Build the release ZIP
+## 4. Build and recover the release packet
+
+Before building or signing a packet, clear any interrupted publication for the
+same output target:
+
+```bash
+python3 -I -S -B tools/build_release.py \
+  --recover-only \
+  --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+```
+
+A normal build also runs this recovery step before validating the current
+checkout. The explicit command is useful after a terminated process and before
+an institutional signing workflow.
+
+Build the packet with:
 
 ```bash
 python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
@@ -124,31 +139,45 @@ The builder runs the complete read-only gate against the committed evidence,
 captures immutable bytes for every manifest-listed file and for the verified
 manifest itself, then builds the ZIP only from that snapshot. The archive root
 is `CodeProbe_Project_Kit_v2.2.0/`, independent of both the checkout directory
-and output ZIP basename.
-Output inside the checkout is allowed only under `dist/`; an external output is
-also permitted. The builder rejects non-`.zip` names, output target symbolic
-links, special files and hard links that alias source files.
+and output ZIP basename. Output inside the checkout is allowed only under
+`dist/`; an external output is also permitted. The builder rejects non-`.zip`
+names, output target symbolic links, special files and hard links that alias
+source files.
 
-The ZIP, SHA-256 sidecar and package-audit sidecar form one required release
-packet. All three are created and checked in a private same-filesystem staging
-directory. When replacement is required, existing targets are backed up, then
-the ZIP and package audit are replaced before the checksum readiness marker. A detected in-process write,
-sync or verification failure attempts to restore the complete prior packet. If
-rollback is incomplete, the command returns non-zero and retains its recovery
-directory.
+The ZIP, SHA-256 sidecar and package-audit sidecar form one logical release
+packet. They are prepared and verified in a private same-filesystem transaction
+directory. Before any public packet member changes, the publisher records a
+strict, versioned transaction journal and withdraws the checksum readiness
+marker. It installs the ZIP, package audit and checksum in that order, recording
+and synchronising each transition. The checksum is therefore present only for a
+fully installed packet.
 
-This is not a power-loss or `SIGKILL`-atomic three-file transaction: ordinary
-filesystems cannot replace three independent names as one atomic operation. An
-uncatchable interruption can leave staging or lock debris and may require
-operator recovery. Consumers must treat the checksum sidecar as the readiness
-marker and verify it before using the ZIP. Byte-for-byte ZIP reproducibility is
-bounded to identical source bytes and the same supported Python/zlib toolchain.
-Windows does not expose the same directory `fsync` durability primitive used on
-POSIX systems, so the tool does not claim equivalent rename durability there.
-Run validation and evidence refresh in a quiescent checkout. The safety precheck
-is not a sandbox against another process that already has write access to the
-tree. Package construction is insulated from later source changes only after
-the immutable snapshot has been captured.
+At the start of publication, or when `--recover-only` is used, the publisher
+validates the lock and journal and compares the actual public bytes with the
+recorded new and prior packet identities. It then either retains a complete new
+packet, restores the complete prior packet, restores absence after an
+interrupted first publication or stops fail-closed without overwriting an
+unknown concurrent change. Recovery is itself journalled and may be repeated
+after a second abrupt termination.
+
+Do not remove a retained lock or transaction directory manually. A fail-closed
+result preserves that evidence because it cannot prove that overwriting the
+public paths is safe. Use the reported path for diagnosis. See
+`docs/19-release-recovery.md` for the journal schema, state machine, operator
+procedure and adversarial test matrix.
+
+The protocol provides deterministic recovery from abrupt process termination
+on the supported CI platforms. It does not make three independent names
+atomically replaceable and does not claim universal power-loss durability.
+Windows does not expose the same directory `fsync` primitive used on POSIX, so
+the Windows assurance is deliberately limited to process-crash recovery and
+conservative fail-closed handling. Byte-for-byte ZIP reproducibility remains
+bounded to identical source bytes and the supported Python/zlib toolchain.
+
+Consumers must treat the checksum sidecar as the readiness marker and verify it
+before using the ZIP. Run publication in a quiescent output directory: the
+transaction detects observed unknown changes but is not an authorisation
+boundary against another process that already has write access.
 
 ## 5. Post-build smoke use
 

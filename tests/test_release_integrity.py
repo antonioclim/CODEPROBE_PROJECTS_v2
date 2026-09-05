@@ -260,7 +260,14 @@ class ReleaseIntegrityTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "forced staging failure"):
                     build_release.publish_release(root, output, app_version=engine.APP_VERSION)
             self.assertEqual(old, {target: target.read_bytes() for target in targets.all()})
-            self.assertFalse(any(".staging-" in path.name or path.name.endswith(".publish.lock") for path in parent.iterdir()))
+            self.assertFalse(
+                any(
+                    ".staging-" in path.name
+                    or ".transaction-" in path.name
+                    or path.name.endswith(".publish.lock")
+                    for path in parent.iterdir()
+                )
+            )
 
     def test_packet_fingerprint_uses_coherent_descriptor_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -341,7 +348,14 @@ class ReleaseIntegrityTests(unittest.TestCase):
                         )
                     )
                     self.assertEqual(metadata.st_mtime_ns, expected_mtime)
-                self.assertFalse(any(".staging-" in path.name or path.name.endswith(".publish.lock") for path in parent.iterdir()))
+                self.assertFalse(
+                any(
+                    ".staging-" in path.name
+                    or ".transaction-" in path.name
+                    or path.name.endswith(".publish.lock")
+                    for path in parent.iterdir()
+                )
+            )
 
     def test_successful_publication_is_consistent_and_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -380,10 +394,13 @@ class ReleaseIntegrityTests(unittest.TestCase):
                     raise OSError(f"forced replacement failure {calls}")
                 real_replace(source, destination)
 
-            with mock.patch.object(build_release.os, "replace", side_effect=fail_commit_and_restore):
-                with mock.patch.object(build_release, "_verify_prior_state", side_effect=PermissionError("forced verification failure")):
-                    with self.assertRaisesRegex(build_release.PublicationError, "rollback is incomplete") as caught:
-                        build_release.publish_release(root, output, app_version=engine.APP_VERSION)
+            with mock.patch.object(
+                build_release,
+                "_commit_staged_target",
+                side_effect=fail_commit_and_restore,
+            ):
+                with self.assertRaisesRegex(build_release.PublicationError, "rollback is incomplete") as caught:
+                    build_release.publish_release(root, output, app_version=engine.APP_VERSION)
             self.assertIsNotNone(caught.exception.recovery_path)
             self.assertTrue(caught.exception.recovery_path.is_dir())
             lock = parent / ".release.zip.publish.lock"
@@ -413,8 +430,15 @@ class ReleaseIntegrityTests(unittest.TestCase):
                     raise OSError("forced commit failure")
                 real_replace(source, destination)
 
-            with mock.patch.object(build_release.os, "replace", side_effect=change_checksum_then_fail):
-                with self.assertRaisesRegex(build_release.PublicationError, "rollback is incomplete") as caught:
+            with mock.patch.object(
+                build_release,
+                "_commit_staged_target",
+                side_effect=change_checksum_then_fail,
+            ):
+                with self.assertRaisesRegex(
+                    build_release.PublicationError,
+                    "not attributable|rollback is incomplete",
+                ) as caught:
                     build_release.publish_release(root, output, app_version=engine.APP_VERSION)
             self.assertEqual(targets.checksum_path.read_bytes(), b"concurrent owner update\n")
             self.assertTrue(caught.exception.recovery_path.is_dir())
