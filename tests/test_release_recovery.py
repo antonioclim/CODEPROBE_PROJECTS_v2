@@ -416,6 +416,78 @@ class ReleaseRecoveryTests(unittest.TestCase):
                 build_release.recover_release(root, output, app_version=VERSION)
             self.assertTrue((nonempty / "unknown.bin").is_file())
 
+    def test_control_creation_selects_binary_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            marker = parent / "public-mutation.started"
+            lock = parent / "packet.publish.lock"
+            real_open = os.open
+            binary_flag = getattr(os, "O_BINARY", 1 << 28)
+            observed = []
+
+            def inspect_open(path, flags, mode=0o777, **kwargs):
+                if Path(path) in {marker, lock} and flags & os.O_CREAT:
+                    observed.append((Path(path), flags))
+                native_flags = flags if os.name == "nt" else flags & ~binary_flag
+                return real_open(path, native_flags, mode, **kwargs)
+
+            with unittest.mock.patch.object(os, "O_BINARY", binary_flag, create=True):
+                with unittest.mock.patch.object(os, "open", side_effect=inspect_open):
+                    build_release._create_mutation_marker(marker, "a" * 32)
+                    build_release._create_lock(lock, {"sample": "line one\nline two"})
+            self.assertEqual(len(observed), 2)
+            for path, flags in observed:
+                self.assertTrue(flags & binary_flag, path.name)
+                self.assertTrue(flags & os.O_EXCL, path.name)
+            self.assertEqual(marker.read_bytes(), b"transaction_id=" + b"a" * 32 + b"\n")
+            self.assertNotIn(b"\r", lock.read_bytes())
+
+    def test_failed_control_write_closes_before_unlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "packet.publish.lock"
+            real_unlink = Path.unlink
+            descriptors = []
+
+            def fail_write(descriptor, content):
+                descriptors.append(descriptor)
+                raise OSError("controlled incomplete write")
+
+            def require_closed(path, *args, **kwargs):
+                if path == lock:
+                    with self.assertRaises(OSError):
+                        os.fstat(descriptors[-1])
+                return real_unlink(path, *args, **kwargs)
+
+            with unittest.mock.patch.object(build_release, "_write_all", side_effect=fail_write):
+                with unittest.mock.patch.object(Path, "unlink", require_closed):
+                    with self.assertRaisesRegex(OSError, "controlled incomplete write"):
+                        build_release._create_lock(lock, {"sample": "value"})
+            self.assertFalse(lock.exists())
+
+    def test_windows_liveness_declares_pointer_sized_handles(self):
+        import ctypes
+        from ctypes import wintypes
+
+        wide_handle = (1 << 40) + 17
+        kernel = unittest.mock.Mock()
+        kernel.OpenProcess.return_value = wide_handle
+
+        def report_exit(handle, pointer):
+            self.assertEqual(handle, wide_handle)
+            ctypes.cast(pointer, ctypes.POINTER(wintypes.DWORD)).contents.value = 259
+            return True
+
+        kernel.GetExitCodeProcess.side_effect = report_exit
+        with unittest.mock.patch.object(ctypes, "WinDLL", return_value=kernel, create=True):
+            self.assertTrue(build_release._windows_process_alive(12345))
+        self.assertIs(kernel.OpenProcess.restype, wintypes.HANDLE)
+        self.assertEqual(kernel.OpenProcess.argtypes, [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD])
+        self.assertEqual(kernel.GetExitCodeProcess.argtypes, [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)])
+        self.assertIs(kernel.GetExitCodeProcess.restype, wintypes.BOOL)
+        self.assertEqual(kernel.CloseHandle.argtypes, [wintypes.HANDLE])
+        self.assertIs(kernel.CloseHandle.restype, wintypes.BOOL)
+        kernel.CloseHandle.assert_called_once_with(wide_handle)
+
     def test_recover_only_cli_and_recipient_command(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             parent = Path(tmp)
@@ -448,6 +520,153 @@ class ReleaseRecoveryTests(unittest.TestCase):
                 "python3 -I -S -B tools/validate_release.py --skip-tests",
                 guide,
             )
+
+    def test_invalid_lock_fields_retain_prior_packet(self):
+        changes = (
+            ("extra", True), ("schema", "unsupported"),
+            ("transaction_id", "../unknown"), ("app_version", "999.0.0"),
+            ("basename", "other.zip"), ("transaction_dir", "../other"),
+            ("hostname", ""), ("pid", True), ("pid", 0),
+            ("created_at_utc", "not-a-timeZ"), ("created_at_utc", "2026-09-05"),
+        )
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root, output, targets, old_bytes, _new = self.prepare_old_and_new(Path(tmp))
+            crashed = self.run_driver("publish", root, output, "prepared")
+            self.assertEqual(crashed.returncode, 97, crashed.stdout)
+            lock_path = build_release._lock_path(output.parent, output.name)
+            original = build_release._read_control_json(lock_path)
+            for field, value in changes:
+                with self.subTest(field=field, value=value):
+                    altered = dict(original)
+                    altered[field] = value
+                    build_release._atomic_write_control_json(lock_path, altered)
+                    with self.assertRaises(build_release.PublicationError):
+                        build_release.recover_release(root, output, app_version=VERSION)
+                    self.assertEqual(self.packet_bytes(targets), old_bytes)
+                    self.assertEqual(build_release._read_control_json(lock_path), altered)
+            build_release._atomic_write_control_json(lock_path, original)
+            build_release.recover_release(root, output, app_version=VERSION)
+            self.assert_no_recovery_state(output)
+
+    def test_invalid_journal_fields_retain_prior_packet(self):
+        changes = (
+            (("extra",), True), (("schema",), "unsupported"),
+            (("transaction_id",), "0" * 32), (("basename",), "other.zip"),
+            (("package_root",), "../outside"), (("state",), "unknown"),
+            (("sequence",), 0), (("created_at_utc",), "badZ"),
+            (("updated_at_utc",), "2026-09-05"), (("targets",), {}),
+            (("new",), []), (("prior",), []),
+            (("new", "zip"), []), (("new", "zip"), {}),
+            (("new", "zip", "path"), "../outside"),
+            (("new", "zip", "path"), "backup/0"),
+            (("new", "zip", "size_bytes"), -1),
+            (("new", "zip", "sha256"), "invalid"),
+            (("new", "zip", "mode"), True),
+            (("new", "zip", "mtime_ns"), -1),
+            (("prior", "zip"), []),
+            (("prior", "zip", "existed"), "yes"),
+            (("prior", "zip", "path"), "backup/9"),
+            (("prior", "zip", "sha256"), "0" * 64),
+        )
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root, output, targets, old_bytes, _new = self.prepare_old_and_new(Path(tmp))
+            crashed = self.run_driver("publish", root, output, "prepared")
+            self.assertEqual(crashed.returncode, 97, crashed.stdout)
+            lock_path = build_release._lock_path(output.parent, output.name)
+            lock = build_release._read_control_json(lock_path)
+            transaction = output.parent / lock["transaction_dir"]
+            journal_path = transaction / "journal.json"
+            original = build_release._read_control_json(journal_path)
+            for field_path, value in changes:
+                with self.subTest(field_path=field_path):
+                    altered = json.loads(json.dumps(original))
+                    record = altered
+                    for field in field_path[:-1]:
+                        record = record[field]
+                    record[field_path[-1]] = value
+                    build_release._atomic_write_control_json(journal_path, altered)
+                    with self.assertRaises(build_release.PublicationError):
+                        build_release.recover_release(root, output, app_version=VERSION)
+                    self.assertEqual(self.packet_bytes(targets), old_bytes)
+                    self.assertTrue(lock_path.is_file())
+                    self.assertEqual(build_release._read_control_json(journal_path), altered)
+            build_release._atomic_write_control_json(journal_path, original)
+            build_release.recover_release(root, output, app_version=VERSION)
+            self.assert_no_recovery_state(output)
+
+    def test_modified_new_member_retains_recovery_evidence(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root, output, targets, _old, _new = self.prepare_old_and_new(Path(tmp))
+            crashed = self.run_driver("publish", root, output, "zip_installed")
+            self.assertEqual(crashed.returncode, 97, crashed.stdout)
+            lock_path = build_release._lock_path(output.parent, output.name)
+            lock = build_release._read_control_json(lock_path)
+            transaction = output.parent / lock["transaction_dir"]
+            journal = build_release._read_control_json(transaction / "journal.json")
+            member = transaction / journal["new"]["zip"]["path"]
+            member.write_bytes(b"unrecognised replacement\n")
+            before = self.packet_bytes(targets)
+            with self.assertRaisesRegex(build_release.PublicationError, "new zip transaction bytes"):
+                build_release.recover_release(root, output, app_version=VERSION)
+            self.assertEqual(self.packet_bytes(targets), before)
+            self.assertEqual(member.read_bytes(), b"unrecognised replacement\n")
+            self.assertTrue(lock_path.is_file())
+
+    def test_modified_backup_retains_recovery_evidence(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root, output, targets, _old, _new = self.prepare_old_and_new(Path(tmp))
+            crashed = self.run_driver("publish", root, output, "zip_installed")
+            self.assertEqual(crashed.returncode, 97, crashed.stdout)
+            lock_path = build_release._lock_path(output.parent, output.name)
+            lock = build_release._read_control_json(lock_path)
+            transaction = output.parent / lock["transaction_dir"]
+            journal = build_release._read_control_json(transaction / "journal.json")
+            backup = transaction / journal["prior"]["zip"]["path"]
+            backup.write_bytes(b"unrecognised backup\n")
+            before = self.packet_bytes(targets)
+            with self.assertRaisesRegex(build_release.PublicationError, "prior zip backup"):
+                build_release.recover_release(root, output, app_version=VERSION)
+            self.assertEqual(self.packet_bytes(targets), before)
+            self.assertEqual(backup.read_bytes(), b"unrecognised backup\n")
+            self.assertTrue(lock_path.is_file())
+
+    def test_non_object_and_oversized_control_files_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "control.json"
+            for content in (b"[]\n", b"null\n", b"x" * (build_release.CONTROL_FILE_LIMIT_BYTES + 1)):
+                with self.subTest(size=len(content)):
+                    path.write_bytes(content)
+                    with self.assertRaises(build_release.PublicationError):
+                        build_release._read_control_json(path)
+                    self.assertEqual(path.read_bytes(), content)
+            path.write_bytes(b"{}\n")
+            with self.assertRaises(build_release.PublicationError):
+                build_release._atomic_write_control_json(
+                    path, {"payload": "x" * build_release.CONTROL_FILE_LIMIT_BYTES}
+                )
+            self.assertEqual(path.read_bytes(), b"{}\n")
+            self.assertEqual(list(path.parent.iterdir()), [path])
+
+    def test_failed_lock_write_removes_only_its_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            lock = parent / "packet.publish.lock"
+            retained = parent / "unrelated.txt"
+            retained.write_bytes(b"retain\n")
+            with unittest.mock.patch.object(build_release.os, "write", return_value=0):
+                with self.assertRaisesRegex(OSError, "short write"):
+                    build_release._create_lock(lock, {"transaction_id": "1" * 32})
+            self.assertFalse(lock.exists())
+            self.assertEqual(retained.read_bytes(), b"retain\n")
+
+    def test_existing_lock_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "packet.publish.lock"
+            lock.write_bytes(b"existing owner\n")
+            with self.assertRaisesRegex(build_release.PublicationError, "lock exists"):
+                build_release._create_lock(lock, {"transaction_id": "1" * 32})
+            self.assertEqual(lock.read_bytes(), b"existing owner\n")
+
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Reconciliation
 
+- Preserve exact control-file bytes on Windows with binary descriptors, close failed lock writes before removal and declare pointer-sized process handles.
+- Exercise malformed recovery records, damaged staged packets, lock collisions and platform control-file contracts without lowering coverage floors.
 - Run normal-command release recovery before current-checkout validation, with regressions for an invalid checkout and an unknown concurrent packet change.
 
 ### Added

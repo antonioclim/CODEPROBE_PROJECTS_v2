@@ -648,17 +648,15 @@ def _write_all(descriptor: int, content: bytes) -> None:
 def _create_lock(path: Path, payload: dict[str, Any]) -> None:
     encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     except FileExistsError as exc:
         raise PublicationError(f"another publication or recovery lock exists: {path}", recovery_path=path) from exc
     try:
         _write_all(descriptor, encoded)
         os.fsync(descriptor)
     except BaseException:
-        try:
-            path.unlink(missing_ok=True)
-        finally:
-            os.close(descriptor)
+        os.close(descriptor)
+        path.unlink(missing_ok=True)
         raise
     else:
         os.close(descriptor)
@@ -672,6 +670,12 @@ def _windows_process_alive(pid: int) -> bool | None:
     except ImportError:
         return None
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
     process_query_limited_information = 0x1000
     still_active = 259
     handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
@@ -1193,7 +1197,7 @@ def _remove_control_path(path: Path) -> None:
 def _create_mutation_marker(path: Path, transaction_id: str) -> None:
     payload = (f"transaction_id={transaction_id}\n").encode("ascii")
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     except FileExistsError as exc:
         raise PublicationError("public-mutation marker already exists", recovery_path=path.parent) from exc
     try:
