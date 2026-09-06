@@ -8,6 +8,8 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Contract reconciliation after targeted re-audit
 
+- Read generated report fixtures explicitly as UTF-8 and exercise a legacy
+  default codec without weakening CLI replay assertions.
 - Bind calibration, evaluation and application to one effective configuration,
   base mode and actual engine identity, using unrounded decision scores.
 - Make unmet fit targets and unbound numerical summaries non-operational without

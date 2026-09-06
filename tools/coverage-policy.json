@@ -1,7 +1,7 @@
 {
   "schema": "codeprobe-supported-coverage/v1",
   "python_runtime": "3.14.7",
-  "minimum_tests": 447,
+  "minimum_tests": 448,
   "include_roots": [
     "src",
     "tools"

@@ -93,7 +93,7 @@ class ScoringReplayTests(unittest.TestCase):
                 self.assertEqual(row["scoring_contract"], profile["scoring_contract"])
             rate = profile["validation"]["evaluation_at_selected_trigger"]["false_positive_rate"]
             self.assertEqual(rate, float(report["review_triggered"]))
-            self.assertIn("Operational for replay", Path(result["summary_path"]).read_text())
+            self.assertIn("Operational for replay", Path(result["summary_path"]).read_text(encoding="utf-8"))
 
     def test_manifest_overrides_replay_on_files(self):
         self.check_replay()
@@ -207,6 +207,17 @@ class ScoringReplayTests(unittest.TestCase):
         threshold, _, _ = calibrate_profile.choose_review_trigger([.2, .2, .6], [.8], [], .33331)
         self.assertGreater(threshold, .6)
 
+    def test_report_file_reads_do_not_depend_on_the_host_locale(self):
+        original = Path.read_text
+
+        def legacy_read(path, encoding=None, errors=None, **options):
+            return original(path, encoding=encoding or "cp1252", errors=errors, **options)
+
+        # The generated files are UTF-8 even when the host default is not.
+        with mock.patch.object(Path, "read_text", autospec=True, side_effect=legacy_read):
+            self.check_replay()
+            self.test_cli_omitted_mode_uses_project_contract()
+
     def test_cli_omitted_mode_uses_project_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -216,7 +227,7 @@ class ScoringReplayTests(unittest.TestCase):
                 "--folder", str(root / "project-2"), "--calibration-profile", result["profile_path"],
                 "--json-out", str(output)], capture_output=True, text=True, check=False, timeout=30)
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
-            report = json.loads(output.read_text())
+            report = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(report["profile"], "strict")
             self.assertEqual(report["overall_score"], result["results"][2]["score"])
 
