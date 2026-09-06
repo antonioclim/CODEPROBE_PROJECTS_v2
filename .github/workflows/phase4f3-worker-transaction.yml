@@ -61,8 +61,20 @@ jobs:
           if len(patch) != 99018 or hashlib.sha256(patch).hexdigest() != 'df892e3ca8a8d9626ae4c07908bdd51e412653d80856310f05ea01510252b13d':
               raise SystemExit('Candidate patch mismatch')
           pathlib.Path('/tmp/codeprobe-4f3.patch').write_bytes(patch)
+          sha = '1359ede8f40588ea200c37024c6b6121c0f50250'
+          url = 'https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2/git/blobs/' + sha
+          with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
+              record = json.load(response)
+          content = base64.b64decode(record['content'])
+          if hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest() != sha:
+              raise SystemExit('Correction transport mismatch')
+          correction = lzma.decompress(base64.b64decode(content, validate=True))
+          if hashlib.sha256(correction).hexdigest() != '19923a089eabc777098c771de840937d92fd2d0187afad0dd9ffb51ee26d4a26':
+              raise SystemExit('Correction patch mismatch')
+          pathlib.Path('/tmp/codeprobe-4f3-correction.patch').write_bytes(correction)
           PY
           git apply --unidiff-zero --binary /tmp/codeprobe-4f3.patch
+          git apply --unidiff-zero --binary /tmp/codeprobe-4f3-correction.patch
       - name: Validate and regenerate coherent release evidence
         shell: bash
         run: |
@@ -70,7 +82,7 @@ jobs:
           python -I -S -B tools/check_release.py --require-node --write-release-evidence
           git add --all
           git diff --cached --check
-          test "$(git write-tree)" = '563497b4598327ff9cc5ffc89ce9c8229130a8ed'
+          test "$(git write-tree)" = '56a93711260d7bae47eceba0172b10b2d9b86336'
       - name: Measure supported-code coverage
         shell: bash
         run: python -I -S -B tools/check_coverage.py --json-out /tmp/coverage-4f3.json
@@ -97,7 +109,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(git write-tree)" = '563497b4598327ff9cc5ffc89ce9c8229130a8ed'
+          test "$(git write-tree)" = '56a93711260d7bae47eceba0172b10b2d9b86336'
           git diff --exit-code
           python -I -S -B - <<'PY'
           import base64, json, os, pathlib, subprocess, urllib.request
@@ -120,7 +132,7 @@ jobs:
                   raise SystemExit('Source blob mismatch: ' + name)
               entries.append({'path': name, 'mode': '100644', 'type': 'blob', 'sha': local_sha})
           result = post('trees', {'base_tree': '10598790ef009d0b28b863aebcc8b60a0eebe2e7', 'tree': entries})
-          if result['sha'] != '563497b4598327ff9cc5ffc89ce9c8229130a8ed':
+          if result['sha'] != '56a93711260d7bae47eceba0172b10b2d9b86336':
               raise SystemExit('Remote tree mismatch')
           print('VERIFIED_REMOTE_TREE=' + result['sha'])
           print('No branch reference was changed by this job.')
