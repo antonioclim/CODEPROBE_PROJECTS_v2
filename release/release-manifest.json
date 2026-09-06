@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 148,
-  "total_source_size_bytes": 2030885,
+  "total_source_size_bytes": 2051600,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -57,8 +57,8 @@
     },
     {
       "path": "README.md",
-      "size_bytes": 15788,
-      "sha256": "134fe9d157d4664f53649905cb65d4b1c4fcad164a2ae810e9037232093d2400"
+      "size_bytes": 36503,
+      "sha256": "9a5e6a3e184883c9688b186d9f9f1e8a68c7820e20b1bc0e3406bd6fff1c8239"
     },
     {
       "path": "SECURITY.md",
@@ -746,5 +746,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "54d221eab130ab21cb6f5090594af3bcda8e22654df35b9cec2256170f0c1e37"
+  "manifest_sha256": "60fa0775e13ad6926f9b551d963327d8e99d628e1189f0ddee6ab30ef11f5b45"
 }
