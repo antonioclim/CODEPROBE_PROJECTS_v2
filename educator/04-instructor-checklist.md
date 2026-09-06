@@ -37,7 +37,8 @@ Request, where appropriate:
 
 - Archive anonymised calibration candidates if institutional policy permits.
 - Revisit the local review trigger before the next iteration of the course.
-- Keep the exact ZIP hash and release manifest used for that cohort.
+- Keep the complete three-file release packet and verified release manifest used
+  for that cohort.
 
 ## Interpretation boundary
 

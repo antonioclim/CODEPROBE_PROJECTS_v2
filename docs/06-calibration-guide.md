@@ -44,13 +44,15 @@ samples/hybrid_project,hybrid,python,project,declared assisted project folder
 ```
 
 Paths are resolved relative to the manifest location unless `--root` is supplied.
+Manifest and corpus traversal rejects symbolic links, reparse points and special filesystem entries. Output paths must be distinct from the manifest and all samples; an output is also rejected when it is redirected through a link or placed inside a project sample.
+Generated profiles use deterministic pseudonyms for sample paths by default. A manifest may supply an explicit, non-sensitive `sample_id` when local traceability is required. Ordinary analysis reports retain aggregate calibration design and evaluation metadata but do not embed sample-level observations or the full sensitivity grid.
 
 ## Generate a profile
 
 Directory-output form:
 
 ```bash
-python3 tools/calibrate_profile.py \
+python3 -I -S -B tools/calibrate_profile.py \
   --manifest calibration/01-corpus-manifest-template.json \
   --out-dir calibration/profiles/intro-python-2026 \
   --target-fpr 10
@@ -59,7 +61,7 @@ python3 tools/calibrate_profile.py \
 Explicit-output form:
 
 ```bash
-python3 tools/calibrate_profile.py \
+python3 -I -S -B tools/calibrate_profile.py \
   --manifest calibration/01-corpus-manifest-template.csv \
   --profile-id intro-python-2026-v1 \
   --label "Intro Python 2026 project profile" \
@@ -77,7 +79,7 @@ python3 tools/calibrate_profile.py \
 Paste the generated JSON into the browser field **Calibration profile (optional JSON)**, or use it through the CLI:
 
 ```bash
-python3 tools/analyze_project.py \
+python3 -I -S -B tools/analyze_project.py \
   --folder path/to/submission \
   --calibration-profile calibration/profiles/intro-python-2026-profile.json \
   --json-out report.json \
@@ -110,3 +112,35 @@ Do not approve a profile unless:
 ## Non-negotiable caveat
 
 A calibrated trigger is still a **review trigger**, not proof. A score above the trigger should lead to revision, explanation and evidence review, not an automatic academic-integrity conclusion. A low score means that the selected signals were not detected; it does not certify independent authorship.
+
+## Independent evaluation and profile scope
+
+A generated profile must use group-exclusive fit and evaluation partitions. The review trigger is selected only on the fit partition. False-positive and positive review rates reported as performance are calculated only on the untouched evaluation partition. A profile is scoped to one report kind and one language; mixed file/project or mixed-language corpora must be split into separate profiles. Sample paths are corpus-relative or pseudonymised and failed sample reads abort generation before any profile is written.
+
+## Duplicate-evidence boundary
+
+Hard-linked aliases of the same filesystem object are rejected. Copied-identical, templated or semantically related samples cannot be inferred reliably from filenames alone; curators must place dependent samples in the same group and exclude duplicated evidence.
+The exported `independent_holdout` flag means group-exclusive separation under the declared group identifiers and physical-source checks. It is not evidence that copied, templated or semantically related samples are statistically independent.
+
+## Export identifier privacy
+
+Internal deterministic keys still establish duplicate-source rejection, group equality and the fit/evaluation split. They do not appear in new sample-level exports. Only after partitioning and estimation, each sample receives a fresh UUID4 token and each distinct group receives a fresh token shared within that export. Profile JSON and observations CSV use the same tokens. Explicit manifest identifiers are also replaced, and no mapping is written. Re-running the same corpus preserves the analytical values but deliberately changes exported tokens and hence file digests.
+
+This blocks direct guessing of a path against an exported deterministic hash; it is not anonymisation. Scores, labels, row order, group sizes and user-supplied free-text course/profile metadata may disclose or link identities. Curators must review those fields and protect input manifests and local failure diagnostics. Source ZIP/release reproducibility is distinct from deliberately random calibration-output identifiers.
+
+## Bound scoring and feasibility
+
+New generated profiles bind the fitted base mode, actual engine SHA-256 and
+effective metric configuration to application. Manifest overrides and the
+replacement `--config` override are applied before sample scoring. An omitted
+mode selects the bound mode; an explicit mismatch or incompatible scope fails.
+Old unbound profiles remain provisional and should be refitted before their
+recorded evaluation is relied upon.
+
+The unrounded `decision_score` drives selection and review comparisons.
+`overall_score` remains the rounded presentation field. Profiles that cannot
+meet the requested fit target on the configured grid remain inspectable drafts
+with `operational: false`; application refuses them. Held-out evaluation reports
+its own target result without influencing selection. Operational status is not
+scientific validation or authorisation for high-stakes use. See
+`docs/22-contract-reconciliation.md` for the precise compatibility boundary.

@@ -6,7 +6,7 @@
 2. From the package root, run:
 
 ```bash
-python3 tools/run_local_server.py
+python3 -I -S -B tools/run_local_server.py
 ```
 
 3. Open the printed local address.
@@ -23,13 +23,18 @@ This option uses the Pyodide source configured in `app/runtime-config.json`. In 
 5. Run:
 
 ```bash
-python3 tools/check_release.py --write-manifest
+python3 -I -S -B tools/check_release.py --write-release-evidence
+python3 -I -S -B tools/check_release.py
 ```
 
-6. Build and archive the institutional ZIP:
+The first command explicitly refreshes tracked release evidence after the
+runtime change. Inspect that diff before using the second, read-only command as
+the release gate.
+
+6. Build and archive the institutional release packet:
 
 ```bash
-python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_institutional.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_institutional.zip
 ```
 
 ## Minimum publication packet
@@ -37,7 +42,8 @@ python3 tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_instituti
 Publish the following alongside the kit:
 
 - release ZIP;
-- SHA-256 hash of the ZIP;
+- generated ZIP SHA-256 sidecar;
+- generated ZIP package-audit sidecar;
 - `release/release-manifest.json`;
 - course-local calibration profile, if used;
 - student quick-start guide;

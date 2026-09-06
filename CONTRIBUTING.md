@@ -58,7 +58,7 @@ python3 -m unittest discover -s tests
 Then launch the browser interface:
 
 ```bash
-python3 tools/run_local_server.py --no-browser
+python3 -I -S -B tools/run_local_server.py --no-browser
 ```
 
 Check at least one representative file for every language family affected by the change.
@@ -81,10 +81,31 @@ Avoid any change that uploads analysed code, reports or filenames to an external
 Before proposing or distributing a release candidate, run:
 
 ```bash
-python3 tools/check_release.py --write-manifest
+python3 -I -S -B tools/check_release.py
 ```
 
-This validates Python syntax, the unit-test suite, external browser-script syntax where Node.js is available, browser CSP/SRI hygiene, resource-integrity metadata, version consistency, smoke reports and the release manifest. A change that modifies metric semantics, report shape or project filtering should add or update a regression test.
+This read-only gate validates Python syntax, the unit-test suite, external
+browser-script syntax where Node.js is available, browser CSP/SRI hygiene,
+resource-integrity metadata, version consistency, smoke reports and committed
+release evidence. It also verifies the declared standard-library dependency
+boundary and immutable GitHub Action pins. CI invokes the gate with
+`--require-node`, so JavaScript syntax cannot be reported as skipped there. If a
+deliberate change requires refreshed evidence, run
+`python3 -I -S -B tools/check_release.py --write-release-evidence` only after the other
+checks pass. A change that modifies metric semantics, report shape or project
+filtering should add or update a regression test.
+
+Before proposing a release-boundary change, also run:
+
+```bash
+python3 -I -S -B tools/check_release_reproducibility.py
+```
+
+This standalone integration gate requires a clean Git commit. It compares
+normalised checkouts and an exact Git export, then requires their complete
+release packets to be byte-identical under the active Python/zlib toolchain.
+The GitHub Actions matrix and repository-control requirements are documented in
+`docs/16-ci-and-repository-controls.md`.
 
 
 ## Institutional release checks
@@ -93,7 +114,7 @@ Before proposing a packaged release, run:
 
 ```bash
 python3 tools/audit_institutional_pack.py
-python3 tools/check_release.py --write-manifest
+python3 -I -S -B tools/check_release.py
 ```
 
 Do not remove or weaken the student, instructor, review and deployment guidance unless the course policy is updated at the same time.

@@ -115,3 +115,16 @@ A profile is not strong enough for operational use if the human baseline is very
 ## Ethical constraint
 
 The calibration profile changes only the local review trigger and, optionally, metric overrides. It must not be used as automatic misconduct evidence. It is a way to reduce false positives and document local assumptions.
+
+## Required fit/evaluation boundary
+
+Use either an explicit `split` column/value (`fit` or `evaluation`) for every sample or allow the tool to create a deterministic stratified group holdout. Supply `group`, `student_id` or `submission_id` whenever several files come from one author or submission so related samples cannot cross partitions. At least two known-human groups and two positive groups are required. Generated observations never export absolute local paths.
+The folder wrapper inspects a bounded, non-following file inventory. It rejects links and special entries, and generated manifests or profile outputs may not overwrite samples or use redirected output paths.
+Sample paths are replaced with deterministic pseudonyms unless the manifest supplies a deliberate, non-sensitive `sample_id`. Reports created with a profile expose only compact aggregate validation metadata, not sample-level observations.
+
+## Duplicate-evidence boundary
+
+Hard-linked aliases of the same filesystem object are rejected. Copied-identical, templated or semantically related samples cannot be inferred reliably from filenames alone; curators must place dependent samples in the same group and exclude duplicated evidence.
+The exported `independent_holdout` flag means group-exclusive separation under the declared group identifiers and physical-source checks. It is not evidence that copied, templated or semantically related samples are statistically independent.
+
+New exports replace sample and group keys with random UUID4 tokens after the analytical split and fitting steps. No identity map is emitted. Analytical values remain reproducible while identifier bytes intentionally differ between exports. See [the privacy boundary](../docs/06-calibration-guide.md#export-identifier-privacy). This does not anonymise scores, group structure or free-text metadata.

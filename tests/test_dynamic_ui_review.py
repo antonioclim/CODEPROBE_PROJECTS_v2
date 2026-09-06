@@ -67,7 +67,8 @@ def parse_items(items):
         self.assertIn('id="globalDropOverlay"', html)
         self.assertIn("renderManualReview", script)
         self.assertIn("collectDroppedFiles", script)
-        self.assertIn("webkitGetAsEntry", script)
+        self.assertIn("CodeProbeRuntime.collectDroppedFiles", script)
+        self.assertIn("webkitGetAsEntry", (ROOT / "app" / "pyodide-loader.js").read_text(encoding="utf-8"))
         self.assertRegex(script, r"document\.addEventListener\(\"drop\"")
 
     def test_project_interface_accepts_drop_and_renders_guidance(self):
@@ -77,7 +78,32 @@ def parse_items(items):
         self.assertIn('id="dropOverlay"', html)
         self.assertIn("renderReview", script)
         self.assertIn("handleDroppedProject", script)
-        self.assertIn("webkitGetAsEntry", script)
+        self.assertIn("CodeProbeRuntime.collectDroppedFiles", script)
+        self.assertIn("webkitGetAsEntry", (ROOT / "app" / "pyodide-loader.js").read_text(encoding="utf-8"))
+
+
+class BrowserInputBudgetTests(unittest.TestCase):
+    def test_main_zip_limit_precedes_array_buffer(self):
+        script = (ROOT / "app" / "codeprobe-ui.js").read_text(encoding="utf-8")
+        start = script.index("async function handleProjectZip")
+        section = script[start:script.index("function projectTextCandidate", start)]
+        self.assertLess(section.index("MAX_BROWSER_PROJECT_ZIP_BYTES"), section.index("file.arrayBuffer"))
+
+    def test_project_zip_limit_precedes_array_buffer(self):
+        script = (ROOT / "app" / "project-ui.js").read_text(encoding="utf-8")
+        start = script.index("async function loadZip")
+        section = script[start:script.index("async function loadFolder", start)]
+        self.assertLess(section.index("MAX_BROWSER_PROJECT_ZIP_BYTES"), section.index("file.arrayBuffer"))
+
+    def test_browser_folder_budget_is_present_in_both_interfaces(self):
+        for name in ("codeprobe-ui.js", "project-ui.js"):
+            self.assertIn("MAX_BROWSER_PROJECT_TOTAL_BYTES", (ROOT / "app" / name).read_text(encoding="utf-8"))
+
+    def test_browser_payload_forwards_engine_limits(self):
+        for name in ("codeprobe-ui.js", "project-ui.js"):
+            script = (ROOT / "app" / name).read_text(encoding="utf-8")
+            for token in ("max_zip_bytes", "max_zip_entries", "max_file_bytes", "max_total_bytes"):
+                self.assertIn(token, script)
 
 
 if __name__ == "__main__":

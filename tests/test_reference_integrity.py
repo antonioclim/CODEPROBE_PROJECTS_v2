@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -22,6 +24,30 @@ from codeprobe_engine.release import iter_release_files  # noqa: E402
 class ReferenceIntegrityTests(unittest.TestCase):
     def test_reference_checker_passes(self) -> None:
         self.assertEqual(check_file_references.run_checks(ROOT), [])
+
+    def test_document_link_checker_ignores_vcs_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metadata = root / ".git"
+            metadata.mkdir()
+            (metadata / "host-note.md").write_text("[missing](does-not-exist.md)\n", encoding="utf-8")
+            self.assertEqual(check_file_references.check_document_links(root), [])
+
+    def test_resource_manifest_cannot_reference_outside_package_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root = parent / "kit"
+            app = root / "app"
+            app.mkdir(parents=True)
+            outside = parent / "outside.js"
+            outside.write_text("const outside = true;\n", encoding="utf-8")
+            (app / "resource-integrity.json").write_text(
+                json.dumps({"assets": [{"path": "../../outside.js"}]}),
+                encoding="utf-8",
+            )
+            problems = check_file_references.check_resource_integrity_manifest(root)
+            self.assertEqual(len(problems), 1)
+            self.assertIn("outside package root", problems[0].message)
 
     def test_rename_map_covers_current_release_files(self) -> None:
         with (ROOT / "release" / "file-rename-map.csv").open("r", encoding="utf-8", newline="") as handle:

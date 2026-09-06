@@ -81,9 +81,11 @@ A kit used in academic-integrity contexts should be reproducible and auditable b
 
 Phase 6 externalises JavaScript and CSS from the HTML files and tightens the Content Security Policy. This reduces the browser attack surface while keeping `codeprobe_runtime.py` readable as the single source of analysis logic. The security work therefore improves packaging discipline without turning the kit into an opaque bundle.
 
-## DD-021: Pyodide CDN use is a deployment choice, not a hidden dependency
+## DD-021: Authenticate the core startup set in both CDN and local modes
 
-The default kit uses the Pyodide CDN for immediate usability, but high-assurance deployments should switch `app/runtime-config.json` to local mode and provide the real SHA-256 digest of the local `pyodide.js`. The kit documents this boundary explicitly rather than pretending that a remote runtime is integrity-pinned when no verified digest has been supplied.
+CodeProbe requires the same measured Pyodide 0.25.0 core startup bytes regardless of whether they are obtained from jsDelivr or a same-origin vendor directory. The browser validates exact sizes and SHA-256 values before use, then confirms the loaded runtime and Python versions. This keeps CDN availability and offline deployment as operational choices rather than different integrity standards.
+
+The record is intentionally limited to the startup set used by CodeProbe. Optional packages and ecosystem-wide vulnerability status remain outside the claim.
 
 ## DD-022: Privacy controls prioritise source-code non-retention
 

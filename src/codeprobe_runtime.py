@@ -6,9 +6,8 @@ CodeProbe v2.2.0
 Browser-oriented heuristic analyser for source code and technical Markdown.
 
 The engine is designed for execution inside Pyodide and uses only the Python
-standard library. Phase 6 keeps the browser runtime self-contained while adding
-harder browser packaging around it: external JS/CSS resources, runtime Pyodide
-configuration, local resource integrity metadata and privacy controls.
+standard library. Browser packaging keeps the analysis runtime self-contained
+behind explicit resource-integrity, input-boundary and privacy controls.
 
 The output is a heuristic concern signal. It supports local classroom
 self-review and code-quality discussion, but it is not evidence of misconduct.
@@ -26,8 +25,10 @@ import keyword
 import math
 import re
 import statistics
+import sys
 import time
 import tokenize
+import unicodedata
 import zipfile
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
@@ -101,6 +102,133 @@ PROJECT_DOCUMENTATION_EXTENSIONS = MARKDOWN_EXTENSIONS | {"txt", "rst", "adoc"}
 PROJECT_TEXT_EXTENSIONS = PROJECT_CODE_EXTENSIONS | PROJECT_DOCUMENTATION_EXTENSIONS
 PROJECT_MAX_FILES_DEFAULT = 300
 PROJECT_MAX_FILE_BYTES_DEFAULT = 1_000_000
+PROJECT_MAX_TOTAL_BYTES_DEFAULT = 20_000_000
+PROJECT_MAX_ZIP_BYTES_DEFAULT = 8_000_000
+PROJECT_MAX_ZIP_ENTRIES_DEFAULT = 2_000
+PROJECT_MAX_COMPRESSION_RATIO_DEFAULT = 100.0
+PROJECT_MAX_IGNORE_BYTES_DEFAULT = 131_072
+PROJECT_MAX_IGNORE_RULES_DEFAULT = 1_000
+PROJECT_READ_CHUNK_BYTES = 65_536
+
+
+def _project_limit(payload: Dict[str, Any], key: str, default: int | float, *, minimum: int | float, maximum: int | float, integer: bool = True) -> int | float:
+    raw = payload.get(key, default)
+    if isinstance(raw, bool):
+        raise ValueError(f"{key} must be a bounded {'integer' if integer else 'number'}")
+    try:
+        value = int(raw) if integer else float(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{key} must be a bounded {'integer' if integer else 'number'}") from exc
+    if value < minimum or value > maximum:
+        raise ValueError(f"{key} must be between {minimum} and {maximum}")
+    return value
+
+
+def _base64_decoded_upper_bound(text: str) -> int:
+    return (len(text) // 4) * 3 + 3
+
+
+def _zip_eocd_entry_count(data: bytes, max_entries: int) -> int:
+    minimum = max(0, len(data) - 65_557)
+    offset = data.rfind(b"PK\x05\x06", minimum)
+    if offset < 0 or offset + 22 > len(data):
+        raise ValueError("The uploaded archive lacks a valid ZIP end-of-central-directory record.")
+    disk = int.from_bytes(data[offset + 4:offset + 6], "little")
+    central_disk = int.from_bytes(data[offset + 6:offset + 8], "little")
+    disk_entries = int.from_bytes(data[offset + 8:offset + 10], "little")
+    entries = int.from_bytes(data[offset + 10:offset + 12], "little")
+    central_size = int.from_bytes(data[offset + 12:offset + 16], "little")
+    central_offset = int.from_bytes(data[offset + 16:offset + 20], "little")
+    comment_length = int.from_bytes(data[offset + 20:offset + 22], "little")
+    if offset + 22 + comment_length != len(data):
+        raise ValueError("The uploaded archive has trailing or inconsistent ZIP data.")
+    if 0xFFFF in {disk_entries, entries} or 0xFFFFFFFF in {central_size, central_offset}:
+        raise ValueError("ZIP64 project archives are not accepted by the bounded browser runtime.")
+    if disk != 0 or central_disk != 0 or disk_entries != entries:
+        raise ValueError("multi-disk ZIP project archives are not accepted.")
+    if entries > max_entries:
+        raise ValueError(f"ZIP entry limit exceeded: {entries} entries exceeds {max_entries}.")
+    if central_offset + central_size > offset:
+        raise ValueError("ZIP central-directory metadata is inconsistent.")
+    return entries
+
+
+def _zip_unix_entry_type(info: zipfile.ZipInfo) -> int:
+    return (int(info.external_attr) >> 16) & 0o170000
+
+
+def _candidate_reason_for_metadata(path: str, *, size_bytes: int, compressed_size: int, limits: Dict[str, Any], include_documentation: bool) -> Tuple[str, str]:
+    if project_path_is_unsafe(path):
+        return "unsafe_path", "Path is absolute, empty or contains parent-directory traversal."
+    extension = project_extension(path)
+    basename = normalise_project_path(path).rsplit("/", 1)[-1]
+    if basename == ".codeprobeignore":
+        if size_bytes > limits["max_ignore_bytes"]:
+            return "ignore_file_too_large", f".codeprobeignore exceeds {limits['max_ignore_bytes']} bytes."
+        return "", ""
+    if size_bytes > limits["max_file_bytes"]:
+        return "file_too_large", f"{size_bytes} bytes exceeds limit {limits['max_file_bytes']}."
+    if extension in PROJECT_BINARY_EXTENSIONS:
+        return "binary_or_non_source_extension", "Binary or non-source extension excluded before decompression."
+    if extension in PROJECT_DOCUMENTATION_EXTENSIONS and not include_documentation:
+        return "documentation_excluded_by_default", "Documentation excluded before decompression."
+    if extension not in PROJECT_CODE_EXTENSIONS and not (include_documentation and extension in PROJECT_DOCUMENTATION_EXTENSIONS):
+        return "unsupported_extension", "Unsupported extension excluded before decompression."
+    ratio = size_bytes / max(compressed_size, 1)
+    if size_bytes and ratio > limits["max_compression_ratio"]:
+        return "compression_ratio_exceeded", f"Declared expansion ratio {ratio:.1f}:1 exceeds {limits['max_compression_ratio']:.1f}:1."
+    return "", ""
+
+
+def _read_zip_member_bounded(archive: zipfile.ZipFile, info: zipfile.ZipInfo, maximum: int) -> bytes:
+    chunks: List[bytes] = []
+    total = 0
+    with archive.open(info, "r") as handle:
+        while True:
+            chunk = handle.read(min(PROJECT_READ_CHUNK_BYTES, maximum - total + 1))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > maximum:
+                raise ValueError(f"ZIP member exceeded the {maximum}-byte limit while being read: {info.filename}")
+            chunks.append(chunk)
+    data = b"".join(chunks)
+    if len(data) != int(info.file_size):
+        raise ValueError(f"ZIP member size disagrees with central-directory metadata: {info.filename}")
+    return data
+
+
+def _calibration_object(raw: Any) -> Dict[str, Any] | None:
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            value = json.loads(raw)
+        except Exception:
+            return None
+        return value if isinstance(value, dict) else None
+    return None
+
+
+def calibration_scope_decision(raw: Any, report_kind: str, language: str | None = None) -> Tuple[bool, str]:
+    profile = _calibration_object(raw)
+    if not profile or not isinstance(profile.get("scope"), dict):
+        return True, ""
+    scope = profile["scope"]
+    kinds = scope.get("report_kinds") or scope.get("kinds") or []
+    languages = scope.get("languages") or []
+    if not isinstance(kinds, list) or not all(isinstance(item, str) for item in kinds):
+        return False, "Calibration profile scope has an invalid report_kinds field."
+    if not isinstance(languages, list) or not all(isinstance(item, str) for item in languages):
+        return False, "Calibration profile scope has an invalid languages field."
+    if kinds and report_kind not in kinds:
+        return False, f"Calibration profile is scoped to {', '.join(kinds)}, not {report_kind}."
+    if language and languages and language not in languages:
+        return False, f"Calibration profile is scoped to {', '.join(languages)}, not {language}."
+    return True, ""
+
 PROJECT_SLOC_WEIGHT_CAP = 500
 PROJECT_WEIGHT_CAP_SLOC = PROJECT_SLOC_WEIGHT_CAP
 PROJECT_BINARY_EXTENSIONS = {
@@ -853,7 +981,7 @@ def utc_timestamp() -> str:
 
 def canonical_json(value: Any) -> str:
     """Serialise a JSON-like object deterministically for hashing."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str, allow_nan=False)
 
 
 def stable_sha256(value: Any) -> str:
@@ -901,8 +1029,26 @@ def engine_source_fingerprint() -> Dict[str, Any]:
 
 
 def effective_engine_fingerprint(raw: Any = None) -> Dict[str, Any]:
-    """Prefer caller-supplied runtime metadata; otherwise hash the loaded source."""
-    return normalise_engine_fingerprint(raw) or engine_source_fingerprint()
+    """Keep declared provenance distinct from the independently measured source."""
+    claimed = normalise_engine_fingerprint(raw)
+    measured = engine_source_fingerprint()
+    if not claimed:
+        return measured
+    available = bool(measured.get("available"))
+    matches = (
+        claimed["algorithm"] == "sha256"
+        and claimed["scope"] in {"codeprobe_runtime.py", "src/codeprobe_runtime.py"}
+        and claimed["value"] == measured.get("value")
+    ) if available else None
+    declared_source = str(raw.get("declared_source") or claimed["source"])[:80] if isinstance(raw, dict) else claimed["source"]
+    # A matching digest does not authenticate a caller or upgrade a manual engine.
+    if claimed["source"] not in {"caller", "manual-unverified"}:
+        if claimed["source"] not in {"packaged-verified", "runtime-file"} or matches is not True:
+            claimed["source"] = "caller-unverified"
+    claimed["declared_source"] = declared_source
+    claimed["matches_loaded_source"] = matches
+    claimed["measured_sha256"] = measured.get("value", "") if available else ""
+    return claimed
 
 
 def metric_config_digest(config: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
@@ -958,6 +1104,11 @@ def runtime_metadata(config: Optional[Dict[str, Dict[str, Any]]] = None, fingerp
         "app_name": APP_NAME,
         "app_version": APP_VERSION,
         "engine_format": ENGINE_FORMAT,
+        "python_runtime": {
+            "implementation": sys.implementation.name,
+            "version": ".".join(str(part) for part in sys.version_info[:3]),
+            "platform": sys.platform,
+        },
         "methodology": METHODOLOGY_LABEL,
         "engine_fingerprint": effective_engine_fingerprint(fingerprint),
         "file_report_schema_version": FILE_REPORT_SCHEMA_VERSION,
@@ -1002,6 +1153,19 @@ def normalise_newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def finite_config_number(value: Any, label: str) -> float:
+    """Require a finite binary floating-point value before policy clamping."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"{label} must be numeric.")
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError(f"{label} must be finite.") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be finite.")
+    return number
+
+
 def validate_metric_config_override(external_override: Optional[Dict[str, Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
     """Validate a browser-supplied metric override before merging it."""
     if external_override is None:
@@ -1025,7 +1189,7 @@ def validate_metric_config_override(external_override: Optional[Dict[str, Dict[s
             elif key == "weight":
                 if not isinstance(value, (int, float)) or isinstance(value, bool):
                     raise ValueError(f"weight for {metric_name} must be numeric.")
-                clean_metric[key] = float(clamp(float(value), 0.0, 1.0))
+                clean_metric[key] = float(clamp(finite_config_number(value, f"weight for {metric_name}"), 0.0, 1.0))
             elif key == "contributes_to_overall":
                 if not isinstance(value, bool):
                     raise ValueError(f"contributes_to_overall for {metric_name} must be true or false.")
@@ -1043,7 +1207,7 @@ def validate_metric_config_override(external_override: Optional[Dict[str, Dict[s
                         raise ValueError(f"threshold name for {metric_name} must be a string.")
                     if not isinstance(threshold_value, (int, float)) or isinstance(threshold_value, bool):
                         raise ValueError(f"threshold {threshold_name} for {metric_name} must be numeric.")
-                    clean_thresholds[threshold_name] = float(threshold_value)
+                    clean_thresholds[threshold_name] = finite_config_number(threshold_value, f"threshold {threshold_name} for {metric_name}")
                 clean_metric[key] = clean_thresholds
             elif key == "notes":
                 if not isinstance(value, str):
@@ -1083,7 +1247,7 @@ def normalise_review_policy(raw_policy: Optional[Dict[str, Any]] = None) -> Dict
                 raise ValueError(f"Unsupported review-policy key for {kind}: {key}")
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 raise ValueError(f"review_policy.{kind}.{key} must be numeric.")
-            policy[kind][key] = clamp(float(value), 0.0, 1.0)
+            policy[kind][key] = clamp(finite_config_number(value, f"review_policy.{kind}.{key}"), 0.0, 1.0)
         low = policy[kind]["low_max"]
         moderate = policy[kind]["moderate_max"]
         elevated = policy[kind]["elevated_max"]
@@ -1094,7 +1258,7 @@ def normalise_review_policy(raw_policy: Optional[Dict[str, Any]] = None) -> Dict
 
 def normalise_calibration_profile(raw_profile: Any = None) -> Dict[str, Any]:
     """Validate a course-local calibration profile supplied by JSON or object."""
-    if raw_profile in (None, ""):
+    if raw_profile in (None, "", {}):
         return {
             "profile_id": "",
             "label": "Default provisional policy",
@@ -1113,6 +1277,13 @@ def normalise_calibration_profile(raw_profile: Any = None) -> Dict[str, Any]:
             raise ValueError(f"Calibration profile is not valid JSON: {exc}") from exc
     if not isinstance(raw_profile, dict):
         raise ValueError("calibration_profile must be a JSON object.")
+
+    if not raw_profile:
+        return normalise_calibration_profile(None)
+    contract = validate_scoring_contract(raw_profile.get("scoring_contract"))
+    operational = raw_profile.get("operational", True)
+    if type(operational) is not bool:
+        raise ValueError("Calibration operational status must be Boolean.")
 
     raw_profile_id = raw_profile.get("profile_id") or raw_profile.get("id") or raw_profile.get("name")
     if raw_profile_id in (None, "") and raw_profile.get("source") == "default-provisional":
@@ -1149,6 +1320,8 @@ def normalise_calibration_profile(raw_profile: Any = None) -> Dict[str, Any]:
         notes = []
     validation = raw_profile.get("validation") if isinstance(raw_profile.get("validation"), dict) else {}
     sample_summary = raw_profile.get("sample_summary") if isinstance(raw_profile.get("sample_summary"), dict) else {}
+    scope = raw_profile.get("scope") if isinstance(raw_profile.get("scope"), dict) else {}
+    calibrated_policy_kind = str(raw_profile.get("calibrated_policy_kind") or "")
     return {
         "profile_id": profile_id,
         "label": label,
@@ -1160,8 +1333,38 @@ def normalise_calibration_profile(raw_profile: Any = None) -> Dict[str, Any]:
         "warnings": warnings,
         "validation": validation,
         "sample_summary": sample_summary,
+        "scope": scope,
+        "calibrated_policy_kind": calibrated_policy_kind,
+        "scoring_contract": contract,
+        "operational": operational,
+        "operational_reason": str(raw_profile.get("operational_reason") or "legacy-unbound")[:160],
         "source": "calibrated" if profile_id else "default-provisional",
     }
+
+
+def _public_calibration_validation(raw: Any) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    allowed = (
+        "generated_at_utc",
+        "tool_version",
+        "target_false_positive_rate",
+        "trigger_source",
+        "sample_count",
+        "applicable_sample_count",
+        "evaluation_design",
+        "fit_score_distributions",
+        "evaluation_score_distributions",
+        "fit_at_selected_trigger",
+        "evaluation_at_selected_trigger",
+        "sensitivity_partition",
+        "target_met",
+        "grid_feasible",
+        "evaluation_target_met",
+        "target_status",
+        "scoring_contract",
+    )
+    return {key: raw[key] for key in allowed if key in raw}
 
 
 def calibration_profile_public(profile: Dict[str, Any]) -> Dict[str, Any]:
@@ -1175,9 +1378,14 @@ def calibration_profile_public(profile: Dict[str, Any]) -> Dict[str, Any]:
         "language_review_policy": profile.get("language_review_policy", {}),
         "notes": profile.get("notes", []),
         "warnings": profile.get("warnings", []),
-        "validation": profile.get("validation", {}),
+        "validation": _public_calibration_validation(profile.get("validation")),
         "sample_summary": profile.get("sample_summary", {}),
+        "scope": profile.get("scope", {}),
+        "calibrated_policy_kind": profile.get("calibrated_policy_kind", ""),
         "metric_override_count": len(profile.get("metric_overrides") or {}),
+        "scoring_contract": profile.get("scoring_contract"),
+        "operational": profile.get("operational", True),
+        "operational_reason": profile.get("operational_reason", "legacy-unbound"),
     }
 
 
@@ -1192,18 +1400,66 @@ def apply_metric_override(merged: Dict[str, Dict[str, Any]], override: Optional[
             target[key] = value
 
 
+SCORING_CONTRACT_SCHEMA = "codeprobe-scoring-contract/v1"
+
+
+def validate_scoring_contract(raw: Any) -> Optional[Dict[str, str]]:
+    """Validate a replay identity; it is not an authenticity signature."""
+    if raw is None:
+        return None
+    fields = {"schema", "base_profile", "engine_sha256", "metric_config_digest"}
+    if not isinstance(raw, dict) or set(raw) != fields:
+        raise ValueError("Calibration scoring contract fields are invalid.")
+    if raw["schema"] != SCORING_CONTRACT_SCHEMA or not isinstance(raw["base_profile"], str) or raw["base_profile"] not in SCORING_PROFILES:
+        raise ValueError("Calibration scoring contract schema or base profile is invalid.")
+    for key in ("engine_sha256", "metric_config_digest"):
+        if not isinstance(raw[key], str) or not re.fullmatch(r"[0-9a-f]{64}", raw[key]):
+            raise ValueError("Calibration scoring contract digest is invalid.")
+    return dict(raw)
+
+
+def scoring_profile_for_payload(payload: Dict[str, Any], calibration: Dict[str, Any]) -> str:
+    contract = calibration.get("scoring_contract")
+    explicit = payload.get("profile")
+    if contract:
+        if explicit not in (None, "", contract["base_profile"]):
+            raise ValueError("Calibration base profile conflicts with the requested scoring mode.")
+        return contract["base_profile"]
+    return explicit or DEFAULT_PROFILE
+
+
 def merged_metric_config(
     profile: str,
     external_override: Optional[Dict[str, Dict[str, Any]]] = None,
     calibration_profile: Any = None,
 ) -> Dict[str, Dict[str, Any]]:
+    if profile not in SCORING_PROFILES:
+        raise ValueError("Unknown scoring profile.")
     merged = json.loads(json.dumps(METRIC_CONFIG))
-    for metric_name, override in SCORING_PROFILES.get(profile, {}).items():
+    for metric_name, override in SCORING_PROFILES[profile].items():
         merged.setdefault(metric_name, {}).update(override)
     calibration = normalise_calibration_profile(calibration_profile)
+    if calibration.get("operational") is False:
+        raise ValueError("Calibration profile is non-operational: " + calibration.get("operational_reason", "draft"))
     apply_metric_override(merged, calibration.get("metric_overrides"))
     apply_metric_override(merged, external_override)
+    contract = calibration.get("scoring_contract")
+    if contract:
+        # Caller-supplied report metadata is not an authority for engine identity.
+        actual_engine = engine_source_fingerprint()
+        if not actual_engine.get("available") or actual_engine.get("value") != contract["engine_sha256"]:
+            raise ValueError("Calibration engine identity does not match the loaded source; recalibrate.")
+        if profile != contract["base_profile"] or metric_config_digest(merged) != contract["metric_config_digest"]:
+            raise ValueError("Calibration scoring configuration does not match; recalibrate.")
     return merged
+
+
+def scoring_contract(profile: str, config: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
+    fingerprint = engine_source_fingerprint()
+    if not fingerprint.get("available"):
+        raise ValueError("The loaded engine source cannot be identified for calibration.")
+    return {"schema": SCORING_CONTRACT_SCHEMA, "base_profile": profile,
+            "engine_sha256": fingerprint["value"], "metric_config_digest": metric_config_digest(config)}
 
 
 def review_policy_for_kind(review_policy: Optional[Dict[str, Dict[str, float]]], kind: str) -> Dict[str, float]:
@@ -4264,11 +4520,13 @@ class IgnoreRule:
 
 @dataclass
 class ProjectCandidateFile:
-    """A text file candidate received from a browser file list or ZIP archive."""
+    """A bounded text candidate or a metadata-only pre-exclusion record."""
 
     path: str
     text: str
     size_bytes: int = 0
+    pre_exclusion_reason: str = ""
+    pre_exclusion_detail: str = ""
 
 
 @dataclass
@@ -4281,8 +4539,8 @@ class ProjectExcludedFile:
 
 
 def normalise_project_path(path: str) -> str:
-    """Normalise a browser/ZIP path without allowing absolute or parent traversal."""
-    raw = str(path or "").replace("\\", "/").strip()
+    """Return a canonical NFC project path after separator normalisation."""
+    raw = unicodedata.normalize("NFC", str(path or "")).replace("\\", "/").strip()
     raw = re.sub(r"^[A-Za-z]:/", "", raw)
     raw = raw.lstrip("/")
     parts: List[str] = []
@@ -4291,15 +4549,16 @@ def normalise_project_path(path: str) -> str:
             continue
         if part == "..":
             continue
-        parts.append(part)
+        parts.append(unicodedata.normalize("NFC", part))
     return "/".join(parts) or "fragment.txt"
 
 
 def project_path_is_unsafe(path: str) -> bool:
     """Return True for paths that should never be analysed from an archive/list."""
-    raw = str(path or "").replace("\\", "/").strip()
-    if not raw:
+    original = str(path or "").replace("\\", "/").strip()
+    if not original or "\x00" in original:
         return True
+    raw = unicodedata.normalize("NFC", original)
     if raw.startswith("/") or re.match(r"^[A-Za-z]:/", raw):
         return True
     return any(part == ".." for part in raw.split("/"))
@@ -4362,7 +4621,7 @@ def strip_common_project_root(files: Sequence[ProjectCandidateFile], root: str) 
         normalised = normalise_project_path(raw_path)
         if normalised.startswith(prefix):
             new_path = normalised[len(prefix):] or normalised
-            stripped.append(ProjectCandidateFile(path=new_path, text=item.text, size_bytes=item.size_bytes))
+            stripped.append(ProjectCandidateFile(path=new_path, text=item.text, size_bytes=item.size_bytes, pre_exclusion_reason=item.pre_exclusion_reason, pre_exclusion_detail=item.pre_exclusion_detail))
         else:
             stripped.append(item)
     return stripped
@@ -4377,7 +4636,7 @@ def project_packaging_profile(files: Sequence[ProjectCandidateFile], source: str
         "common_root_detected": root,
         "common_root_stripped": bool(root),
         "common_root_reason": reason,
-        "path_normalisation": "safe path normalisation plus conservative common-root stripping",
+        "path_normalisation": "Unicode NFC and safe separator normalisation plus conservative common-root stripping",
     }
 
 
@@ -4406,7 +4665,7 @@ def parse_ignore_patterns(text: str) -> List[IgnoreRule]:
     """
     rules: List[IgnoreRule] = []
     for raw in str(text or "").splitlines():
-        line = raw.strip()
+        line = unicodedata.normalize("NFC", raw.strip())
         if not line or line.startswith("#"):
             continue
         negated = line.startswith("!")
@@ -4507,71 +4766,263 @@ def project_exclusion_reason(path: str, text: str, include_documentation: bool =
     return None
 
 
-def collect_project_files(payload: Dict[str, Any], warnings: List[str]) -> Tuple[List[ProjectCandidateFile], str]:
-    """Collect project files from either payload['files'] or payload['zip_base64']."""
+def collect_project_files(
+    payload: Dict[str, Any],
+    warnings: List[str],
+    limits: Optional[Dict[str, Any]] = None,
+    *,
+    include_documentation: bool = False,
+) -> Tuple[List[ProjectCandidateFile], str]:
+    """Collect bounded project candidates without decompressing excluded members."""
+    if limits is None:
+        limits = {
+            "max_files": PROJECT_MAX_FILES_DEFAULT,
+            "max_file_bytes": PROJECT_MAX_FILE_BYTES_DEFAULT,
+            "max_total_bytes": PROJECT_MAX_TOTAL_BYTES_DEFAULT,
+            "max_zip_bytes": PROJECT_MAX_ZIP_BYTES_DEFAULT,
+            "max_zip_entries": PROJECT_MAX_ZIP_ENTRIES_DEFAULT,
+            "max_compression_ratio": PROJECT_MAX_COMPRESSION_RATIO_DEFAULT,
+            "max_ignore_bytes": PROJECT_MAX_IGNORE_BYTES_DEFAULT,
+            "max_ignore_rules": PROJECT_MAX_IGNORE_RULES_DEFAULT,
+        }
     files: List[ProjectCandidateFile] = []
     source = "file-list"
+    explicit_ignore = str(payload.get("ignore_text") or "")
+    if len(explicit_ignore.encode("utf-8")) > limits["max_ignore_bytes"]:
+        raise ValueError(f"ignore_text exceeds the {limits['max_ignore_bytes']}-byte limit")
 
     if payload.get("zip_base64"):
         source = "zip"
+        encoded = str(payload.get("zip_base64") or "")
+        if _base64_decoded_upper_bound(encoded) > limits["max_zip_bytes"] + 3:
+            raise ValueError(f"compressed ZIP limit exceeded before Base64 decoding ({limits['max_zip_bytes']} bytes)")
         try:
-            archive_bytes = base64.b64decode(str(payload.get("zip_base64") or ""), validate=True)
+            archive_bytes = base64.b64decode(encoded, validate=True)
         except Exception as exc:
             raise ValueError(f"zip_base64 is not valid base64: {exc}") from exc
+        if len(archive_bytes) > limits["max_zip_bytes"]:
+            raise ValueError(f"compressed ZIP limit exceeded: {len(archive_bytes)} bytes exceeds {limits['max_zip_bytes']}")
+        declared_entries = _zip_eocd_entry_count(archive_bytes, limits["max_zip_entries"])
         try:
             with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-                for info in archive.infolist():
+                infos = archive.infolist()
+                if len(infos) != declared_entries or len(infos) > limits["max_zip_entries"]:
+                    raise ValueError("ZIP entry inventory disagrees with the bounded EOCD preflight")
+                dummy = [ProjectCandidateFile(str(info.filename or ""), "", int(info.file_size)) for info in infos if not info.is_dir()]
+                common_root, _ = infer_common_project_root(dummy)
+                prefix = common_root.rstrip("/") + "/" if common_root else ""
+                def evaluation_path(raw: str) -> str:
+                    if project_path_is_unsafe(raw):
+                        return raw
+                    normalised = normalise_project_path(raw)
+                    return normalised[len(prefix):] if prefix and normalised.startswith(prefix) else normalised
+
+                root_ignore_text = ""
+                for info in infos:
+                    raw = str(info.filename or "")
+                    if info.is_dir() or project_path_is_unsafe(raw):
+                        continue
+                    path = evaluation_path(raw)
+                    if path != ".codeprobeignore":
+                        continue
+                    reason, detail = _candidate_reason_for_metadata(path, size_bytes=int(info.file_size), compressed_size=int(info.compress_size), limits=limits, include_documentation=include_documentation)
+                    if reason:
+                        # The main inventory pass records the exclusion once.
+                        continue
+                    entry_type = _zip_unix_entry_type(info)
+                    if entry_type not in {0, 0o100000}:
+                        # The main inventory pass records the exclusion once.
+                        continue
+                    if info.flag_bits & 0x1:
+                        # The main inventory pass records the exclusion once.
+                        continue
+                    if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
+                        # The main inventory pass records the exclusion once.
+                        continue
+                    data = _read_zip_member_bounded(archive, info, limits["max_ignore_bytes"])
+                    root_ignore_text, warning = decode_text_bytes(data)
+                    if root_ignore_text is None:
+                        raise ValueError(f".codeprobeignore is not readable text: {warning}")
+                    break
+                active_rules = parse_ignore_patterns(default_project_ignore_text() + ("\n" + root_ignore_text if root_ignore_text else "") + ("\n" + explicit_ignore if explicit_ignore else ""))
+                if len(active_rules) > limits["max_ignore_rules"]:
+                    raise ValueError(f"active ignore rule count exceeds {limits['max_ignore_rules']}")
+                seen_portable: Set[str] = set()
+                total_read = 0
+                analysed_candidates = 0
+                for info in infos:
                     if info.is_dir():
+                        raw_dir = str(info.filename or "").rstrip("/")
+                        if project_path_is_unsafe(raw_dir):
+                            raise ValueError(f"unsafe ZIP directory path: {raw_dir}")
                         continue
-                    path = str(info.filename or "")
-                    try:
-                        data = archive.read(info)
-                    except Exception as exc:
-                        warnings.append(f"Could not read {path} from ZIP: {exc}")
+                    raw = str(info.filename or "")
+                    path = evaluation_path(raw)
+                    if raw == "" or project_path_is_unsafe(raw):
+                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "unsafe_path", "Path is absolute, empty or contains parent-directory traversal."))
                         continue
-                    text, reason = decode_text_bytes(data)
+                    portable = path.casefold()
+                    if portable in seen_portable:
+                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "duplicate_path", "A previous ZIP member collides on a case-insensitive filesystem."))
+                        continue
+                    seen_portable.add(portable)
+                    entry_type = _zip_unix_entry_type(info)
+                    if entry_type not in {0, 0o100000}:
+                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "special_zip_entry", "Links and special ZIP entries are forbidden."))
+                        continue
+                    if info.flag_bits & 0x1:
+                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "encrypted_zip_entry", "Encrypted ZIP entries are not accepted."))
+                        continue
+                    if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
+                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "unsupported_compression_method", "Only stored and deflated ZIP members are accepted."))
+                        continue
+                    reason, detail = _candidate_reason_for_metadata(path, size_bytes=int(info.file_size), compressed_size=int(info.compress_size), limits=limits, include_documentation=include_documentation)
+                    if reason:
+                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), reason, detail))
+                        continue
+                    if path == ".codeprobeignore":
+                        files.append(ProjectCandidateFile(raw, root_ignore_text, int(info.file_size)))
+                        continue
+                    if path.rsplit("/", 1)[-1] == ".codeprobeignore":
+                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "nested_ignore_file", "Only a project-root .codeprobeignore may control the project."))
+                        continue
+                    if not reason and project_path_is_ignored(path, active_rules):
+                        reason, detail = "ignored_by_codeprobeignore", "Matched built-in or project ignore rules before decompression."
+                    if not reason and analysed_candidates >= limits["max_files"]:
+                        reason, detail = "project_file_limit", f"Maximum analysed file count is {limits['max_files']}."
+                    if not reason and total_read + int(info.file_size) > limits["max_total_bytes"]:
+                        reason, detail = "project_total_byte_limit", f"Reading this member would exceed the {limits['max_total_bytes']}-byte project budget."
+                    if reason:
+                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), reason, detail))
+                        continue
+                    data = _read_zip_member_bounded(archive, info, limits["max_file_bytes"])
+                    total_read += len(data)
+                    analysed_candidates += 1
+                    text, warning = decode_text_bytes(data)
                     if text is None:
-                        files.append(ProjectCandidateFile(path=path, text="", size_bytes=len(data)))
-                        warnings.append(f"Skipped undecodable ZIP entry {path}: {reason}.")
+                        files.append(ProjectCandidateFile(raw, "", len(data), "undecodable_text", warning))
                     else:
-                        if reason:
-                            warnings.append(f"{path}: {reason}.")
-                        files.append(ProjectCandidateFile(path=path, text=text, size_bytes=len(data)))
+                        if warning:
+                            warnings.append(f"{raw}: {warning}.")
+                        files.append(ProjectCandidateFile(raw, text, len(data)))
         except zipfile.BadZipFile as exc:
             raise ValueError("The uploaded archive is not a readable ZIP file.") from exc
     else:
-        for item in payload.get("files") or []:
-            path = str(item.get("path") or item.get("name") or "fragment.txt")
+        raw_items = payload.get("files") or []
+        if not isinstance(raw_items, list):
+            raise ValueError("files must be an array")
+        if len(raw_items) > limits["max_zip_entries"]:
+            raise ValueError(f"project entry limit exceeded: {len(raw_items)} exceeds {limits['max_zip_entries']}")
+        dummy = [ProjectCandidateFile(str(item.get("path") or item.get("name") or ""), "", 0) for item in raw_items if isinstance(item, dict)]
+        common_root, _ = infer_common_project_root(dummy)
+        prefix = common_root.rstrip("/") + "/" if common_root else ""
+        root_ignore_text = ""
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            raw = str(item.get("path") or item.get("name") or "")
+            if project_path_is_unsafe(raw):
+                continue
+            path = normalise_project_path(raw)
+            if prefix and path.startswith(prefix):
+                path = path[len(prefix):]
+            if path == ".codeprobeignore" and not item.get("intake_rejection"):
+                root_ignore_text = str(item.get("content") if item.get("content") is not None else item.get("text") or "")
+                if len(root_ignore_text.encode("utf-8")) > limits["max_ignore_bytes"]:
+                    raise ValueError(f".codeprobeignore exceeds the {limits['max_ignore_bytes']}-byte limit")
+                break
+        active_rules = parse_ignore_patterns(default_project_ignore_text() + ("\n" + root_ignore_text if root_ignore_text else "") + ("\n" + explicit_ignore if explicit_ignore else ""))
+        if len(active_rules) > limits["max_ignore_rules"]:
+            raise ValueError(f"active ignore rule count exceeds {limits['max_ignore_rules']}")
+        total_read = 0
+        analysed_candidates = 0
+        seen_portable: Set[str] = set()
+        for item in raw_items:
+            if not isinstance(item, dict):
+                raise ValueError("each files entry must be an object")
+            raw = str(item.get("path") or item.get("name") or "")
+            rejection = item.get("intake_rejection")
+            if rejection is not None:
+                allowed_reasons = {"file_too_large", "project_total_byte_limit", "unsupported_file_type", "unreadable_file", "unsafe_path"}
+                if (not isinstance(rejection, dict) or set(rejection) != {"reason"}
+                        or not isinstance(rejection.get("reason"), str) or rejection["reason"] not in allowed_reasons
+                        or item.get("content") not in (None, "") or item.get("text") not in (None, "")
+                        or len(raw) > 4096 or type(item.get("size_bytes")) is not int
+                        or not 0 <= item["size_bytes"] <= 2**53 - 1):
+                    raise ValueError("Invalid metadata-only intake rejection.")
+                reason = "unsafe_path" if project_path_is_unsafe(raw) else "browser_" + rejection["reason"]
+                files.append(ProjectCandidateFile(raw, "", item["size_bytes"], reason,
+                    "Caller-reported browser intake exclusion; contents were not supplied or independently inspected."))
+                continue
             text = str(item.get("content") if item.get("content") is not None else item.get("text") or "")
-            size = int(item.get("size_bytes") or len(text.encode("utf-8", errors="ignore")))
-            files.append(ProjectCandidateFile(path=path, text=text, size_bytes=size))
-
+            actual_size = len(text.encode("utf-8"))
+            path = raw if project_path_is_unsafe(raw) else normalise_project_path(raw)
+            if prefix and not project_path_is_unsafe(raw) and path.startswith(prefix):
+                path = path[len(prefix):]
+            reason = detail = ""
+            if project_path_is_unsafe(raw):
+                reason, detail = "unsafe_path", "Path is absolute, empty or contains parent-directory traversal."
+            elif path.casefold() in seen_portable:
+                reason, detail = "duplicate_path", "A previous file collides on a case-insensitive filesystem."
+            else:
+                seen_portable.add(path.casefold())
+            if not reason and path.rsplit("/", 1)[-1] == ".codeprobeignore" and path != ".codeprobeignore":
+                reason, detail = "nested_ignore_file", "Only a project-root .codeprobeignore may control the project."
+            if not reason:
+                metadata_reason, metadata_detail = _candidate_reason_for_metadata(path, size_bytes=actual_size, compressed_size=actual_size, limits=limits, include_documentation=include_documentation)
+                reason, detail = metadata_reason, metadata_detail
+            if not reason and path != ".codeprobeignore" and project_path_is_ignored(path, active_rules):
+                reason, detail = "ignored_by_codeprobeignore", "Matched built-in or project ignore rules."
+            if not reason and path != ".codeprobeignore" and analysed_candidates >= limits["max_files"]:
+                reason, detail = "project_file_limit", f"Maximum analysed file count is {limits['max_files']}."
+            if not reason and path != ".codeprobeignore" and total_read + actual_size > limits["max_total_bytes"]:
+                reason, detail = "project_total_byte_limit", f"Reading this file would exceed the {limits['max_total_bytes']}-byte project budget."
+            if not reason and path != ".codeprobeignore":
+                analysed_candidates += 1
+                total_read += actual_size
+            declared = item.get("size_bytes")
+            if declared is not None:
+                try:
+                    declared_size = int(declared)
+                except (TypeError, ValueError, OverflowError):
+                    warnings.append(f"{raw}: invalid declared size ignored.")
+                else:
+                    if declared_size != actual_size:
+                        warnings.append(f"{raw}: declared size {declared_size} replaced by actual UTF-8 size {actual_size}.")
+            files.append(ProjectCandidateFile(raw, text if not reason else "", actual_size, reason, detail))
     return files, source
 
-
-def build_project_ignore_rules(files: Sequence[ProjectCandidateFile], payload: Dict[str, Any]) -> Tuple[List[IgnoreRule], List[str]]:
-    """Combine built-in, in-project and explicit ignore rules."""
+def build_project_ignore_rules(
+    files: Sequence[ProjectCandidateFile],
+    payload: Dict[str, Any],
+    *,
+    max_ignore_bytes: int = PROJECT_MAX_IGNORE_BYTES_DEFAULT,
+    max_ignore_rules: int = PROJECT_MAX_IGNORE_RULES_DEFAULT,
+) -> Tuple[List[IgnoreRule], List[str]]:
+    """Combine bounded built-in, root-project and explicit ignore rules."""
     notes: List[str] = []
     ignore_text = default_project_ignore_text()
     notes.append("Built-in ignore patterns for dependencies, build output, generated artefacts and binary assets were applied.")
-
-    embedded = [
-        item for item in files
-        if not project_path_is_unsafe(item.path)
-        and normalise_project_path(item.path).rsplit("/", 1)[-1] == ".codeprobeignore"
-    ]
+    embedded = [item for item in files if not item.pre_exclusion_reason and not project_path_is_unsafe(item.path) and normalise_project_path(item.path) == ".codeprobeignore"]
+    if len(embedded) > 1:
+        raise ValueError("project contains more than one root .codeprobeignore")
     if embedded:
-        ignore_text += "\n" + "\n".join(item.text for item in embedded)
-        notes.append(f"Loaded .codeprobeignore from project ({len(embedded)} file(s)).")
-
-    if payload.get("ignore_text"):
-        ignore_text += "\n" + str(payload.get("ignore_text"))
-        notes.append("Applied additional ignore patterns supplied by the user interface.")
-
+        encoded = embedded[0].text.encode("utf-8")
+        if len(encoded) > max_ignore_bytes:
+            raise ValueError(f".codeprobeignore exceeds the {max_ignore_bytes}-byte limit")
+        ignore_text += "\n" + embedded[0].text
+        notes.append("Loaded the project-root .codeprobeignore.")
+    explicit = str(payload.get("ignore_text") or "")
+    if len(explicit.encode("utf-8")) > max_ignore_bytes:
+        raise ValueError(f"ignore_text exceeds the {max_ignore_bytes}-byte limit")
+    if explicit:
+        ignore_text += "\n" + explicit
+        notes.append("Applied additional bounded ignore patterns supplied by the caller.")
     rules = parse_ignore_patterns(ignore_text)
+    if len(rules) > max_ignore_rules:
+        raise ValueError(f"active ignore rule count exceeds {max_ignore_rules}")
     notes.append(f"Active ignore rules: {len(rules)}.")
     return rules, notes
-
 
 def aggregate_project_reports(reports: Sequence[AnalysisReport]) -> Tuple[float, bool, List[Dict[str, Any]]]:
     contributors: List[Dict[str, Any]] = []
@@ -4889,34 +5340,53 @@ def project_confidence(total_sloc: int, included_count: int, contributing_count:
 
 
 def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Analyse a multi-file project with .codeprobeignore-aware inclusion."""
+    """Analyse a bounded multi-file project with auditable exclusion decisions."""
     profile = payload.get("profile") or DEFAULT_PROFILE
     override = payload.get("config_override")
+    include_documentation = bool(payload.get("include_documentation", False))
+    limits = {
+        "max_files": _project_limit(payload, "max_files", PROJECT_MAX_FILES_DEFAULT, minimum=1, maximum=10_000),
+        "max_file_bytes": _project_limit(payload, "max_file_bytes", PROJECT_MAX_FILE_BYTES_DEFAULT, minimum=1, maximum=16_000_000),
+        "max_total_bytes": _project_limit(payload, "max_total_bytes", PROJECT_MAX_TOTAL_BYTES_DEFAULT, minimum=1, maximum=256_000_000),
+        "max_zip_bytes": _project_limit(payload, "max_zip_bytes", PROJECT_MAX_ZIP_BYTES_DEFAULT, minimum=1, maximum=64_000_000),
+        "max_zip_entries": _project_limit(payload, "max_zip_entries", PROJECT_MAX_ZIP_ENTRIES_DEFAULT, minimum=1, maximum=20_000),
+        "max_compression_ratio": _project_limit(payload, "max_compression_ratio", PROJECT_MAX_COMPRESSION_RATIO_DEFAULT, minimum=1.0, maximum=1_000.0, integer=False),
+        "max_ignore_bytes": _project_limit(payload, "max_ignore_bytes", PROJECT_MAX_IGNORE_BYTES_DEFAULT, minimum=1, maximum=1_000_000),
+        "max_ignore_rules": _project_limit(payload, "max_ignore_rules", PROJECT_MAX_IGNORE_RULES_DEFAULT, minimum=1, maximum=10_000),
+    }
     calibration_raw = payload.get("calibration_profile") if payload.get("calibration_profile") is not None else payload.get("calibration_profile_json")
-    calibration_profile = normalise_calibration_profile(calibration_raw)
+    scope_allowed, scope_warning = calibration_scope_decision(calibration_raw, "project", "project")
+    if not scope_allowed and (_calibration_object(calibration_raw) or {}).get("scoring_contract"):
+        raise ValueError("Bound calibration is incompatible with this input: " + scope_warning)
+    effective_calibration_raw = calibration_raw if scope_allowed else None
+    calibration_profile = normalise_calibration_profile(effective_calibration_raw)
     review_policy = calibration_profile.get("review_policy")
+    profile = scoring_profile_for_payload(payload, calibration_profile)
     config = merged_metric_config(profile, override, calibration_profile)
     project_fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
-    engine = AnalysisEngine(config, calibration_profile=calibration_profile, engine_fingerprint=project_fingerprint)
+    engine = AnalysisEngine(config, calibration_profile=None, engine_fingerprint=project_fingerprint,
+                            require_python_ast=bool(calibration_profile.get("scoring_contract")) or bool(payload.get("require_python_ast")))
     warnings: List[str] = list(calibration_profile.get("warnings", []))
+    if scope_warning:
+        warnings.append(scope_warning + " The generic project policy was used instead.")
     start = time.perf_counter()
 
-    candidates, source = collect_project_files(payload, warnings)
+    candidates, source = collect_project_files(payload, warnings, limits, include_documentation=include_documentation)
     input_packaging = project_packaging_profile(candidates, source)
+    input_packaging["limits"] = dict(limits)
     if input_packaging.get("common_root_stripped"):
         candidates = strip_common_project_root(candidates, str(input_packaging.get("common_root_detected") or ""))
         warnings.append(
             f"Input common root '{input_packaging.get('common_root_detected')}' was stripped before .codeprobeignore evaluation. "
             "This is expected for GitHub-style ZIP exports."
         )
-    max_files = int(payload.get("max_files") or PROJECT_MAX_FILES_DEFAULT)
-    max_file_bytes = int(payload.get("max_file_bytes") or PROJECT_MAX_FILE_BYTES_DEFAULT)
-    include_documentation = bool(payload.get("include_documentation", False))
+    max_files = int(limits["max_files"])
+    max_file_bytes = int(limits["max_file_bytes"])
     language_hint = payload.get("language_hint")
     if language_hint == "auto":
         language_hint = None
 
-    ignore_rules, ignore_notes = build_project_ignore_rules(candidates, payload)
+    ignore_rules, ignore_notes = build_project_ignore_rules(candidates, payload, max_ignore_bytes=int(limits['max_ignore_bytes']), max_ignore_rules=int(limits['max_ignore_rules']))
     included_reports: List[AnalysisReport] = []
     excluded: List[ProjectExcludedFile] = []
 
@@ -4928,6 +5398,9 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             excluded.append(ProjectExcludedFile(display_path, "unsafe_path", "Path is absolute, empty or contains parent-directory traversal."))
             continue
         path = normalise_project_path(raw_path)
+        if candidate.pre_exclusion_reason:
+            excluded.append(ProjectExcludedFile(path if not project_path_is_unsafe(raw_path) else raw_path, candidate.pre_exclusion_reason, candidate.pre_exclusion_detail))
+            continue
         if path in seen:
             excluded.append(ProjectExcludedFile(path, "duplicate_path", "A previous file with the same normalised path was already considered."))
             continue
@@ -4997,6 +5470,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             "loc": report.loc,
             "sloc": report.sloc,
             "overall_score": round(report.overall_score, 4),
+            "decision_score": report.overall_score,
             "overall_percent": round(report.overall_score * 100.0, 1),
             "overall_applicable": report.overall_applicable,
             "confidence": report.confidence,
@@ -5052,6 +5526,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "total_loc": total_loc,
         "total_sloc": total_sloc,
         "overall_score": round(aggregate_score, 4),
+        "decision_score": aggregate_score,
         "overall_percent": round(aggregate_score * 100.0, 1),
         "overall_applicable": aggregate_applicable,
         "confidence": confidence,
@@ -5063,6 +5538,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "calibration_profile_id": calibration_profile.get("profile_id", ""),
         "calibration_profile_label": calibration_profile.get("label", "Default provisional policy"),
         "calibration_profile": calibration_profile_public(calibration_profile),
+        "calibration_scope": (_calibration_object(effective_calibration_raw) or {}).get("scope", {}),
         "review_policy": review_policy,
         "review_trigger": review_trigger_for_kind(review_policy, "project"),
         "review_trigger_percent": round(review_trigger_for_kind(review_policy, "project") * 100.0, 1),
@@ -5173,11 +5649,12 @@ def format_project_report_text(report: Dict[str, Any]) -> str:
 class AnalysisEngine:
     """Run all enabled metrics on a shared analysis context."""
 
-    def __init__(self, config: Dict[str, Dict[str, Any]], calibration_profile: Any = None, engine_fingerprint: Any = None) -> None:
+    def __init__(self, config: Dict[str, Dict[str, Any]], calibration_profile: Any = None, engine_fingerprint: Any = None, *, require_python_ast: bool = False) -> None:
         self.config = config
         self.calibration_profile = normalise_calibration_profile(calibration_profile)
         self.review_policy = self.calibration_profile.get("review_policy")
         self.engine_fingerprint = effective_engine_fingerprint(engine_fingerprint)
+        self.require_python_ast = require_python_ast or bool(self.calibration_profile.get("scoring_contract"))
 
     def _review_policy_for_language(self, language: str) -> Dict[str, Dict[str, float]]:
         language_policies = self.calibration_profile.get("language_review_policy") or {}
@@ -5192,6 +5669,8 @@ class AnalysisEngine:
     ) -> AnalysisReport:
         start = time.perf_counter()
         context = build_analysis_context(code, filename, language_hint)
+        if self.require_python_ast and context.language == "python" and context.ast_tree is None:
+            raise ValueError("Calibrated Python analysis requires a successful AST parse on this runtime; use compatible source syntax.")
         active_review_policy = self._review_policy_for_language(context.language)
         metrics: List[MetricResult] = []
         warnings: List[str] = list(context.notes)
@@ -5325,6 +5804,7 @@ def report_to_dict(report: AnalysisReport) -> Dict[str, Any]:
         "loc": report.loc,
         "sloc": report.sloc,
         "overall_score": round(report.overall_score, 4),
+            "decision_score": report.overall_score,
         "overall_percent": round(report.overall_score * 100.0, 1),
         "overall_applicable": report.overall_applicable,
         "confidence": report.confidence,
@@ -5415,34 +5895,37 @@ def codeprobe_engine_metadata(payload_json: str = "{}") -> str:
     except Exception:
         payload = {}
     fingerprint = payload.get("engine_fingerprint") or payload.get("engine_integrity")
-    return json.dumps(runtime_metadata(fingerprint=fingerprint), ensure_ascii=False)
+    return json.dumps(runtime_metadata(fingerprint=fingerprint), ensure_ascii=False, allow_nan=False)
 
 
 def codeprobe_analyze(payload_json: str) -> str:
     payload = json.loads(payload_json)
     profile = payload.get("profile") or "default"
     override = payload.get("config_override")
-    calibration_raw = payload.get("calibration_profile") if payload.get("calibration_profile") is not None else payload.get("calibration_profile_json")
-    calibration_profile = normalise_calibration_profile(calibration_raw)
-    config = merged_metric_config(profile, override, calibration_profile)
-    fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
-    engine = AnalysisEngine(config, calibration_profile=calibration_profile, engine_fingerprint=fingerprint)
+    code = payload.get("code", "")
+    filename = payload.get("filename", "fragment.py")
     language_hint = payload.get("language_hint")
     if language_hint == "auto":
         language_hint = None
-    report = engine.analyse(
-        payload.get("code", ""),
-        payload.get("filename", "fragment.py"),
-        language_hint=language_hint,
-        profile=profile,
-    )
-    return json.dumps(
-        {
-            "report": report_to_dict(report),
-            "text": format_report_text(report),
-        },
-        ensure_ascii=False,
-    )
+    detected = detect_language(filename, code, language_hint)
+    calibration_raw = payload.get("calibration_profile") if payload.get("calibration_profile") is not None else payload.get("calibration_profile_json")
+    scope_allowed, scope_warning = calibration_scope_decision(calibration_raw, "file", detected)
+    if not scope_allowed and (_calibration_object(calibration_raw) or {}).get("scoring_contract"):
+        raise ValueError("Bound calibration is incompatible with this input: " + scope_warning)
+    effective_raw = calibration_raw if scope_allowed else None
+    calibration_profile = normalise_calibration_profile(effective_raw)
+    profile = scoring_profile_for_payload(payload, calibration_profile)
+    config = merged_metric_config(profile, override, calibration_profile)
+    fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
+    engine = AnalysisEngine(config, calibration_profile=calibration_profile, engine_fingerprint=fingerprint,
+                            require_python_ast=bool(payload.get("require_python_ast")))
+    report = engine.analyse(code, filename, language_hint=language_hint, profile=profile)
+    if scope_warning:
+        report.warnings.append(scope_warning + " The generic file policy was used instead.")
+        report.notes.append("The supplied calibration profile was outside its declared report-kind or language scope and was not applied.")
+    payload_report = report_to_dict(report)
+    payload_report["calibration_scope"] = (_calibration_object(effective_raw) or {}).get("scope", {})
+    return json.dumps({"report": payload_report, "text": format_report_text(report)}, ensure_ascii=False, allow_nan=False)
 
 
 def codeprobe_analyze_project(payload_json: str) -> str:
@@ -5456,4 +5939,5 @@ def codeprobe_analyze_project(payload_json: str) -> str:
             "text": format_project_report_text(report),
         },
         ensure_ascii=False,
+        allow_nan=False,
     )

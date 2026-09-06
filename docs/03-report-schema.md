@@ -133,3 +133,39 @@ From `2.2.0`, both file and project reports include a structured manual-review l
 These fields are intended for defensible human review. They are not additional proof of AI use. A risk zone identifies where an instructor should inspect code, evidence and explanation; it does not supply a misconduct conclusion.
 
 For file reports, risk zones are usually metric-level objects. For project reports, risk zones may refer to files, input packaging, project filtering, calibration limitations or sample-size limitations. Project risk zones are especially useful for GitHub ZIP exports because they make packaging normalisation and the included/excluded inventory explicit before an aggregate score is interpreted.
+
+## Bounded project-input metadata
+
+Project reports now record the effective hard limits under `input_packaging.limits`. Metadata-only exclusions such as `compression_ratio_exceeded`, `project_total_byte_limit`, `encrypted_zip_entry`, `special_zip_entry` and `nested_ignore_file` are decided before excluded ZIP members are decompressed. The `calibration_scope` field records the report-kind and language domain of the profile that was actually applied.
+
+## Replay and browser exclusion metadata
+
+File and project JSON add `decision_score`, the unrounded value used by the
+review comparison. The rounded `overall_score` remains available. New bound
+calibration metadata includes `scoring_contract`, `operational` and
+`operational_reason`; an absent calibration never becomes a named child policy.
+Project-level calibration is not represented as independently validated
+file-level calibration.
+
+Metadata-only browser rejections are included in selected-input accounting,
+with explicit caller-reported provenance and `browser_` reason prefixes. Unsafe
+paths remain independently rejected. These records do not authenticate missing
+contents or the selection history. See `docs/22-contract-reconciliation.md`.
+
+## Declared and measured engine provenance
+
+A caller-supplied `engine_fingerprint.value` remains available for compatibility,
+but it is not automatically an independently verified identity. When a valid
+claim is supplied, `measured_sha256` records the best-effort runtime-file digest
+and `matches_loaded_source` records equality (or null when measurement is
+unavailable). `declared_source` retains the supplied origin label. A contradictory
+or unverifiable verified-origin label is downgraded to `caller-unverified`.
+Matching packaged provenance is retained; a manual override remains unverified
+even when the digest matches. These JSON fields do not authenticate a caller,
+sign a report or prove the state of mutable interpreter memory.
+
+`tool_metadata.python_runtime` reports implementation, version and platform.
+Bound calibrated Python analysis requires a successful AST parse, including
+project members. Calibration sample scoring enforces the same condition.
+Unbound diagnostic analysis retains its warning-bearing fallback. Runtime
+metadata are observations, not a universal cross-version equivalence guarantee.

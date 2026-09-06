@@ -4,6 +4,130 @@ All notable changes to this project will be documented in this file.
 
 The format is based on *Keep a Changelog* and this repository uses semantic-style version tags when releases are made.
 
+## [Unreleased]
+
+### Output, privacy and numeric boundaries
+
+- Validate report destinations before writes, refuse input/output aliases and
+  stage complete UTF-8 reports outside the source tree before replacement.
+- Complete in-memory privacy teardown even when storage access fails, attempt
+  both persistent erasures and state when erasure cannot be verified.
+- Reject non-finite effective weights, thresholds and review-policy values
+  before clamping or fitting; require conforming generated JSON before output.
+
+### Provenance and parser qualification
+
+- Distinguish caller-declared engine provenance from the measured source digest.
+- Require Python AST availability for calibration fitting and bound replay while
+  retaining warning-bearing unbound diagnostics and common-syntax replay.
+- Record actual runtime metadata and clarify raw intake budgets and coverage policy.
+
+### Contract reconciliation after targeted re-audit
+
+- Read generated report fixtures explicitly as UTF-8 and exercise a legacy
+  default codec without weakening CLI replay assertions.
+- Bind calibration, evaluation and application to one effective configuration,
+  base mode and actual engine identity, using unrounded decision scores.
+- Make unmet fit targets and unbound numerical summaries non-operational without
+  using evaluation data to retune the selected threshold.
+- Invalidate asynchronous intake, manual-engine caching and report/export state
+  on replacement, cancellation, settings changes or privacy wipe.
+- Preserve bounded browser rejection metadata without reading excluded content
+  and represent absent child calibration accurately.
+- Repair recognised partial packets when prior and new identities overlap,
+  preserving conservative handling of unknown concurrent modifications.
+- Add native replay, event-order, report identity and interruption regressions,
+  with separate real Chromium/Pyodide acceptance checks.
+
+- Prevent a cancelled manual-engine file read from starting a worker after cancellation.
+
+### Worker resilience and export privacy
+
+- Move both browser analysis routes into an authenticated dedicated worker, with single-flight admission, startup/analysis deadlines, termination on cancel and stale-result rejection.
+- Add real Chromium legal-input responsiveness, deadline/retry and worker-bootstrap tamper checks alongside hermetic protocol races.
+- Bound dropped-directory enumeration and single-file input; avoid expensive syntax highlighting for large fragments.
+- Replace exported calibration identifiers with fresh opaque tokens only after partitioning and fitting, without exporting an identity mapping.
+- Add security reporting, runtime lifecycle, review routing and collective contributor citation metadata without changing the licence or claiming branch-rule enforcement.
+
+### Reconciliation
+
+- Preserve exact control-file bytes on Windows with binary descriptors, close failed lock writes before removal and declare pointer-sized process handles.
+- Exercise malformed recovery records, damaged staged packets, lock collisions and platform control-file contracts without lowering coverage floors.
+- Run normal-command release recovery before current-checkout validation, with regressions for an invalid checkout and an unknown concurrent packet change.
+
+### Added
+
+- Add a durable release-publication lock and journal with checksum-as-readiness semantics, explicit `--recover-only` operation and abrupt-process-termination recovery tests.
+- Add a real-browser functional-integrity gate that runs authenticated Pyodide bytes, performs single-file and project analyses, validates JSON/text downloads and exercises tamper and reload-recovery paths.
+- Add a bounded Pyodide fixture-preparation utility that refuses redirects and verifies exact sizes and SHA-256 values before publishing test files.
+- Add a version-pinned `sys.monitoring` executable-line coverage gate with weighted overall, root and high-risk file floors, required by aggregate CI.
+- Add a constrained local static server that publishes only declared browser resources, rejects directory indexes and unsafe paths and requires explicit approval for non-loopback binding.
+- Add one bounded process broker with independent output ceilings, wall-clock timeout and process-tree termination on supported POSIX and Windows runners.
+- Add a measured Pyodide 0.25.0 core-startup provenance manifest and fail-closed browser verification for loader, lockfile, standard library and WebAssembly startup artefacts.
+- Add a dependency-free real-browser accessibility gate covering the exposed accessibility tree, roving result tabs, keyboard navigation, focus visibility, live status regions and score semantics.
+- Add programmatic names, skip links, ARIA tab/tabpanel relationships and progressbar state to both browser interfaces.
+- Add bounded project-folder and ZIP intake with pre-read exclusion, stable regular-file reads, symlink/special-entry rejection, compressed and expanded byte budgets, entry limits and compression-ratio controls.
+- Add group-exclusive calibration fit/evaluation partitions, explicit report-kind and language scope, fail-closed sample handling and pseudonymised sample identifiers.
+- Add hostile regressions for forged metadata, ZIP bombs, encrypted or special members, unsafe filesystem entries, nested ignore control and calibration leakage.
+- Bound directory-only inventories and pre-read ignore rules, reject redirected calibration outputs and prevent generated calibration files from overwriting source samples.
+- Pseudonymise calibration sample paths by default, prevent mixed label strata within one group and keep sample-level validation data out of ordinary analysis reports.
+- Add least-privilege GitHub Actions validation across Python 3.10–3.14, with
+  current stable Windows and macOS coverage and an aggregate check intended for
+  default-branch protection.
+- Add an LF checkout policy, an offline dependency-boundary check and an
+  automated Git-tree, checkout, archive and release-packet reproducibility gate.
+- Make vendored Pyodide bytes fail closed until a complete authenticated runtime
+  inventory and verifier are present.
+
+### Fixed
+
+- Recover interrupted release publication deterministically by retaining a complete new packet, restoring the recorded prior packet or stopping fail-closed on an unknown concurrent state.
+- Bind each verified Pyodide startup artefact to the bytes actually consumed during bootstrap instead of permitting a second unchecked network response.
+- Verify the exact packaged Python engine before import in both browser interfaces and label the manual engine route as an explicitly unverified override.
+- Use one strict UTF-8-then-Latin-1 source-decoding contract and Unicode-NFC project-path identity across browser, ZIP and local-folder entry points.
+- Keep the ordinary release gate importable on Python 3.10–3.13 by deferring the version-specific `sys.monitoring` lookup until the dedicated Python 3.14 coverage measurement starts.
+- Replace the first coverage prototype after an adversarial syntax-depth test disabled the conventional tracer and underreported all later tests; the final monitor is independent of `sys.settrace` and disables each line event after its first observation.
+- Enforce network-binding policy inside the reusable server factory and fail closed when a Windows child cannot be assigned to a Job Object.
+- Reject hard-linked aliases inside project folders, read metric-override JSON through the bounded unambiguous reader and retain exact exclusion reasons for invalid root ignore members.
+- Bound each directory scan before sorting its entries and reject hard-linked calibration aliases, while documenting that copied or semantically dependent samples still require curator grouping.
+- Require the mandatory unit-test floor before tracked release evidence can be
+  refreshed and bind that refresh to the non-evidence tree verified by the
+  preceding gate.
+- Prepare the complete prospective evidence set before replacement, verify
+  detected-failure rollback of bytes and supported metadata and restore before
+  propagating an interrupt.
+- Capture evidence bytes and metadata from one verified file descriptor, record
+  candidate ownership before a potentially ambiguous rename and apply rollback
+  metadata while the private temporary file is still open.
+- Verify Windows path ownership descriptor-to-descriptor, compare stable path
+  snapshots without the deprecated creation-time field and retain size, last-
+  write and supported-mode checks. Clean a failed pre-rename temporary file only
+  when its separate pathname identity is still proven.
+- Derive publisher backup and rollback fingerprints from the same coherent open-
+  file snapshot instead of recomparing incompatible Windows path metadata.
+- Reuse that coherent reader in the reproducibility inventory and packet checks,
+  removing a divergent Windows-sensitive file reader.
+- Canonicalise hostile-test fixture roots and pin the seven approved browser
+  resource paths independently of the implementation allowlist.
+- Make the standalone final audit reject a stale release manifest and remove a
+  superseded static reference-audit file that was not generated or verified.
+- Validate the browser resource-integrity schema, inventory, paths, sizes,
+  hashes and HTML SRI values without accepting out-of-checkout resources.
+- Keep deep-tree and hostile-manifest regressions stable across the supported
+  Python range and report bounded failing-test identifiers and exception types
+  without traceback or exception-message content.
+- Reject symbolic links and special filesystem entries before release readers
+  run, preventing external targets from entering trusted release evidence or a
+  package.
+- Verify every authoritative manifest field, canonical path, size and hash
+  rather than treating membership and per-file hashes as sufficient.
+- Build from a manifest-verified immutable snapshot under a stable archive root,
+  independent of the checkout directory name.
+- Stage and verify the ZIP and both required sidecars before publication, then
+  attempt complete prior-packet rollback after detected in-process failures.
+- Normalise the historical CRLF file-rename map so a Windows checkout cannot
+  invalidate committed resource-integrity and release evidence.
+
 ## [2.2.0] - 2026-05-29
 
 ### Changed
@@ -21,7 +145,9 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ### Verified
 - Single-file and project smoke reports remain valid under schema `2.2.0`.
-- Browser scripts, Content Security Policy, resource-integrity manifest, file-reference audit, naming audit, final package audit, release manifest and deterministic packaging all pass.
+- Browser scripts, Content Security Policy, resource-integrity manifest,
+  file-reference audit, naming audit, final package audit, release manifest and
+  fixed-metadata packaging under the recorded toolchain all pass.
 
 ## [2.1.12] - 2026-05-28
 

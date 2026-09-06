@@ -1,11 +1,10 @@
-    const ENGINE_RELATIVE_URL = "../src/codeprobe_runtime.py";
-    function pyodideIndexURL() {
-      return window.CodeProbeRuntime?.getPyodideIndexURL?.() || "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/";
-    }
     const HISTORY_KEY = "codeprobe_html_history_v2";
     const HISTORY_ENABLED_KEY = "codeprobe_html_history_enabled_v1";
     const MAX_BROWSER_DROP_FILES = 2000;
     const MAX_BROWSER_PROJECT_TEXT_BYTES = 1000000;
+    const MAX_BROWSER_PROJECT_ZIP_BYTES = 8000000;
+    const MAX_BROWSER_PROJECT_TOTAL_BYTES = 20000000;
+    const MAX_BROWSER_PROJECT_ENTRIES = 2000;
     const ALLOWED_CONFIG_KEYS = new Set(["enabled", "weight", "thresholds", "notes", "group", "contributes_to_overall"]);
     const ALLOWED_METRIC_GROUPS = new Set(["stylometry", "context", "quality", "documentation"]);
     const NON_AUTHORSHIP_METRICS = new Set([
@@ -75,11 +74,14 @@
     };
 
     const appState = {
-      pyodide: null,
+      workerSession: null,
+      busy: false,
+      generation: 0,
+      loadingInput: false,
       engineReady: false,
       engineFailed: false,
       enginePromise: null,
-      engineSource: null,
+      engineBundle: null,
       engineSourceMode: null,
       engineFingerprint: null,
       localEngineFile: null,
@@ -106,6 +108,7 @@
       loadEngineBtn: document.getElementById("loadEngineBtn"),
       engineFileInput: document.getElementById("engineFileInput"),
       analyzeBtn: document.getElementById("analyzeBtn"),
+      cancelBtn: document.getElementById("cancelBtn"),
       clearBtn: document.getElementById("clearBtn"),
       exportJsonBtn: document.getElementById("exportJsonBtn"),
       exportTextBtn: document.getElementById("exportTextBtn"),
@@ -123,6 +126,7 @@
       langMeta: document.getElementById("langMeta"),
       staleMeta: document.getElementById("staleMeta"),
       scoreValue: document.getElementById("scoreValue"),
+      scoreProgress: document.getElementById("scoreProgress"),
       scoreBar: document.getElementById("scoreBar"),
       verdictValue: document.getElementById("verdictValue"),
       confidenceValue: document.getElementById("confidenceValue"),
@@ -130,6 +134,7 @@
       summaryProfile: document.getElementById("summaryProfile"),
       lowLevelQualityCard: document.getElementById("lowLevelQualityCard"),
       lowLevelQualityValue: document.getElementById("lowLevelQualityValue"),
+      lowLevelQualityProgress: document.getElementById("lowLevelQualityProgress"),
       lowLevelQualityBar: document.getElementById("lowLevelQualityBar"),
       notesList: document.getElementById("notesList"),
       warningsList: document.getElementById("warningsList"),
@@ -143,6 +148,7 @@
       manualReviewPanel: document.getElementById("manualReviewPanel"),
       globalDropOverlay: document.getElementById("globalDropOverlay"),
       spinner: document.getElementById("spinner"),
+      statusBar: document.getElementById("applicationStatus"),
       statusText: document.getElementById("statusText"),
       contextText: document.getElementById("contextText"),
       tabButtons: Array.from(document.querySelectorAll(".tab-btn")),
@@ -165,93 +171,97 @@
       return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
-    async function readLocalTextFile(file) {
-      if (!file) {
-        throw new Error("No local engine file was selected.");
+    async function sha256Bytes(bytes) {
+      if (!window.crypto || !window.crypto.subtle) {
+        throw new Error("Browser WebCrypto SHA-256 is unavailable.");
       }
-      return file.text();
+      const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+      return Array.from(new Uint8Array(digest))
+        .map(byte => byte.toString(16).padStart(2, "0"))
+        .join("");
     }
 
-    async function sha256Hex(text) {
-      if (!window.crypto || !window.crypto.subtle || typeof TextEncoder === "undefined") {
-        return "";
+    async function loadManualEngineBundle(file) {
+      if (!file) throw new Error("No local engine file was selected.");
+      if (file.size > 1000000) throw new Error("The unverified engine override exceeds 1 MB.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let text = "";
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch (_) {
+        throw new Error("The selected engine file is not valid UTF-8.");
       }
-      const data = new TextEncoder().encode(String(text));
-      const digest = await window.crypto.subtle.digest("SHA-256", data);
-      return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, "0")).join("");
+      const value = await sha256Bytes(bytes);
+      return Object.freeze({
+        text,
+        size_bytes: bytes.byteLength,
+        trusted: false,
+        source: "manual-unverified",
+        fingerprint: Object.freeze({
+          algorithm: "sha256",
+          value,
+          available: true,
+          scope: "src/codeprobe_runtime.py",
+          source: "manual-unverified"
+        }),
+        copyBytes() { return bytes.slice(); }
+      });
+    }
+
+    async function getEngineBundle() {
+      if (appState.engineBundle) return appState.engineBundle;
+      const generation = appState.generation;
+      const file = appState.localEngineFile;
+      const bundle = file ? await loadManualEngineBundle(file) : await window.CodeProbeRuntime.loadVerifiedEngine();
+      if (generation !== appState.generation || file !== appState.localEngineFile) {
+        throw new DOMException("Engine loading was cancelled.", "AbortError");
+      }
+      appState.engineBundle = bundle;
+      appState.engineSourceMode = file ? "manual-unverified" : "packaged-verified";
+      appState.engineFingerprint = bundle.fingerprint;
+      return bundle;
     }
 
     async function getEngineFingerprint() {
-      if (appState.engineFingerprint) {
-        return appState.engineFingerprint;
-      }
-      const source = await getEngineSource();
-      const value = await sha256Hex(source);
-      appState.engineFingerprint = {
-        algorithm: "sha256",
-        value,
-        available: Boolean(value),
-        scope: "src/codeprobe_runtime.py",
-        source: appState.engineSourceMode || "browser-runtime"
-      };
-      return appState.engineFingerprint;
+      if (appState.engineFingerprint) return appState.engineFingerprint;
+      return (await getEngineBundle()).fingerprint;
     }
 
     function showEngineLoader(show) {
       els.loadEngineBtn.classList.toggle("hidden", !show);
     }
 
-    async function getEngineSource() {
-      if (appState.engineSource) {
-        return appState.engineSource;
-      }
-      const engineUrl = new URL(ENGINE_RELATIVE_URL, window.location.href).href;
-      try {
-        const response = await fetch(engineUrl, { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`The engine file could not be loaded (${response.status}).`);
-        }
-        appState.engineSource = await response.text();
-        appState.engineSourceMode = "relative-file";
-        return appState.engineSource;
-      } catch (error) {
-        if (appState.localEngineFile) {
-          appState.engineSource = await readLocalTextFile(appState.localEngineFile);
-          appState.engineSourceMode = "manual-file";
-          return appState.engineSource;
-        }
-        throw error;
-      }
+    function setStatus(text) {
+      els.statusText.textContent = String(text);
     }
-
-    async function installEngineModule(pyodide, engineSource) {
-      const moduleDir = "/codeprobe";
-      const modulePath = moduleDir + "/codeprobe_runtime.py";
-      try {
-        pyodide.FS.stat(moduleDir);
-      } catch (error) {
-        pyodide.FS.mkdir(moduleDir);
-      }
-      pyodide.FS.writeFile(modulePath, engineSource, { encoding: "utf8" });
-      pyodide.runPython(`
-import importlib
-import sys
-
-MODULE_DIR = "/codeprobe"
-if MODULE_DIR not in sys.path:
-    sys.path.insert(0, MODULE_DIR)
-importlib.invalidate_caches()
-if "codeprobe_runtime" in sys.modules:
-    del sys.modules["codeprobe_runtime"]
-importlib.import_module("codeprobe_runtime")
-      `);
-    }
-
 
     function setBusy(isBusy, text) {
-      els.spinner.classList.toggle("active", Boolean(isBusy));
-      els.statusText.textContent = text;
-      els.analyzeBtn.disabled = Boolean(isBusy) || !appState.engineReady;
+      const busy = Boolean(isBusy);
+      els.spinner.classList.toggle("active", busy);
+      els.statusBar.setAttribute("aria-busy", busy ? "true" : "false");
+      setStatus(text);
+      appState.busy = busy;
+      els.analyzeBtn.disabled = busy || appState.loadingInput || appState.engineFailed;
+      els.cancelBtn.disabled = !(busy || appState.loadingInput);
+      els.editor.readOnly = busy || appState.analysisMode === "project";
+      for (const key of ["openBtn", "openProjectZipBtn", "openFolderBtn", "loadEngineBtn", "languageSelect", "profileSelect", "configOverride", "calibrationProfile"]) {
+        els[key].disabled = busy;
+      }
+    }
+
+    function setProgressBar(container, fill, value, unavailableText = "Not available") {
+      const numeric = Number(value);
+      if (value === null || value === undefined || !Number.isFinite(numeric)) {
+        fill.style.width = "0%";
+        container.removeAttribute("aria-valuenow");
+        container.setAttribute("aria-valuetext", unavailableText);
+        return;
+      }
+      const bounded = clamp(numeric, 0, 100);
+      const rendered = bounded.toFixed(1);
+      fill.style.width = `${bounded}%`;
+      container.setAttribute("aria-valuenow", rendered);
+      container.setAttribute("aria-valuetext", `${rendered} per cent`);
     }
 
     function setEngineBadge(state, text) {
@@ -359,6 +369,8 @@ importlib.import_module("codeprobe_runtime")
     }
 
     function syntaxHighlight(code, language) {
+      // Large legal inputs use plain escaped text rather than synchronous regex highlighting.
+      if (code.length > 50000) return escapeHtml(code);
       let text = String(code || "");
       const placeholders = [];
       const stash = (value, cls) => {
@@ -542,7 +554,7 @@ importlib.import_module("codeprobe_runtime")
       const overallApplicable = report && report.overall_applicable !== false;
       const percent = Number(report?.overall_percent ?? 0);
       els.scoreValue.textContent = overallApplicable ? `${percent.toFixed(1)}%` : "N/A";
-      els.scoreBar.style.width = overallApplicable ? `${clamp(percent, 0, 100)}%` : "0%";
+      setProgressBar(els.scoreProgress, els.scoreBar, overallApplicable ? percent : null, "Not applicable");
       els.verdictValue.textContent = report.reading || report.verdict || "—";
       els.verdictValue.className = `value ${verdictClassName(report)}`;
       els.confidenceValue.textContent = report.confidence || "—";
@@ -565,11 +577,11 @@ importlib.import_module("codeprobe_runtime")
       if (lowLevel) {
         els.lowLevelQualityCard.classList.remove("hidden");
         els.lowLevelQualityValue.textContent = lowLevel.text;
-        els.lowLevelQualityBar.style.width = `${lowLevel.percent === null ? 0 : clamp(lowLevel.percent, 0, 100)}%`;
+        setProgressBar(els.lowLevelQualityProgress, els.lowLevelQualityBar, lowLevel.percent, "Not applicable");
       } else {
         els.lowLevelQualityCard.classList.add("hidden");
         els.lowLevelQualityValue.textContent = "—";
-        els.lowLevelQualityBar.style.width = "0%";
+        setProgressBar(els.lowLevelQualityProgress, els.lowLevelQualityBar, null);
       }
     }
 
@@ -696,13 +708,34 @@ importlib.import_module("codeprobe_runtime")
       `;
     }
 
-    function activateTab(tabId) {
+    function activateTab(tabId, { focusTab = false } = {}) {
+      const requested = els.tabButtons.find(button => button.dataset.tab === tabId);
+      if (!requested) return;
       els.tabButtons.forEach(button => {
-        button.classList.toggle("active", button.dataset.tab === tabId);
+        const selected = button === requested;
+        button.classList.toggle("active", selected);
+        button.setAttribute("aria-selected", selected ? "true" : "false");
+        button.tabIndex = selected ? 0 : -1;
       });
       els.tabPanels.forEach(panel => {
-        panel.classList.toggle("active", panel.id === tabId);
+        const selected = panel.id === tabId;
+        panel.classList.toggle("active", selected);
+        panel.hidden = !selected;
       });
+      if (focusTab) requested.focus();
+    }
+
+    function handleTabKeydown(event) {
+      const currentIndex = els.tabButtons.indexOf(event.currentTarget);
+      if (currentIndex < 0) return;
+      let nextIndex = null;
+      if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % els.tabButtons.length;
+      else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + els.tabButtons.length) % els.tabButtons.length;
+      else if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = els.tabButtons.length - 1;
+      if (nextIndex === null) return;
+      event.preventDefault();
+      activateTab(els.tabButtons[nextIndex].dataset.tab, { focusTab: true });
     }
 
     function downloadBlob(filename, content, contentType) {
@@ -760,34 +793,15 @@ importlib.import_module("codeprobe_runtime")
     }
 
     async function decodeFile(file) {
-      const buffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
+      const bytes = new Uint8Array(await file.arrayBuffer());
       if (looksBinary(bytes)) {
         throw new Error("The file appears to be binary rather than source text.");
       }
-      const warnings = [];
-      const decoders = [
-        ["utf-8", true],
-        ["windows-1252", true],
-        ["iso-8859-1", true]
-      ];
-      for (const [encoding, fatal] of decoders) {
-        try {
-          let text = new TextDecoder(encoding, { fatal }).decode(bytes);
-          text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-          if (encoding !== "utf-8") {
-            warnings.push(`Fallback decoding: ${encoding}`);
-          }
-          return { text, warnings };
-        } catch (error) {
-          continue;
-        }
+      if (!window.CodeProbeRuntime?.decodeSourceBytes) {
+        throw new Error("The shared source-decoding boundary is unavailable.");
       }
-      warnings.push("UTF-8 decoding used substitution characters.");
-      return {
-        text: new TextDecoder("utf-8").decode(bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n"),
-        warnings
-      };
+      const decoded = window.CodeProbeRuntime.decodeSourceBytes(bytes);
+      return { text: decoded.text, warnings: decoded.warning ? [decoded.warning] : [] };
     }
 
     function assertPlainObject(value, label) {
@@ -890,23 +904,63 @@ importlib.import_module("codeprobe_runtime")
       els.editor.value = lines.join("\n") + "\n";
     }
 
+    function invalidateInputState() {
+      if (appState.busy) cancelAnalysis();
+      else { appState.generation += 1; clearReport(); }
+      appState.loadingInput = false;
+      els.analyzeBtn.disabled = appState.engineFailed;
+      els.cancelBtn.disabled = true;
+    }
+
+    function beginInputRead() {
+      invalidateInputState();
+      appState.loadingInput = true;
+      appState.projectPayload = null;
+      appState.currentFileName = "";
+      appState.fileWarnings = [];
+      appState.analysisMode = "single";
+      els.editor.value = "";
+      els.editor.readOnly = false;
+      els.analyzeBtn.disabled = true;
+      els.cancelBtn.disabled = false;
+      updateEditorMeta(); scheduleHighlight();
+      return appState.generation;
+    }
+
+    function finishInputRead(generation) {
+      if (generation !== appState.generation) return;
+      appState.loadingInput = false;
+      els.analyzeBtn.disabled = appState.busy || appState.engineFailed;
+      els.cancelBtn.disabled = !appState.busy;
+    }
+
+    function rejectedInput(file, path, reason) {
+      const size = Number.isSafeInteger(file.size) && file.size >= 0 ? file.size : 0;
+      return { path: String(path).slice(0, 4096), size_bytes: size, intake_rejection: { reason } };
+    }
+
     async function handleProjectZip(file) {
       if (!file) return;
-      const zipBase64 = arrayBufferToBase64(await file.arrayBuffer());
-      appState.analysisMode = "project";
-      appState.projectPayload = {
-        project_name: String(file.name || "zip-project").replace(/\.zip$/i, "") || "zip-project",
-        zip_filename: file.name || "archive.zip",
-        zip_base64: zipBase64
-      };
-      appState.currentFileName = appState.projectPayload.project_name;
-      appState.fileWarnings = [];
-      setProjectEditorPreview(appState.projectPayload);
-      updateEditorMeta();
-      scheduleHighlight();
-      syncEditorScroll();
-      clearReport();
-      els.statusText.textContent = `Project ZIP loaded: ${file.name}.`;
+      const generation = beginInputRead();
+      try {
+        if ((file.size || 0) > MAX_BROWSER_PROJECT_ZIP_BYTES) throw new Error(`Project ZIP exceeds the ${MAX_BROWSER_PROJECT_ZIP_BYTES} byte browser limit.`);
+        const buffer = await file.arrayBuffer();
+        if (generation !== appState.generation) return;
+        if (buffer.byteLength > MAX_BROWSER_PROJECT_ZIP_BYTES) throw new Error("Project ZIP exceeds the browser byte limit.");
+        appState.analysisMode = "project";
+        appState.projectPayload = {
+          project_name: String(file.name || "zip-project").replace(/\.zip$/i, "") || "zip-project",
+          zip_filename: file.name || "archive.zip", zip_base64: arrayBufferToBase64(buffer),
+          max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES, max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES,
+          max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES, max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES
+        };
+        appState.currentFileName = appState.projectPayload.project_name;
+        setProjectEditorPreview(appState.projectPayload);
+        updateEditorMeta(); scheduleHighlight(); syncEditorScroll();
+        setStatus(`Project ZIP loaded: ${file.name}.`);
+      } catch (error) {
+        if (generation === appState.generation) setStatus(error.message);
+      } finally { finishInputRead(generation); }
     }
 
     function projectTextCandidate(path) {
@@ -918,43 +972,51 @@ importlib.import_module("codeprobe_runtime")
     async function handleProjectFiles(fileList) {
       const files = Array.from(fileList || []);
       if (!files.length) return;
-      if (files.length === 1 && /\.zip$/i.test(files[0].name || "")) {
-        await handleProjectZip(files[0]);
-        return;
-      }
-      const projectName = projectNameFromFiles(files);
-      const payloadFiles = [];
-      const warnings = [];
-      for (const file of files) {
-        const path = file._codeprobeRelativePath || file.webkitRelativePath || file.name || "file";
-        if (!projectTextCandidate(path) || file.size > MAX_BROWSER_PROJECT_TEXT_BYTES) {
-          payloadFiles.push({ path, content: "", size_bytes: file.size || 0 });
-          continue;
-        }
-        try {
-          const decoded = await decodeFile(file);
-          payloadFiles.push({ path, content: decoded.text, size_bytes: file.size || decoded.text.length });
-          if (decoded.warnings && decoded.warnings.length) {
-            warnings.push(`${path}: ${decoded.warnings.join("; ")}`);
+      if (files.length === 1 && /\.zip$/i.test(files[0].name || "")) return handleProjectZip(files[0]);
+      const generation = beginInputRead();
+      try {
+        if (files.length > MAX_BROWSER_PROJECT_ENTRIES) throw new Error(`Project selection exceeds the ${MAX_BROWSER_PROJECT_ENTRIES} entry browser limit.`);
+        const payloadFiles = [], warnings = [];
+        let acceptedBytes = 0;
+        for (const file of files) {
+          if (generation !== appState.generation) return;
+          const rawPath = file._codeprobeRelativePath || file.webkitRelativePath || file.name || "file";
+          let path;
+          try { path = window.CodeProbeRuntime.normaliseProjectPath(rawPath); }
+          catch (_) { payloadFiles.push(rejectedInput(file, rawPath, "unsafe_path")); continue; }
+          let reason = !projectTextCandidate(path) ? "unsupported_file_type" : "";
+          if ((file.size || 0) > MAX_BROWSER_PROJECT_TEXT_BYTES) reason = "file_too_large";
+          if (!reason && acceptedBytes + (file.size || 0) > MAX_BROWSER_PROJECT_TOTAL_BYTES) reason = "project_total_byte_limit";
+          if (reason) { payloadFiles.push(rejectedInput(file, path, reason)); continue; }
+          try {
+            const decoded = await decodeFile(file);
+            if (generation !== appState.generation) return;
+            const bytes = new TextEncoder().encode(decoded.text).length;
+            if (bytes > MAX_BROWSER_PROJECT_TEXT_BYTES) { payloadFiles.push(rejectedInput(file, path, "file_too_large")); continue; }
+            if (acceptedBytes + bytes > MAX_BROWSER_PROJECT_TOTAL_BYTES) { payloadFiles.push(rejectedInput(file, path, "project_total_byte_limit")); continue; }
+            acceptedBytes += bytes;
+            payloadFiles.push({ path, content: decoded.text, size_bytes: bytes });
+            if (decoded.warnings?.length) warnings.push(`${path}: ${decoded.warnings.join("; ")}`);
+          } catch (_) {
+            if (generation !== appState.generation) return;
+            payloadFiles.push(rejectedInput(file, path, "unreadable_file"));
           }
-        } catch (error) {
-          payloadFiles.push({ path, content: "", size_bytes: file.size || 0 });
-          warnings.push(`${path}: ${error.message}`);
         }
-      }
-      appState.analysisMode = "project";
-      appState.projectPayload = {
-        project_name: projectName,
-        files: payloadFiles
-      };
-      appState.currentFileName = projectName;
-      appState.fileWarnings = warnings;
-      setProjectEditorPreview(appState.projectPayload);
-      updateEditorMeta();
-      scheduleHighlight();
-      syncEditorScroll();
-      clearReport();
-      els.statusText.textContent = `Project files loaded: ${payloadFiles.length}${warnings.length ? ` (${warnings.length} skipped or warned)` : ""}.`;
+        if (generation !== appState.generation) return;
+        const projectName = projectNameFromFiles(files);
+        appState.analysisMode = "project";
+        appState.projectPayload = { project_name: projectName, files: payloadFiles,
+          max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES, max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES,
+          max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES, max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES };
+        appState.currentFileName = projectName;
+        appState.fileWarnings = warnings;
+        setProjectEditorPreview(appState.projectPayload);
+        updateEditorMeta(); scheduleHighlight(); syncEditorScroll();
+        const rejected = payloadFiles.filter(item => item.intake_rejection).length;
+        setStatus(`Project files loaded: ${payloadFiles.length - rejected}; ${rejected} intake exclusions retained.`);
+      } catch (error) {
+        if (generation === appState.generation) setStatus(error.message);
+      } finally { finishInputRead(generation); }
     }
 
     function getConfigOverrideObject() {
@@ -1056,58 +1118,62 @@ importlib.import_module("codeprobe_runtime")
       const items = loadHistory();
       const item = items[index];
       if (!item) return;
+      invalidateInputState();
       try {
         const parsed = JSON.parse(item.jsonReport);
         renderReport({ report: parsed, text: item.textReport }, false);
         activateTab("tab-summary");
-        els.statusText.textContent = "A report was loaded from local history.";
+        setStatus("A report was loaded from local history.");
       } catch (error) {
-        els.statusText.textContent = "Local history is corrupted.";
+        setStatus("Local history is corrupted.");
       }
     }
 
+    function cancelAnalysis() {
+      appState.loadingInput = false;
+      appState.generation += 1;
+      appState.workerSession?.cancel();
+      appState.engineReady = false;
+      appState.engineFailed = false;
+      appState.enginePromise = null;
+      appState.engineFingerprint = null;
+      clearReport();
+      setEngineBadge("warn", "Worker stopped");
+      setBusy(false, "Analysis cancelled; the worker was terminated.");
+    }
+
     async function initEngine() {
-      if (appState.enginePromise) {
-        return appState.enginePromise;
-      }
+      if (appState.workerSession?.isReady()) return;
+      if (appState.enginePromise) return appState.enginePromise;
+      const generation = appState.generation;
       appState.enginePromise = (async () => {
         setBusy(true, "Loading the in-browser Python engine…");
         setEngineBadge("warn", "Engine initialising");
         showEngineLoader(false);
-        if (window.CodeProbeRuntime?.ensurePyodideLoader) {
-          await window.CodeProbeRuntime.ensurePyodideLoader();
-        }
-        if (typeof window.loadPyodide !== "function") {
-          throw new Error("The Pyodide runtime script is unavailable.");
-        }
-        if (!appState.pyodide) {
-          appState.pyodide = await window.loadPyodide({ indexURL: pyodideIndexURL() });
-        }
-        const engineSource = await getEngineSource();
-        await installEngineModule(appState.pyodide, engineSource);
+        if (!window.CodeProbeRuntime?.createAnalysisSession) throw new Error("The isolated analysis worker is unavailable.");
+        if (!appState.workerSession) appState.workerSession = window.CodeProbeRuntime.createAnalysisSession();
+        const manual = appState.localEngineFile ? { bytes: (await getEngineBundle()).copyBytes() } : null;
+        if (generation !== appState.generation) return;
+        const metadata = await appState.workerSession.initialise(manual);
+        if (generation !== appState.generation) return;
+        appState.engineFingerprint = metadata.fingerprint;
+        appState.engineSourceMode = metadata.fingerprint.source;
         appState.engineReady = true;
         appState.engineFailed = false;
         setEngineBadge("ready", "Engine ready");
         setBusy(false, "The analysis engine is ready.");
-        els.contextText.textContent = appState.engineSourceMode === "manual-file"
-          ? "Engine source loaded from a local file."
-          : "Engine source loaded from the runtime file at ../src/codeprobe_runtime.py.";
+        els.contextText.textContent = appState.engineSourceMode === "manual-unverified"
+          ? "Unverified local engine override is active. Do not treat its reports as packaged CodeProbe evidence."
+          : "The packaged Python engine passed its SHA-256 check before import in an isolated worker.";
         showEngineLoader(false);
-        els.analyzeBtn.disabled = false;
       })().catch(error => {
-        console.error(error);
+        if (generation !== appState.generation) return;
         appState.engineReady = false;
-        appState.engineFailed = true;
+        appState.engineFailed = error.name !== "AbortError" && error.name !== "TimeoutError";
         setEngineBadge("error", "Initialisation failed");
         showEngineLoader(true);
-        setBusy(false, "The in-browser Python engine could not be loaded.");
-        if (location.protocol === "file:" && !appState.localEngineFile) {
-          els.contextText.textContent =
-            "Open the folder through a local server, or click 'Load engine file' and select src/codeprobe_runtime.py.";
-        } else {
-          els.contextText.textContent =
-            "Check app/runtime-config.json, network access to Pyodide, and ensure src/codeprobe_runtime.py is present.";
-        }
+        setBusy(false, error.name === "TimeoutError" ? error.message : "The in-browser Python engine could not be loaded.");
+        els.contextText.textContent = "Check the runtime configuration, verified Pyodide source and packaged engine integrity record.";
         appState.enginePromise = null;
         throw error;
       });
@@ -1115,14 +1181,20 @@ importlib.import_module("codeprobe_runtime")
     }
 
     async function analyzeNow() {
+      if (appState.busy || appState.loadingInput) return;
+      const generation = appState.generation;
       const isProject = appState.analysisMode === "project";
       const code = els.editor.value;
+      if (!isProject && (code.length > MAX_BROWSER_PROJECT_TEXT_BYTES || new TextEncoder().encode(code).length > MAX_BROWSER_PROJECT_TEXT_BYTES)) {
+        setStatus("Single-file analysis is limited to 1 MB of UTF-8 text in the browser.");
+        return;
+      }
       if (!isProject && !code.trim()) {
-        els.statusText.textContent = "The editor is empty.";
+        setStatus("The editor is empty.");
         return;
       }
       if (isProject && !appState.projectPayload) {
-        els.statusText.textContent = "No project payload is loaded.";
+        setStatus("No project payload is loaded.");
         return;
       }
       try {
@@ -1131,17 +1203,19 @@ importlib.import_module("codeprobe_runtime")
         return;
       }
 
+      if (generation !== appState.generation || !appState.workerSession?.isReady()) return;
       let override = null;
       let calibrationProfile = null;
       try {
         override = getConfigOverrideObject();
         calibrationProfile = getCalibrationProfileObject();
       } catch (error) {
-        els.statusText.textContent = error.message;
+        setStatus(error.message);
         activateTab("tab-summary");
         return;
       }
 
+      clearReport();
       setBusy(true, isProject ? "Project analysis running…" : "Analysis running…");
       await new Promise(resolve => requestAnimationFrame(resolve));
 
@@ -1149,7 +1223,7 @@ importlib.import_module("codeprobe_runtime")
         const selectedLanguage = els.languageSelect.value;
         const engineFingerprint = await getEngineFingerprint();
         let payload;
-        let command;
+
         if (isProject) {
           payload = {
             ...appState.projectPayload,
@@ -1159,7 +1233,7 @@ importlib.import_module("codeprobe_runtime")
             include_documentation: false,
             engine_fingerprint: engineFingerprint
           };
-          command = "import codeprobe_runtime\ncodeprobe_runtime.codeprobe_analyze_project(payload_json)";
+
         } else {
           const fallbackLanguage = selectedLanguage === "auto" ? appState.detectedLanguage : selectedLanguage;
           const filename = appState.currentFileName || defaultFileNameForLanguage(fallbackLanguage);
@@ -1172,26 +1246,19 @@ importlib.import_module("codeprobe_runtime")
             calibration_profile: calibrationProfile,
             engine_fingerprint: engineFingerprint
           };
-          command = "import codeprobe_runtime\ncodeprobe_runtime.codeprobe_analyze(payload_json)";
+
         }
-        let resultText = "";
-        try {
-          appState.pyodide.globals.set("payload_json", JSON.stringify(payload));
-          resultText = appState.pyodide.runPython(command);
-        } finally {
-          try {
-            appState.pyodide.globals.delete("payload_json");
-          } catch (cleanupError) {
-            console.warn("Could not remove payload from Pyodide globals.", cleanupError);
-          }
-        }
-        const parsed = JSON.parse(resultText);
+        if (generation !== appState.generation) return;
+        const parsed = await appState.workerSession.analyse(isProject ? "project" : "file", payload);
+        if (generation !== appState.generation) return;
         renderReport(parsed, true);
         setBusy(false, isProject ? "Project analysis completed." : "Analysis completed.");
       } catch (error) {
-        console.error(error);
-        setBusy(false, isProject ? "Project analysis failed." : "Analysis failed.");
-        els.contextText.textContent = String(error);
+        if (generation !== appState.generation) return;
+        appState.engineReady = appState.workerSession.isReady();
+        appState.enginePromise = null;
+        setBusy(false, error.name === "TimeoutError" || error.name === "AbortError" ? error.message : "Analysis failed; no report was accepted.");
+        els.contextText.textContent = "Retry starts a fresh worker after cancellation, timeout or worker failure.";
       }
     }
 
@@ -1231,7 +1298,7 @@ importlib.import_module("codeprobe_runtime")
       els.exportJsonBtn.disabled = true;
       els.exportTextBtn.disabled = true;
       els.scoreValue.textContent = "—";
-      els.scoreBar.style.width = "0%";
+      setProgressBar(els.scoreProgress, els.scoreBar, null);
       els.verdictValue.textContent = "Insufficient data";
       els.verdictValue.className = "value verdict-insufficient";
       els.confidenceValue.textContent = "—";
@@ -1239,7 +1306,7 @@ importlib.import_module("codeprobe_runtime")
       els.summaryProfile.textContent = els.profileSelect.value;
       els.lowLevelQualityCard.classList.add("hidden");
       els.lowLevelQualityValue.textContent = "—";
-      els.lowLevelQualityBar.style.width = "0%";
+      setProgressBar(els.lowLevelQualityProgress, els.lowLevelQualityBar, null);
       renderList(els.notesList, [], "The report will appear here after the first analysis.");
       renderList(els.warningsList, [], "No warnings.");
       els.textReport.value = "The text report will appear here.";
@@ -1255,41 +1322,39 @@ importlib.import_module("codeprobe_runtime")
 
     async function handleFile(file) {
       if (!file) return;
+      const generation = beginInputRead();
       try {
+        if (file.size > MAX_BROWSER_PROJECT_TEXT_BYTES) throw new Error("Single-file loading is limited to 1 MB in the browser.");
         const decoded = await decodeFile(file);
+        if (generation !== appState.generation) return;
+        if (new TextEncoder().encode(decoded.text).length > MAX_BROWSER_PROJECT_TEXT_BYTES) throw new Error("Decoded source exceeds the 1 MB browser limit.");
         appState.analysisMode = "single";
         appState.projectPayload = null;
-        appState.currentProjectReport = null;
         appState.currentFileName = file.name || "fragment.txt";
         appState.fileWarnings = decoded.warnings || [];
         els.editor.value = decoded.text;
-        updateEditorMeta();
-        scheduleHighlight();
-        syncEditorScroll();
-        markReportStale(appState.currentReport !== null || appState.currentProjectReport !== null);
+        updateEditorMeta(); scheduleHighlight(); syncEditorScroll();
         const warningText = appState.fileWarnings.length ? ` (${appState.fileWarnings.join("; ")})` : "";
-        els.statusText.textContent = `File loaded: ${appState.currentFileName}${warningText}`;
+        setStatus(`File loaded: ${appState.currentFileName}${warningText}`);
       } catch (error) {
-        els.statusText.textContent = error.message;
-      }
+        if (generation === appState.generation) setStatus(error.message);
+      } finally { finishInputRead(generation); }
     }
 
     function reportBaseName(report) {
-      const raw = report?.filename || "report";
+      const raw = report?.project_name || report?.filename || "report";
       return String(raw).replace(/\.zip$/i, "").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "_") || "report";
     }
 
     function clearPyodidePayloadReference() {
-      try {
-        appState.pyodide?.globals?.delete?.("payload_json");
-      } catch (error) {
-        /* best-effort cleanup only */
-      }
+      cancelAnalysis();
+      appState.localEngineFile = null;
+      appState.engineBundle = null;
+      appState.engineSourceMode = null;
     }
 
     function clearPrivacyData() {
-      localStorage.removeItem(HISTORY_KEY);
-      localStorage.removeItem(HISTORY_ENABLED_KEY);
+      // Session invalidation must not depend on persistent-storage access.
       if (els.historyEnabled) {
         els.historyEnabled.checked = false;
       }
@@ -1300,12 +1365,25 @@ importlib.import_module("codeprobe_runtime")
       appState.fileWarnings = [];
       appState.currentFileName = defaultFileNameForLanguage(els.languageSelect.value === "auto" ? "python" : els.languageSelect.value);
       els.editor.value = "";
+      els.configOverride.value = "";
+      els.calibrationProfile.value = "";
       clearReport();
       renderHistory();
       updateEditorMeta();
       scheduleHighlight();
       syncEditorScroll();
-      els.statusText.textContent = "Privacy data cleared from this browser session and local storage.";
+      let persistenceCleared = true;
+      for (const key of [HISTORY_KEY, HISTORY_ENABLED_KEY]) {
+        try {
+          localStorage.removeItem(key);
+          if (localStorage.getItem(key) !== null) persistenceCleared = false;
+        } catch (error) {
+          persistenceCleared = false;
+        }
+      }
+      setStatus(persistenceCleared
+        ? "Privacy data cleared from this browser session and local storage."
+        : "Session data cleared; persistent history erasure could not be verified. Browser storage may still contain reports.");
     }
 
     function handleHistoryClick(event) {
@@ -1344,59 +1422,9 @@ importlib.import_module("codeprobe_runtime")
       return file;
     }
 
-    function readAllDirectoryEntries(reader) {
-      return new Promise((resolve, reject) => {
-        const entries = [];
-        function readBatch() {
-          reader.readEntries(batch => {
-            if (!batch.length) {
-              resolve(entries);
-              return;
-            }
-            entries.push(...batch);
-            readBatch();
-          }, reject);
-        }
-        readBatch();
-      });
-    }
-
-    async function filesFromEntry(entry, prefix = "") {
-      if (!entry) return [];
-      if (entry.isFile) {
-        return new Promise(resolve => {
-          entry.file(file => resolve([annotateDroppedFile(file, `${prefix}${file.name}`)]), () => resolve([]));
-        });
-      }
-      if (entry.isDirectory) {
-        const reader = entry.createReader();
-        const entries = await readAllDirectoryEntries(reader);
-        const nested = [];
-        for (const child of entries) {
-          nested.push(...await filesFromEntry(child, `${prefix}${entry.name}/`));
-          if (nested.length > MAX_BROWSER_DROP_FILES) break;
-        }
-        return nested;
-      }
-      return [];
-    }
-
     async function collectDroppedFiles(dataTransfer) {
-      const items = Array.from(dataTransfer?.items || []);
-      const withEntries = items
-        .map(item => (item.kind === "file" && typeof item.webkitGetAsEntry === "function") ? item.webkitGetAsEntry() : null)
-        .filter(Boolean);
-      if (withEntries.length) {
-        const files = [];
-        for (const entry of withEntries) {
-          files.push(...await filesFromEntry(entry));
-          if (files.length > MAX_BROWSER_DROP_FILES) break;
-        }
-        return files;
-      }
-      return Array.from(dataTransfer?.files || []);
+      return window.CodeProbeRuntime.collectDroppedFiles(dataTransfer);
     }
-
     function hasFileDrag(event) {
       return Array.from(event.dataTransfer?.types || []).includes("Files");
     }
@@ -1408,13 +1436,19 @@ importlib.import_module("codeprobe_runtime")
     }
 
     async function handleDropDataTransfer(dataTransfer) {
-      const droppedFiles = await collectDroppedFiles(dataTransfer);
+      if (appState.busy) { setStatus("Cancel the current operation before loading another input."); return; }
+      const generation = beginInputRead();
+      let droppedFiles;
+      try { droppedFiles = await collectDroppedFiles(dataTransfer); }
+      catch (error) { if (generation === appState.generation) setStatus(error.message); return; }
+      finally { finishInputRead(generation); }
+      if (generation !== appState.generation) return;
       if (!droppedFiles.length) {
-        els.statusText.textContent = "No readable files were dropped.";
+        setStatus("No readable files were dropped.");
         return;
       }
       if (droppedFiles.length > MAX_BROWSER_DROP_FILES) {
-        els.statusText.textContent = `Too many files were dropped (${droppedFiles.length}). Use tools/analyze_project.py for very large projects.`;
+        setStatus(`Too many files were dropped (${droppedFiles.length}). Use tools/analyze_project.py for very large projects.`);
         return;
       }
       if (droppedFiles.length === 1 && isZipLikeFile(droppedFiles[0])) {
@@ -1444,19 +1478,20 @@ importlib.import_module("codeprobe_runtime")
 
     els.fileInput.addEventListener("change", async event => {
       const [file] = Array.from(event.target.files || []);
-      await handleFile(file);
       els.fileInput.value = "";
+      await handleFile(file);
     });
 
     els.projectZipInput.addEventListener("change", async event => {
       const [file] = Array.from(event.target.files || []);
-      await handleProjectZip(file);
       els.projectZipInput.value = "";
+      await handleProjectZip(file);
     });
 
     els.folderInput.addEventListener("change", async event => {
-      await handleProjectFiles(event.target.files || []);
+      const files = Array.from(event.target.files || []);
       els.folderInput.value = "";
+      await handleProjectFiles(files);
     });
 
     els.engineFileInput.addEventListener("change", async event => {
@@ -1465,24 +1500,36 @@ importlib.import_module("codeprobe_runtime")
       if (!file) {
         return;
       }
+      const approved = window.confirm(
+        "This bypasses the packaged Python-engine integrity check. Continue with an explicitly unverified local engine?"
+      );
+      if (!approved) {
+        setStatus("The unverified local engine override was cancelled.");
+        return;
+      }
+      cancelAnalysis();
       appState.localEngineFile = file;
-      appState.engineSource = null;
+      appState.engineBundle = null;
       appState.engineSourceMode = null;
-      els.statusText.textContent = `Local engine file selected: ${file.name}.`;
-      if (!appState.engineReady) {
-        try {
-          await initEngine();
-        } catch (error) {
-          /* the status bar already shows the failure */
-        }
+      appState.engineFingerprint = null;
+      appState.engineReady = false;
+      appState.enginePromise = null;
+      setStatus(`Unverified local engine selected: ${file.name}.`);
+      try {
+        await initEngine();
+      } catch (error) {
+        /* the status bar already shows the failure */
       }
     });
 
+    els.cancelBtn.addEventListener("click", () => cancelAnalysis());
+    window.addEventListener("pagehide", () => cancelAnalysis());
     els.analyzeBtn.addEventListener("click", () => {
       analyzeNow();
     });
 
     els.clearBtn.addEventListener("click", () => {
+      cancelAnalysis();
       els.editor.value = "";
       appState.analysisMode = "single";
       appState.projectPayload = null;
@@ -1492,7 +1539,7 @@ importlib.import_module("codeprobe_runtime")
       scheduleHighlight();
       syncEditorScroll();
       clearReport();
-      els.statusText.textContent = "Editor cleared.";
+      setStatus("Editor cleared.");
     });
 
     els.exportJsonBtn.addEventListener("click", () => {
@@ -1508,27 +1555,29 @@ importlib.import_module("codeprobe_runtime")
     els.clearHistoryBtn.addEventListener("click", () => {
       localStorage.removeItem(HISTORY_KEY);
       renderHistory();
-      els.statusText.textContent = "Local history cleared.";
+      setStatus("Local history cleared.");
     });
 
     els.privacyWipeBtn.addEventListener("click", clearPrivacyData);
 
     if (els.historyEnabled) {
-      const storedHistoryPreference = localStorage.getItem(HISTORY_ENABLED_KEY);
-      els.historyEnabled.checked = storedHistoryPreference === null ? false : storedHistoryPreference === "true";
+      let storedHistoryPreference = null;
+      try { storedHistoryPreference = localStorage.getItem(HISTORY_ENABLED_KEY); } catch (error) { /* Default to disabled. */ }
+      els.historyEnabled.checked = storedHistoryPreference === "true";
       els.historyEnabled.addEventListener("change", () => {
         localStorage.setItem(HISTORY_ENABLED_KEY, String(els.historyEnabled.checked));
         if (!els.historyEnabled.checked) {
           localStorage.removeItem(HISTORY_KEY);
-          els.statusText.textContent = "Local history disabled and cleared.";
+          setStatus("Local history disabled and cleared.");
         } else {
-          els.statusText.textContent = "Local history enabled.";
+          setStatus("Local history enabled.");
         }
         renderHistory();
       });
     }
 
     els.languageSelect.addEventListener("change", () => {
+      invalidateInputState();
       if (appState.currentReport || appState.currentProjectReport) {
         markReportStale(true);
       }
@@ -1537,13 +1586,19 @@ importlib.import_module("codeprobe_runtime")
     });
 
     els.profileSelect.addEventListener("change", () => {
+      invalidateInputState();
       els.summaryProfile.textContent = els.profileSelect.value;
       if (appState.currentReport || appState.currentProjectReport) {
         markReportStale(true);
       }
     });
 
+    for (const key of ["configOverride", "calibrationProfile"]) {
+      els[key].addEventListener("input", invalidateInputState);
+      els[key].addEventListener("change", invalidateInputState);
+    }
     els.editor.addEventListener("input", () => {
+      invalidateInputState();
       if (appState.analysisMode === "project") {
         appState.analysisMode = "single";
         appState.projectPayload = null;
@@ -1560,6 +1615,7 @@ importlib.import_module("codeprobe_runtime")
 
     els.tabButtons.forEach(button => {
       button.addEventListener("click", () => activateTab(button.dataset.tab));
+      button.addEventListener("keydown", handleTabKeydown);
     });
 
     els.metricsBody.addEventListener("click", event => {
@@ -1614,6 +1670,7 @@ importlib.import_module("codeprobe_runtime")
 
     window.addEventListener("keydown", event => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
+        if (appState.busy) { event.preventDefault(); return; }
         event.preventDefault();
         els.fileInput.click();
       } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -1632,6 +1689,7 @@ importlib.import_module("codeprobe_runtime")
     scheduleHighlight();
     syncEditorScroll();
     clearReport();
+    activateTab("tab-summary");
 
     initEngine().catch(() => {
       /* the status bar already shows the failure */

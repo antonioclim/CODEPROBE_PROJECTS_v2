@@ -2,22 +2,24 @@
 
 Version: CodeProbe v2.2.0
 Status: PASS
-Release-set files counted: 112
+Release-set source files counted: 148 (release manifest excluded)
 
 ## Area counts
 
-- `app`: 12
+- `.github`: 2
+- `app`: 14
 - `calibration`: 8
-- `docs`: 30
+- `docs`: 37
 - `educator`: 10
-- `release`: 4
-- `root`: 7
-- `src`: 9
-- `tests`: 19
-- `tools`: 13
+- `release`: 3
+- `root`: 10
+- `src`: 11
+- `tests`: 30
+- `tools`: 23
 
 ## Checks
 
+- Release-set safety: pass
 - Required final paths present: yes
 - Forbidden active legacy paths absent: yes
 - Reference integrity: pass

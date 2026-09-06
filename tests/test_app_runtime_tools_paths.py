@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -8,6 +12,45 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RuntimeUiCliNamingTests(unittest.TestCase):
+    def test_documented_clis_ignore_ambient_project_modules(self) -> None:
+        scripts = (
+            "tools/analyze_project.py",
+            "tools/calibrate_corpus.py",
+            "tools/calibrate_profile.py",
+            "tools/compare_releases.py",
+            "tools/final_audit.py",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            site_packages = Path(tmp) / "site-packages"
+            site_packages.mkdir()
+            (site_packages / "codeprobe_runtime.py").write_text(
+                "raise RuntimeError('ambient codeprobe_runtime imported')\n",
+                encoding="utf-8",
+            )
+            engine_package = site_packages / "codeprobe_engine"
+            engine_package.mkdir()
+            (engine_package / "__init__.py").write_text(
+                "raise RuntimeError('ambient codeprobe_engine imported')\n",
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = str(site_packages)
+
+            for relative in scripts:
+                with self.subTest(relative=relative):
+                    completed = subprocess.run(
+                        [sys.executable, "-I", "-S", "-B", ROOT / relative, "--help"],
+                        cwd=ROOT,
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                    )
+                    self.assertEqual(
+                        completed.returncode,
+                        0,
+                        completed.stdout + completed.stderr,
+                    )
+
     def test_phase12_runtime_ui_and_tools_paths_exist(self) -> None:
         for relative in [
             "app/index.html",

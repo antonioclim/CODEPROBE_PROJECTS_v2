@@ -1,0 +1,56 @@
+{
+  "schema": "codeprobe-pyodide-provenance/v1",
+  "version": "0.25.0",
+  "distribution_base_url": "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/",
+  "upstream": {
+    "repository": "pyodide/pyodide",
+    "tag": "0.25.0",
+    "commit": "6621b6bca72ed2cc4e9e66ed24783cce0e8dd907",
+    "core_release_asset": {
+      "name": "pyodide-core-0.25.0.tar.bz2",
+      "size_bytes": 5309505,
+      "sha256_hex": "ebe015d9e0c766af3679378699ac145f0fc320a49213b4734fd30bc28c68c360",
+      "sri_sha256": "sha256-6+AV2eDHZq82eTeGmawUXw/DIKSSE7RzT9MLwoxow2A="
+    }
+  },
+  "lock_info": {
+    "arch": "wasm32",
+    "platform": "emscripten_3_1_46",
+    "python": "3.11.3",
+    "version": "0.25.0",
+    "package_count": 260
+  },
+  "startup_artifacts": [
+    {
+      "name": "pyodide.js",
+      "size_bytes": 16698,
+      "sha256_hex": "9c79c9999999b15de7587aa220c61d06aa14e76babb75dc50c2f873aa826ad4d",
+      "sri_sha256": "sha256-nHnJmZmZsV3nWHqiIMYdBqoU52urt13FDC+HOqgmrU0="
+    },
+    {
+      "name": "pyodide-lock.json",
+      "size_bytes": 88845,
+      "sha256_hex": "3782b60f746823bed3aaac9bb732e5bda226085c6c39649dc64caad2c816fc92",
+      "sri_sha256": "sha256-N4K2D3RoI77TqqybtzLlvaImCFxsOWSdxkyq0sgW/JI="
+    },
+    {
+      "name": "python_stdlib.zip",
+      "size_bytes": 2323181,
+      "sha256_hex": "ca76f51f97772dd3a011b4ca1a2a0062a9aecf1feb9bd77342d3cdbdeb45d33f",
+      "sri_sha256": "sha256-ynb1H5d3LdOgEbTKGioAYqmuzx/rm9dzQtPNvetF0z8="
+    },
+    {
+      "name": "pyodide.asm.js",
+      "size_bytes": 1130465,
+      "sha256_hex": "e0ee644201404183c666d402925f78998dfa1b1ad99415baef6833b17b082397",
+      "sri_sha256": "sha256-4O5kQgFAQYPGZtQCkl94mY36GxrZlBW672gzsXsII5c="
+    },
+    {
+      "name": "pyodide.asm.wasm",
+      "size_bytes": 9002149,
+      "sha256_hex": "3694754429c57aff83cf3f8592d83085e8e5edd7ed52e97fbb9ff9065d698ef4",
+      "sri_sha256": "sha256-NpR1RCnFev+Dzz+Fktgwhejl7dftUul/u5/5Bl1pjvQ="
+    }
+  ],
+  "assurance_boundary": "The recorded hashes authenticate the measured core startup set for Pyodide 0.25.0. They do not establish upstream build reproducibility, optional-package integrity, runtime availability or the complete vulnerability status of the Pyodide ecosystem."
+}

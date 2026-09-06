@@ -12,6 +12,7 @@ import argparse
 import csv
 import json
 import re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Sequence
@@ -19,6 +20,7 @@ from typing import Iterable, List, Sequence
 ROOT = Path(__file__).resolve().parents[1]
 RENAME_MAP = Path("release/file-rename-map.csv")
 TEXT_SUFFIXES = {".md", ".html", ".htm"}
+IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"}
 IGNORED_REFERENCE_PREFIXES = ("http://", "https://", "mailto:", "#", "data:", "javascript:")
 
 LEGACY_REFERENCE_TOKENS = (
@@ -117,7 +119,10 @@ def check_document_links(root: Path) -> List[ReferenceProblem]:
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in TEXT_SUFFIXES:
             continue
-        relative_source = path.relative_to(root).as_posix()
+        relative_path = path.relative_to(root)
+        if set(relative_path.parts) & IGNORED_PARTS:
+            continue
+        relative_source = relative_path.as_posix()
         for raw_ref in markdown_and_html_references(path):
             ref = _normalise_reference(raw_ref)
             if not ref:
@@ -148,7 +153,22 @@ def check_resource_integrity_manifest(root: Path) -> List[ReferenceProblem]:
         if not isinstance(ref, str) or not ref:
             problems.append(ReferenceProblem("app/resource-integrity.json", str(ref), "asset lacks a usable path"))
             continue
-        if not (root / "app" / ref).is_file():
+        candidate = root / "app" / ref
+        resolved = candidate.resolve()
+        if not _inside(resolved, root.resolve()):
+            problems.append(
+                ReferenceProblem(
+                    "app/resource-integrity.json",
+                    ref,
+                    "asset resolves outside package root",
+                )
+            )
+            continue
+        try:
+            metadata = candidate.lstat()
+        except OSError:
+            metadata = None
+        if metadata is None or stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
             problems.append(ReferenceProblem("app/resource-integrity.json", ref, "asset file does not exist relative to app/"))
     return problems
 
@@ -197,14 +217,13 @@ def check_rename_map(root: Path) -> List[ReferenceProblem]:
         problems.append(ReferenceProblem(RENAME_MAP.as_posix(), duplicate, "duplicate current_path"))
     for duplicate in sorted(duplicate_proposed):
         problems.append(ReferenceProblem(RENAME_MAP.as_posix(), duplicate, "duplicate proposed_final_path"))
-    ignored_parts = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"}
     ignored_suffixes = {".pyc", ".pyo"}
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
         rel_path = path.relative_to(root)
         rel = rel_path.as_posix()
-        if set(rel_path.parts) & ignored_parts or path.suffix.lower() in ignored_suffixes:
+        if set(rel_path.parts) & IGNORED_PARTS or path.suffix.lower() in ignored_suffixes:
             continue
         if rel not in current_paths:
             problems.append(ReferenceProblem(RENAME_MAP.as_posix(), rel, "file is missing from rename map"))
@@ -213,13 +232,12 @@ def check_rename_map(root: Path) -> List[ReferenceProblem]:
 
 def check_uncontrolled_legacy_references(root: Path) -> List[ReferenceProblem]:
     problems: List[ReferenceProblem] = []
-    ignored_dirs = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"}
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in LEGACY_SCAN_SUFFIXES:
             continue
         rel_path = path.relative_to(root)
         rel = rel_path.as_posix()
-        if set(rel_path.parts) & ignored_dirs:
+        if set(rel_path.parts) & IGNORED_PARTS:
             continue
         if rel in CONTROLLED_LEGACY_REFERENCE_FILES or rel.startswith("docs/history/"):
             continue
