@@ -60,14 +60,17 @@ jobs:
           assert len(patch) == 28704
           assert hashlib.sha256(patch).hexdigest() == '28ff8a51a2dca17af28043ab4bd9e09e7bb4ee67622455195161e47fdc6c5e33'
           Path('../evidence/implementation.patch').write_bytes(patch)
-          correction=get_blob('292c4fc7bddc38fe66cd776bb46dfcaf30e45935')
-          assert hashlib.sha256(correction).hexdigest()=='1717f78e467bd1e184f42237eb12d57a81c4bec7fdb18a4da54cf815f4ada197'
-          Path('../evidence/browser-correction.patch').write_bytes(correction)
+          for name,sha,digest in [('browser-correction','292c4fc7bddc38fe66cd776bb46dfcaf30e45935','1717f78e467bd1e184f42237eb12d57a81c4bec7fdb18a4da54cf815f4ada197'),('fixture-generation-correction','1512e0a8a3a3288655ac1d9fdd18ca7335194c32','1050e674e03d9b8c848cd52119eb682e49f4c98454e41a3b37eb41b0d50985ad')]:
+              correction=get_blob(sha)
+              assert hashlib.sha256(correction).hexdigest()==digest
+              Path('../evidence/'+name+'.patch').write_bytes(correction)
           PY
           git apply --check ../evidence/implementation.patch
           git apply ../evidence/implementation.patch
           git apply --check ../evidence/browser-correction.patch
           git apply ../evidence/browser-correction.patch
+          git apply --check ../evidence/fixture-generation-correction.patch
+          git apply ../evidence/fixture-generation-correction.patch
       - name: Refresh dependent browser integrity metadata
         run: |
           python -I -S -B - <<'PY'
@@ -97,6 +100,13 @@ jobs:
               file.write_bytes(text.encode('utf-8'))
           manifest.write_bytes((json.dumps(metadata,indent=2)+'\n').encode('utf-8'))
           PY
+      - name: Exercise actual authenticated Pyodide and Chromium
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/prepare_pyodide_fixture.py --output-dir "$RUNNER_TEMP/4j-pyodide"
+          CODEPROBE_PYODIDE_FIXTURE_DIR="$RUNNER_TEMP/4j-pyodide" node tools/check_browser_functional.js 2>&1 | tee ../evidence/browser.log
+          node tools/check_browser_accessibility.js 2>&1 | tee ../evidence/accessibility.log
       - name: Run the maintained contract tests
         run: python -I -S -B -m unittest discover -s tests -p test_contract_repairs.py -v 2>&1 | tee ../evidence/contracts.log
       - name: Refresh release evidence through the complete gate
@@ -108,20 +118,13 @@ jobs:
           set -euo pipefail
           git diff --check
           git add --all
-          test "$(git write-tree)" = 9e30cb98f1b287b736656428377f9f44f77901d5
+          test "$(git write-tree)" = 0021e2499049f8c07dfe5c0eb462ea9b50ddd1c8
           git diff --cached --binary > ../evidence/final.patch
           git diff --cached --stat | tee ../evidence/changed-paths.txt
-          echo '9e30cb98f1b287b736656428377f9f44f77901d5' > ../evidence/tree.txt
+          echo '0021e2499049f8c07dfe5c0eb462ea9b50ddd1c8' > ../evidence/tree.txt
       - name: Enforce the unchanged coverage floors
         if: runner.os == 'Linux'
         run: python -I -S -B tools/check_coverage.py --json-out "$RUNNER_TEMP/4j-coverage.json" 2>&1 | tee ../evidence/coverage.log
-      - name: Exercise actual authenticated Pyodide and Chromium
-        if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          python -I -S -B tools/prepare_pyodide_fixture.py --output-dir "$RUNNER_TEMP/4j-pyodide"
-          CODEPROBE_PYODIDE_FIXTURE_DIR="$RUNNER_TEMP/4j-pyodide" node tools/check_browser_functional.js 2>&1 | tee ../evidence/browser.log
-          node tools/check_browser_accessibility.js 2>&1 | tee ../evidence/accessibility.log
       - name: Persist immutable verified objects, not branch references
         if: runner.os == 'Linux'
         env:
@@ -147,7 +150,7 @@ jobs:
               assert result['sha']==expected
               entries.append(dict(path=name,mode='100644',type='blob',sha=expected))
           tree=post('trees',dict(base_tree='662ca84fc0e9bf3584bc80ecedbd764208903f2a',tree=entries))
-          assert tree['sha']=='9e30cb98f1b287b736656428377f9f44f77901d5'
+          assert tree['sha']=='0021e2499049f8c07dfe5c0eb462ea9b50ddd1c8'
           Path('../evidence/persisted-objects.json').write_text(json.dumps(dict(tree=tree['sha'],entries=entries),indent=2),encoding='utf-8')
           print('VERIFIED_IMMUTABLE_TREE',tree['sha'])
           print('No commit or branch reference was created or updated by this job.')
