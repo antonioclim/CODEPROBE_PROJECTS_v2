@@ -12,6 +12,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 - `added_audit_phase4f2`: 3
 - `added_audit_phase4f3`: 8
 - `added_audit_phase4h`: 3
+- `added_citation_lineage`: 2
 - `added_phase13`: 10
 - `completed_migration`: 30
 - `completed_phase13`: 4
@@ -28,6 +29,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `.gitignore` | `—` | `root` | standard project file | `keep` | current | `low` |
 | `00-kit-index.md` | `KIT_INDEX.md` | `root` | standard project file | `completed_phase13` | 13 | `low` |
 | `CHANGELOG.md` | `—` | `root` | standard project file | `keep` | current | `low` |
+| `CITATION.bib` | `—` | `root` | release-specific software citation | `added_citation_lineage` | citation-lineage | `medium` |
 | `CITATION.cff` | `—` | `root` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `medium` |
 | `CONTRIBUTING.md` | `—` | `root` | standard project file | `keep` | current | `low` |
 | `LICENSE` | `—` | `root` | standard project file | `keep` | current | `low` |
@@ -92,6 +94,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `docs/history/11-documentation-resources.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
 | `docs/history/12-runtime-app-tools.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
 | `docs/history/13-final-audit.md` | `—` | `docs` | technical documentation or asset | `added_phase13` | 13 | `medium` |
+| `docs/history/14-legacy-lineage.md` | `—` | `docs` | fixed-snapshot legacy lineage and retirement assessment | `added_citation_lineage` | citation-lineage | `medium` |
 | `educator/01-student-quick-start.md` | `—` | `educator` | educator resource | `keep` | current | `medium` |
 | `educator/02-student-announcement.docx` | `educator_resources/AI_FINGERPRINT_SELF_CHECK_ANNOUNCEMENT_REVISED.docx` | `educator` | educator resource | `completed_migration` | current | `medium` |
 | `educator/02-student-announcement.md` | `educator_resources/AI_FINGERPRINT_SELF_CHECK_ANNOUNCEMENT_REVISED.md` | `educator` | educator resource | `completed_migration` | current | `medium` |

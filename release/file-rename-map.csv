@@ -6,6 +6,7 @@ current_path,previous_path,proposed_final_path,role,action,phase,area,risk_level
 .gitignore,,.gitignore,standard project file,keep,current,root,low,canonical current path
 00-kit-index.md,KIT_INDEX.md,00-kit-index.md,standard project file,completed_phase13,13,root,low,final naming-stable path; previous_path records migration source where applicable
 CHANGELOG.md,,CHANGELOG.md,standard project file,keep,current,root,low,canonical current path
+CITATION.bib,,CITATION.bib,release-specific software citation,added_citation_lineage,citation-lineage,root,medium,Author-requested attribution and evidence-bounded predecessor comparison
 CITATION.cff,,CITATION.cff,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,root,medium,Phase 4F3; no change to licence or promotion authority
 CONTRIBUTING.md,,CONTRIBUTING.md,standard project file,keep,current,root,low,canonical current path
 LICENSE,,LICENSE,standard project file,keep,current,root,low,canonical current path
@@ -70,6 +71,7 @@ docs/history/10-naming-governance.md,,docs/history/10-naming-governance.md,phase
 docs/history/11-documentation-resources.md,,docs/history/11-documentation-resources.md,phase-history note,keep,current,docs,medium,canonical current path
 docs/history/12-runtime-app-tools.md,,docs/history/12-runtime-app-tools.md,phase-history note,keep,current,docs,medium,canonical current path
 docs/history/13-final-audit.md,,docs/history/13-final-audit.md,technical documentation or asset,added_phase13,13,docs,medium,final naming-stable path; previous_path records migration source where applicable
+docs/history/14-legacy-lineage.md,,docs/history/14-legacy-lineage.md,fixed-snapshot legacy lineage and retirement assessment,added_citation_lineage,citation-lineage,docs,medium,Author-requested attribution and evidence-bounded predecessor comparison
 educator/01-student-quick-start.md,,educator/01-student-quick-start.md,educator resource,keep,current,educator,medium,canonical current path
 educator/02-student-announcement.docx,educator_resources/AI_FINGERPRINT_SELF_CHECK_ANNOUNCEMENT_REVISED.docx,educator/02-student-announcement.docx,educator resource,completed_migration,current,educator,medium,final naming-stable path; previous_path records migration source where applicable
 educator/02-student-announcement.md,educator_resources/AI_FINGERPRINT_SELF_CHECK_ANNOUNCEMENT_REVISED.md,educator/02-student-announcement.md,educator resource,completed_migration,current,educator,medium,final naming-stable path; previous_path records migration source where applicable

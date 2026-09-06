@@ -1,120 +1,111 @@
-# Contributing
+# Contributing to CodeProbe
 
-Thank you for considering a contribution to CodeProbe.
+## Author and maintainer
 
-## Scope
+**Antonio Clim** ([`@antonioclim`](https://github.com/antonioclim)) is the author
+and maintainer identified for this project. Contribution proposals, technical
+changes and documentation corrections are reviewed through the repository's
+issues and pull requests. GitHub's automated committer labels do not identify
+the scholarly author of the software.
 
-CodeProbe is a browser-based heuristic static-analysis tool for teaching use. Contributions should improve correctness, robustness, transparency, pedagogy or documentation without turning the tool into a disciplinary detector.
+This guide is a contribution process, not a claim that every past byte has a
+single legal origin. Retain applicable copyright notices, the MIT licence and
+accurate provenance. Do not manufacture co-authors or erase real contributions.
+Accepted contributions should be credited according to their documented scope.
 
-The architecture should remain transparent:
+## Scope and scientific restraint
 
-- `app/index.html` and `app/project.html` provide browser shells;
-- `app/codeprobe-ui.js`, `app/project-ui.js` and the CSS files provide the browser application layer;
-- `app/pyodide-loader.js` and `app/runtime-config.json` control CDN/local Pyodide loading;
-- `src/codeprobe_runtime.py` provides the Python analysis engine executed through Pyodide;
-- course-facing documents explain responsible academic use.
+Contributions should improve correctness, robustness, security, usability,
+transparent methodology or documentation. CodeProbe is an inspectable formative
+static-analysis tool, not a validated disciplinary detector. A score is not an
+AI-authorship probability. Do not add a metric merely because it detects clean,
+well-documented or stylistically consistent code.
 
-## Principles
+A lower score after a code change is not proof of greater human authorship.
+A higher score is not proof of misconduct. Clearly distinguish measured software
+behaviour, assumptions, synthetic test fixtures and empirical findings. Claims
+about error rates require a specified corpus, reference labels, denominator,
+threshold, unit of analysis and uncertainty analysis. Do not recast the author's
+legacy-use observation as a published validation study.
 
-1. Prefer evidence over persuasive language.
-2. Treat the score as a concern signal, not as a probability.
-3. Keep quality/context metrics separate from authorship-style concern unless there is a documented reason not to.
-4. Avoid non-standard Python dependencies in the engine.
-5. Keep analysed code local to the student's machine.
+## Before implementing a change
 
-## Before opening a pull request
+Read README.md, SECURITY.md, docs/11-design-decisions.md and the documentation
+for the affected boundary. State the problem, expected behaviour and a small
+reproducer in an issue or PR. Use formal British English for project material.
+Make a focused branch from the current main commit; inspect concurrent changes
+before proposing integration. Never force-push over another person's work.
 
-1. Read `README.md`, `CHANGELOG.md` and `docs/11-design-decisions.md`.
-2. Keep user-facing text in British English.
-3. Preserve backward compatibility for existing supported languages where possible.
-4. Add or update tests for every release-relevant metric or scoring change.
-5. Update the documentation whenever thresholds, terminology, metric roles or supported languages change.
+The browser runtime must remain inspectable and standard-library-only on the
+Python side. Preserve authenticated runtime/worker/engine loading, bounded input,
+terminable analysis and local processing. No remote upload of analysed source,
+reports or filenames is introduced merely to simplify a feature. Do not turn
+an explicitly unverified manual engine override into an authenticated route.
 
-## Python engine expectations
+## Tests and release evidence
 
-- Use only the Python standard library.
-- Keep helper functions small and testable.
-- Explain methodological compromises in comments only where the compromise affects interpretation.
-- Add references for new metrics where appropriate.
-- Do not add a metric to the AI-style aggregate merely because it identifies clean or high-quality code.
-
-## Browser interface expectations
-
-- Keep the dark theme and responsive layout coherent.
-- Avoid dependencies beyond Pyodide unless the change is documented and justified.
-- Do not reintroduce inline JavaScript, inline CSS or inline style attributes in the browser HTML.
-- If browser assets or `codeprobe_runtime.py` change, refresh `app/resource-integrity.json` and local SRI attributes.
-- Do not send analysed source code to remote services.
-- Do not reintroduce Base64-packed execution patterns.
-- Keep local report history optional and clearly labelled.
-
-## Recommended validation before submission
+Run commands from a complete checkout, with a supported Python and Node runtime:
 
 ```bash
-python3 -m py_compile src/codeprobe_runtime.py tools/run_local_server.py
-python3 -m unittest discover -s tests
+python3 -I -S -B tools/check_release.py --require-node
 ```
 
-Then launch the browser interface:
+The canonical gate is read-only. A source change makes committed release
+evidence stale. After implementing the change and its regressions, refresh
+evidence only through the guarded complete gate, then verify it again:
 
 ```bash
-python3 -I -S -B tools/run_local_server.py --no-browser
+python3 -I -S -B tools/check_release.py --require-node --write-release-evidence
+python3 -I -S -B tools/check_release.py --require-node
 ```
 
-Check at least one representative file for every language family affected by the change.
+Inspect the evidence diff. Do not edit a digest to conceal a failure, reduce a
+coverage floor, remove an assertion or add an exclusion merely to obtain PASS.
+Tests for a defect should fail on the old behaviour and pass after its repair.
+Report the platform, exact source commit, executed cases and justified skips.
+Synthetic labels do not become observations of human authorship.
 
-## Pull request checklist
-
-- [ ] User-visible terminology remains cautious and non-punitive.
-- [ ] New or changed metrics declare their group and contribution status.
-- [ ] Quality/context-only metrics do not inflate the AI-style concern score.
-- [ ] Markdown remains documentation-only unless a future calibrated method is explicitly added.
-- [ ] Tests pass with the standard-library test runner.
-- [ ] `CHANGELOG.md` is updated.
-
-## Security and privacy notes
-
-Avoid any change that uploads analysed code, reports or filenames to an external service. The current default network dependency is the Pyodide runtime configured in `app/runtime-config.json`; institutional deployments may switch this to a local vendor copy with a real SHA-256 digest.
-
-## Release validation
-
-Before proposing or distributing a release candidate, run:
-
-```bash
-python3 -I -S -B tools/check_release.py
-```
-
-This read-only gate validates Python syntax, the unit-test suite, external
-browser-script syntax where Node.js is available, browser CSP/SRI hygiene,
-resource-integrity metadata, version consistency, smoke reports and committed
-release evidence. It also verifies the declared standard-library dependency
-boundary and immutable GitHub Action pins. CI invokes the gate with
-`--require-node`, so JavaScript syntax cannot be reported as skipped there. If a
-deliberate change requires refreshed evidence, run
-`python3 -I -S -B tools/check_release.py --write-release-evidence` only after the other
-checks pass. A change that modifies metric semantics, report shape or project
-filtering should add or update a regression test.
-
-Before proposing a release-boundary change, also run:
+The standalone reproducibility gate requires a clean Git commit:
 
 ```bash
 python3 -I -S -B tools/check_release_reproducibility.py
 ```
 
-This standalone integration gate requires a clean Git commit. It compares
-normalised checkouts and an exact Git export, then requires their complete
-release packets to be byte-identical under the active Python/zlib toolchain.
-The GitHub Actions matrix and repository-control requirements are documented in
-`docs/16-ci-and-repository-controls.md`.
+Use the pinned runtime for coverage enforcement and the documented real-browser
+harnesses for changes affecting browser behaviour. A mock-only result must not
+be represented as a Chromium/Pyodide execution. Keep diagnostic outputs outside
+the tracked source. Changes to browser/runtime bytes require corresponding
+integrity metadata and SRI updates, verified by the existing controls.
 
+## Documentation and attribution
 
-## Institutional release checks
+Keep input formats, parser limitations, output schemas and commands consistent
+with implementation. Preserve the distinction between bundled teaching documents
+and formats the engine can actually read. Update examples when behaviour changes;
+identify placeholders and pseudocode rather than claiming they were executed.
 
-Before proposing a packaged release, run:
+Use CITATION.cff for machine-readable software authorship. Cite the exact release
+or commit used. Changing citation metadata does not rewrite an earlier release
+or transfer copyright. Keep discussion of the legacy repository factual,
+version-specific and linked to preserved evidence rather than personal criticism.
 
-```bash
-python3 tools/audit_institutional_pack.py
-python3 -I -S -B tools/check_release.py
-```
+## Privacy and security reports
 
-Do not remove or weaken the student, instructor, review and deployment guidance unless the course policy is updated at the same time.
+Follow SECURITY.md for security-sensitive issues. Never upload student source,
+identified reports, credentials or private evaluation records to a public issue.
+Provide a minimal authorised or synthetic reproducer. Any institutional data
+collection, retention or participant consent is a separate decision, not an
+assumption granted by this contribution guide.
+
+## Acceptance and release
+
+Antonio Clim reviews the proposed scope, implementation, evidence and attribution.
+Normal pull-request integration requires the appropriate CI results for the exact
+head and a fresh ref check. A contributor does not approve their own PR as an
+independent reviewer; do not invent review approvals.
+
+A contribution may be accepted without creating a release. Do not overwrite an
+existing tag or published asset, change repository visibility, invite
+collaborators, alter licensing or deploy the application without the maintainer's
+specific authorisation. No numerical error-rate claim is established merely by
+passing the software test suite.

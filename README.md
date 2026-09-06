@@ -1,5 +1,7 @@
 # CodeProbe v2.2.0 — local source-code and documentation review
 
+**Author and maintainer: Antonio Clim** ([`@antonioclim`](https://github.com/antonioclim)). See [Cite this repository](#cite-this-repository), [Contributing](CONTRIBUTING.md) and the [legacy lineage and retirement assessment](docs/history/14-legacy-lineage.md).
+
 CodeProbe is an inspectable static-analysis kit for formative code review. It analyses **Python, JavaScript-family code, Bash-family shell scripts, C, C++ and C#**, with a separate **Markdown documentation profile**. Run it in a browser through Pyodide or use the native Python project-analysis and calibration tools. Submitted source is inspected as text; CodeProbe does not run the submitted programme, build its dependencies or connect to its databases.
 
 ![CodeProbe interface preview](docs/assets/interface-preview.png)
@@ -8,7 +10,7 @@ CodeProbe is an inspectable static-analysis kit for formative code review. It an
 
 The reported **AI-style concern score** is a **review signal**, **not proof of misconduct**, a probability of AI authorship or a certificate of independent work. Software tests and local calibration do not establish detector accuracy, authorship attribution or suitability for sanctions.
 
-**Start here:** [supported languages](#supported-languages-and-source-extensions) · [documents and data](#documents-databases-and-other-file-types) · [folders and Git exports](#input-routes-folders-and-git-archives) · [quick start](#quick-start) · [CLI examples](#command-line-use) · [reports](#reports-and-exports) · [calibration](#course-local-calibration) · [input limits](#input-limits-and-exclusions) · [complete kit index](00-kit-index.md).
+**Start here:** [supported languages](#supported-languages-and-source-extensions) · [documents and data](#documents-databases-and-other-file-types) · [folders and Git exports](#input-routes-folders-and-git-archives) · [quick start](#quick-start) · [CLI examples](#command-line-use) · [reports](#reports-and-exports) · [calibration](#course-local-calibration) · [input limits](#input-limits-and-exclusions) · [complete kit index](00-kit-index.md) · [citation](#cite-this-repository) · [legacy retirement](#relationship-to-the-legacy-repository).
 
 ## At a glance
 
@@ -272,7 +274,7 @@ The **naming-stable release** layout keeps application code, resources and evide
 ├── 00-kit-index.md                         complete package navigator
 ├── README.md, CHANGELOG.md                 overview and change history
 ├── LICENSE, CONTRIBUTING.md                rights and contribution guidance
-├── SECURITY.md, CITATION.cff               security and citation metadata
+├── SECURITY.md, CITATION.cff, CITATION.bib  security and citation metadata
 ├── .codeprobeignore.example                project exclusion template
 ├── .github/                               canonical CI and CODEOWNERS
 ├── app/                                   two browser pages, JS/CSS and runtime configuration
@@ -307,7 +309,7 @@ Run the canonical read-only gate from the kit root; Node is required for the com
 python3 -I -S -B tools/check_release.py --require-node
 ```
 
-The maintained suite has a **481-case baseline**, with documented platform conditions. CI validates native Python 3.10–3.14, Windows/macOS, actual Chromium/Pyodide functionality, accessibility, supported-code coverage and release reproducibility. A successful gate does not prove bug absence or detector validity. Source inspection, integration tests and empirical claims have separate scopes.
+The maintained suite has a **487-case baseline**, with documented platform conditions. CI validates native Python 3.10–3.14, Windows/macOS, actual Chromium/Pyodide functionality, accessibility, supported-code coverage and release reproducibility. A successful gate does not prove bug absence or detector validity. Source inspection, integration tests and empirical claims have separate scopes.
 
 Coverage enforcement requires the pinned **Python 3.14.7**, not an arbitrary interpreter:
 
@@ -332,6 +334,48 @@ python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.
 The builder captures immutable manifest-verified bytes under `CodeProbe_Project_Kit_v2.2.0/` and prepares the ZIP and both sidecars under a durable journal. The checksum is withdrawn before public mutation and installed last. A later build, or `--recover-only` with the same `--out`, retains a complete new packet, restores the recorded prior packet or stops on unknown concurrent state. Process-interruption tests do not prove universal power-loss durability or atomic replacement of all three names.
 
 Building a local ZIP is **not** publishing a GitHub Release. Tags, published assets, the current main branch and subsequent README improvements are separate versioned objects. Preserve existing release assets rather than silently replacing them after a documentation edit. [Final package audit](docs/15-final-release-audit.md) describes the naming and integrity checks, not institutional authorisation.
+
+## Relationship to the legacy repository
+
+This repository is the maintained successor to
+[CODEPROBE_PROJECTS_v1](https://github.com/antonioclim/CODEPROBE_PROJECTS_v1).
+The repository suffixes distinguish distributions: the inspected legacy engine
+already identified itself as CodeProbe 2.0.0, whereas this line uses 2.2.0.
+The shared languages alone therefore do not describe the evolution.
+
+**Legacy retirement notice.** Antonio Clim intends to withdraw the legacy
+repository from public access to reduce the risk of its continued use for
+unsupported evaluative decisions. He reports erroneous assessments exceeding
+30% in some of his prior evaluations of research works or projects involving
+the legacy version. This is an **author-reported operational observation**: not an independently reproduced benchmark, a measured false-positive rate or a
+quantified accuracy comparison with this version. The corpus, denominator,
+reference labels, unit of analysis, decision thresholds and error definition
+are not available in the evidence supplied for this comparison.
+
+Do not use the legacy output, or this successor's score, as a stand-alone basis
+for grading, authorship accusations, research evaluation or sanctions. The
+engineering improvements in this repository do not establish detector accuracy.
+See the [legacy comparison](docs/history/14-legacy-lineage.md) for mechanisms, limits and migration requirements. The notice records an intention; it does not assert that public access has already been removed or that previously distributed copies cease to
+exist.
+
+## Cite this repository
+
+For the published 2.2.0 release:
+
+> Clim, A. (2026). *CodeProbe: Formative source-code and documentation review*
+> (Version 2.2.0) [Computer software]. GitHub.
+> https://github.com/antonioclim/CODEPROBE_PROJECTS_v2/releases/tag/v2.2.0
+
+Machine-readable citation metadata are provided in [CITATION.cff](CITATION.cff), with a downloadable [CITATION.bib](CITATION.bib). The CFF uses the JSON subset of YAML so the standard-library CI suite can check its structure and identity without an additional YAML dependency.
+Use the author **Antonio Clim**, not the GitHub Actions bot that uploaded a
+release. No DOI, ORCID, affiliation or publication is asserted by these metadata.
+
+For a development checkout, record its exact commit alongside this citation.
+A citation to release 2.2.0 must not imply that the preserved release package includes
+later documentation changes on `main`. Attribution metadata are corrected
+prospectively without rewriting published release files.
+
+The citation identifies the published source commit `2d38fbd3772a9f415dfcc52ab2840aadd15575e3`. The scholarly author is distinct from automated committer labels and historic licence notices. Applicable notices and documented contributions remain unchanged.
 
 ## Licence and scientific limits
 
