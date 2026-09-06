@@ -1,0 +1,177 @@
+name: 4H UTF-8 reconciliation staging
+on:
+  push:
+    branches: [automation/phase4f3-worker-20260906]
+    paths: [.github/workflows/phase4h-utf8-reconciliation.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+        working-directory: candidate
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - name: Check out the exact genuine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 9d64d3ea49e79749ce67204be4e72b48ed1442da
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up the pinned Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+      - name: Set up the pinned Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.20.0'
+          package-manager-cache: false
+      - name: Verify source identity and export the bounded source delta
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 9d64d3ea49e79749ce67204be4e72b48ed1442da
+          test "$(git rev-parse HEAD^{tree})" = 45608c9457459af659993cd2faf08fd78f2c0908
+          python -I -S -B - <<'PY'
+          import base64, hashlib, os, platform, subprocess, zlib
+          print('TOOLCHAIN', platform.python_version(), platform.platform())
+          if os.name != 'nt':
+              patch = subprocess.check_output(['git', 'diff', '--binary', '09f4d81c5bfcb0b2f7ebfa12d180a00962d2a0f8', 'HEAD'])
+              encoded = base64.b64encode(zlib.compress(patch, 9)).decode('ascii')
+              print('REMOTE_DELTA_SHA256', hashlib.sha256(patch).hexdigest())
+              print('REMOTE_DELTA_LENGTH', len(patch), len(encoded))
+              for i in range(0, len(encoded), 1000):
+                  print('REMOTE_DELTA_CHUNK', i // 1000, encoded[i:i + 1000])
+          PY
+      - name: Reproduce the original failure with a legacy default codec
+        run: |
+          python -I -S -B - <<'PY'
+          import sys, unittest
+          from pathlib import Path
+          from unittest import mock
+          sys.path.insert(0, str(Path('tests').resolve()))
+          from test_contract_repairs import ScoringReplayTests
+          original = Path.read_text
+          def legacy_read(path, encoding=None, errors=None, **options):
+              return original(path, encoding=encoding or 'cp1252', errors=errors, **options)
+          suite = unittest.TestSuite([ScoringReplayTests('test_cli_omitted_mode_uses_project_contract')])
+          with mock.patch.object(Path, 'read_text', autospec=True, side_effect=legacy_read):
+              result = unittest.TextTestRunner(verbosity=2).run(suite)
+          assert len(result.errors) == 1 and not result.failures and not result.skipped
+          assert 'UnicodeDecodeError' in result.errors[0][1]
+          print('BEFORE_FIX: expected UnicodeDecodeError reproduced; source unchanged')
+          PY
+      - name: Apply the guarded UTF-8 correction and maintained regression
+        run: |
+          python -I -S -B - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          path = Path('tests/test_contract_repairs.py')
+          content = path.read_bytes()
+          blob = hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest()
+          assert blob == '1aa94963cfee7485459ca461867b9a55b53e1266', blob
+          text = content.decode('utf-8')
+          assert text.count('.read_text()') == 2
+          text = text.replace('.read_text()', '.read_text(encoding="utf-8")')
+          anchor = '    def test_cli_omitted_mode_uses_project_contract(self):\n'
+          assert text.count(anchor) == 1
+          regression = '''    def test_report_file_reads_do_not_depend_on_the_host_locale(self):
+                  original = Path.read_text
+
+                  def legacy_read(path, encoding=None, errors=None, **options):
+                      return original(path, encoding=encoding or "cp1252", errors=errors, **options)
+
+                  # The generated files are UTF-8 even when the host default is not.
+                  with mock.patch.object(Path, "read_text", autospec=True, side_effect=legacy_read):
+                      self.check_replay()
+                      self.test_cli_omitted_mode_uses_project_contract()
+
+          '''
+          # Remove only the YAML indentation retained inside this literal.
+          regression = regression.replace('\n        ', '\n')
+          path.write_bytes(text.replace(anchor, regression + anchor).encode('utf-8'))
+          policy_path = Path('tools/coverage-policy.json')
+          policy = json.loads(policy_path.read_text(encoding='utf-8'))
+          assert policy['minimum_tests'] == 447
+          policy['minimum_tests'] = 448
+          policy_path.write_text(json.dumps(policy, indent=2) + '\n', encoding='utf-8', newline='\n')
+          changelog = Path('CHANGELOG.md')
+          text = changelog.read_text(encoding='utf-8')
+          anchor = '### Contract reconciliation after targeted re-audit\n\n'
+          assert text.count(anchor) == 1
+          text = text.replace(anchor, anchor + '- Read generated report fixtures explicitly as UTF-8 and exercise a legacy\n  default codec without weakening CLI replay assertions.\n')
+          changelog.write_text(text, encoding='utf-8', newline='\n')
+          PY
+      - name: Run the corrected targeted suite
+        run: python -I -S -B -m unittest discover -s tests -p test_contract_repairs.py -v
+      - name: Refresh evidence only through the complete gate
+        run: python -I -S -B tools/check_release.py --require-node --write-release-evidence
+      - name: Verify the complete read-only gate
+        run: python -I -S -B tools/check_release.py --require-node
+      - name: Enforce unchanged coverage floors
+        if: runner.os == 'Linux'
+        run: python -I -S -B tools/check_coverage.py --json-out "$RUNNER_TEMP/4h-coverage.json"
+      - name: Verify real Chromium functionality and accessibility
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/prepare_pyodide_fixture.py --output-dir "$RUNNER_TEMP/4h-pyodide"
+          CODEPROBE_PYODIDE_FIXTURE_DIR="$RUNNER_TEMP/4h-pyodide" node tools/check_browser_functional.js
+          node tools/check_browser_accessibility.js
+      - name: Record candidate identity
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add --all
+          echo "CANDIDATE_TREE $(git write-tree)"
+          git diff --cached --stat
+          python -I -S -B - <<'PY'
+          import base64, hashlib, subprocess, zlib
+          patch = subprocess.check_output(['git', 'diff', '--cached', '--binary'])
+          print('CORRECTION_SHA256', hashlib.sha256(patch).hexdigest())
+          print('CORRECTION_BASE64', base64.b64encode(zlib.compress(patch, 9)).decode('ascii'))
+          PY
+      - name: Persist immutable source objects only after Linux verification
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -I -S -B - <<'PY'
+          import base64, json, os, subprocess, urllib.request
+          from pathlib import Path
+          repository = 'antonioclim/CODEPROBE_PROJECTS_v2'
+          api = 'https://api.github.com/repos/' + repository
+          def post(endpoint, payload):
+              request = urllib.request.Request(api + endpoint, data=json.dumps(payload).encode('utf-8'), method='POST', headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json'})
+              with urllib.request.urlopen(request, timeout=45) as response:
+                  return json.load(response)
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().split('\0')
+          entries = []
+          allowed = {'CHANGELOG.md', 'tests/test_contract_repairs.py', 'tools/coverage-policy.json', 'release/release-manifest.json'}
+          assert set(filter(None, paths)) == allowed, paths
+          for path in filter(None, paths):
+              data = Path(path).read_bytes()
+              blob = post('/git/blobs', {'encoding': 'base64', 'content': base64.b64encode(data).decode('ascii')})
+              expected = subprocess.check_output(['git', 'rev-parse', ':' + path], text=True).strip()
+              assert blob['sha'] == expected, (path, blob['sha'], expected)
+              entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
+          tree = post('/git/trees', {'base_tree': '45608c9457459af659993cd2faf08fd78f2c0908', 'tree': entries})
+          expected = subprocess.check_output(['git', 'write-tree'], text=True).strip()
+          assert tree['sha'] == expected
+          print('PERSISTED_IMMUTABLE_TREE', tree['sha'])
+          print('PERSISTED_ENTRIES', json.dumps(entries))
+          print('No commit or branch reference was created or changed by this job.')
+          PY
