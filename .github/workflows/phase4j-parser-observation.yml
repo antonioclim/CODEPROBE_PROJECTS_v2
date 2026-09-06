@@ -1,0 +1,121 @@
+name: 4J actual parser observation
+on:
+  push:
+    branches: [automation/phase4f3-worker-20260906]
+    paths: [.github/workflows/phase4j-parser-observation.yml]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 222c340d36da9e20d0db24d3798ceae265752622
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.20.0'
+          package-manager-cache: false
+      - name: Prepare authenticated fixed runtime
+        run: python -I -S -B candidate/tools/prepare_pyodide_fixture.py --output-dir "$RUNNER_TEMP/pyodide-core"
+      - name: Fit native fixture and execute actual WebAssembly Python
+        env:
+          FIXTURE: ${{ runner.temp }}/pyodide-core
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          python -I -S -B - <<'PY'
+          import argparse, hashlib, json, platform, sys, tempfile
+          from pathlib import Path
+          root = Path('candidate').resolve()
+          sys.path[:0] = [str(root/'src'),str(root/'tools')]
+          import codeprobe_runtime as engine
+          import calibrate_profile as calibrator
+          code = '''type UserId = int
+
+          def lookup(name: str) -> UserId:
+              """Resolve a key."""
+              data = {"a": 1, "b": 2}
+              return data.get(name, 0)
+
+          def increase(value: UserId) -> UserId:
+              """Increase the value."""
+              if value < 0:
+                  return 0
+              return value + 1
+
+          def reduce(value: UserId) -> UserId:
+              """Reduce the value."""
+              if value > 0:
+                  return value - 1
+              return 0
+
+          def combine(left: UserId, right: UserId) -> UserId:
+              """Combine the values."""
+              return increase(left) + reduce(right)
+          '''
+          records = []
+          for name, text in [('modern',code),('common',code.replace('type UserId = int','UserId = int',1))]:
+              with tempfile.TemporaryDirectory() as tmp:
+                  d = Path(tmp)
+                  samples = []
+                  for i in range(4):
+                      filename = f'fixture_{i}.py'
+                      (d/filename).write_text(text,encoding='utf-8')
+                      samples.append(dict(path=filename,label='human' if i%2==0 else 'ai',split='fit' if i<2 else 'evaluation',group=f'g{i}'))
+                  manifest=d/'manifest.json'
+                  manifest.write_text(json.dumps(dict(samples=samples)),encoding='utf-8')
+                  result=calibrator.run_calibration(argparse.Namespace(manifest=str(manifest),root=None,profile='default',target_fpr=.1,config=None,out_dir=str(d/'output')))
+                  payload=dict(code=text,filename='fixture_2.py',calibration_profile=result['profile'])
+                  report=json.loads(engine.codeprobe_analyze(json.dumps(payload)))['report']
+                  records.append(dict(name=name,source_sha256=hashlib.sha256(text.encode()).hexdigest(),payload=payload,native_report=report))
+          output=dict(native_python=platform.python_version(),native_platform=sys.platform,engine_sha256=engine.engine_source_fingerprint()['value'],cases=records)
+          Path('evidence/native.json').write_text(json.dumps(output,indent=2),encoding='utf-8')
+          print('NATIVE',output['native_python'],output['native_platform'])
+          PY
+          cat > "$RUNNER_TEMP/observe.cjs" <<'JS'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          (async () => {
+            const dir = process.env.FIXTURE;
+            const manifest = JSON.parse(fs.readFileSync('candidate/app/pyodide-provenance.json','utf8'));
+            for (const item of manifest.startup_artifacts) {
+              const bytes = fs.readFileSync(path.join(dir,item.name));
+              if (bytes.length!==item.size_bytes || crypto.createHash('sha256').update(bytes).digest('hex')!==item.sha256_hex) throw Error('Runtime hash mismatch');
+            }
+            const {loadPyodide}=require(path.join(dir,'pyodide.js'));
+            const py = await loadPyodide({indexURL:dir+path.sep});
+            py.FS.writeFile('codeprobe_runtime.py',fs.readFileSync('candidate/src/codeprobe_runtime.py'));
+            py.runPython('import codeprobe_runtime, json, sys, platform');
+            const native = JSON.parse(fs.readFileSync('evidence/native.json','utf8'));
+            const observation = {native_python:native.native_python,pyodide:py.version,wasm_python:py.runPython('platform.python_version()'),wasm_platform:py.runPython('sys.platform'),scope:'Actual native CPython and pinned WebAssembly CPython running in Node; not a browser UI test',cases:[]};
+            for (const item of native.cases) {
+              py.globals.set('payload_json',JSON.stringify(item.payload));
+              const report=JSON.parse(py.runPython('codeprobe_runtime.codeprobe_analyze(payload_json)')).report;
+              py.globals.delete('payload_json');
+              const summary=r=>({decision_score:r.decision_score,overall_score:r.overall_score,trigger:r.review_trigger,triggered:r.review_triggered,warnings:r.warnings,applicable_metrics:r.metrics.filter(m=>m.applicable).length,engine:r.engine_fingerprint.value,config:r.metric_config_digest});
+              observation.cases.push({name:item.name,source_sha256:item.source_sha256,native:summary(item.native_report),wasm:summary(report)});
+            }
+            fs.writeFileSync('evidence/observation.json',JSON.stringify(observation,null,2)+'\n');
+            console.log(JSON.stringify(observation,null,2));
+            process.exit(0);
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          node "$RUNNER_TEMP/observe.cjs"
+          git -C candidate diff --exit-code
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeprobe-4j-real-parser-before
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
