@@ -30,6 +30,13 @@ This page is the quickest way to locate the right part of the package. For curre
 - `docs/18-runtime-integrity.md` — exact Pyodide and Python-engine byte-consumption boundary and functional-browser evidence.
 - `release/release-manifest.json` — strict package allowlist with canonical paths, sizes and SHA-256 digests.
 
+## Citation, maintenance and lineage
+
+- [Cite this repository](README.md#cite-this-repository) — Antonio Clim, the published release and exact-commit guidance.
+- [CITATION.cff](CITATION.cff) and [CITATION.bib](CITATION.bib) — machine-readable citation metadata.
+- [Contributing](CONTRIBUTING.md) — author/maintainer and contribution process.
+- [Legacy comparison](docs/history/14-legacy-lineage.md) — fixed-source comparison and attributed retirement rationale.
+
 ## For maintainers
 
 - `docs/01-naming-policy.md` — naming rules for the final stable package.

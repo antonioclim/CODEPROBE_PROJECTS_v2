@@ -1,9 +1,25 @@
-cff-version: 1.2.0
-message: "Cite the exact repository commit used. The audit snapshot is not a validated authorship detector and has no claimed article or DOI."
-title: "CodeProbe"
-type: software
-authors:
-  - name: "CodeProbe contributors"
-repository-code: "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2"
-license: MIT
-abstract: "Transparent formative source-code style and quality triage. Predictive validity for LLM detection and authorship attribution has not been established."
+{
+  "cff-version": "1.2.0",
+  "message": "Please cite the published 2.2.0 release using these metadata. For a development checkout, also record the exact commit used. Citation metadata do not establish predictive validity for AI detection or authorship attribution.",
+  "type": "software",
+  "title": "CodeProbe: Formative source-code and documentation review",
+  "authors": [
+    {
+      "family-names": "Clim",
+      "given-names": "Antonio"
+    }
+  ],
+  "version": "2.2.0",
+  "date-released": "2026-09-06",
+  "repository-code": "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2",
+  "url": "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2/releases/tag/v2.2.0",
+  "license": "MIT",
+  "abstract": "Inspectable heuristic static analysis for formative source-code review, with a separate Markdown documentation profile, local project analysis, calibration tools and reproducible software-verification workflows. Software verification must not be interpreted as empirical validation of AI-authorship detection or as a basis for academic sanctions.",
+  "keywords": [
+    "static analysis",
+    "formative assessment",
+    "source-code review",
+    "reproducible research software"
+  ],
+  "commit": "2d38fbd3772a9f415dfcc52ab2840aadd15575e3"
+}

@@ -6,6 +6,16 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ## [Unreleased]
 
+### Named citation, contribution guidance and legacy lineage
+
+- Name Antonio Clim as the software author and maintainer in CFF, BibTeX,
+  README and contribution guidance, without changing the MIT notices.
+- Document the fixed predecessor/successor snapshots and the planned legacy
+  retirement, separating the author-reported assessment observation from
+  measured detector accuracy.
+- Keep citation identity, legacy-evidence qualifiers and the expanded format
+  guide under maintained CI regressions.
+
 ### Output, privacy and numeric boundaries
 
 - Validate report destinations before writes, refuse input/output aliases and
