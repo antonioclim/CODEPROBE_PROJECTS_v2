@@ -1,0 +1,127 @@
+name: Phase 4F3 verified worker transaction
+on:
+  push:
+    branches:
+      - automation/phase4f3-worker-20260906
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.actor == 'antonioclim'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    permissions:
+      contents: write
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      PYTHONHASHSEED: '31410'
+    steps:
+      - name: Check out the exact authorised baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 4a0deba69092acca475a18be2d9d484af82da3b8
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+          check-latest: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.20.0'
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
+      - name: Authenticate and apply the candidate patch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '4a0deba69092acca475a18be2d9d484af82da3b8'
+          python -I -S -B - <<'PY'
+          import base64, hashlib, json, lzma, os, pathlib, urllib.request
+          shas = ['268ef448dd87022482a30259e925fcd45b33722b', 'ca2d190b287f495a75c5a14eeb337e393c2ba075', 'f60e628a235b0aadfa15c3f8dbe19cd922abe316', 'e00f8146ada65dd561fe2995248e01429d279f9b', '58c09f29552eaabe5f128e38108713e89c1e2b5b', 'eebb5c8903b149b82e4fa25580f24fa1ff87360e']
+          headers = {'Accept': 'application/vnd.github+json', 'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'User-Agent': 'CodeProbe-4F3'}
+          parts = []
+          for sha in shas:
+              url = 'https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2/git/blobs/' + sha
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
+                  record = json.load(response)
+              content = base64.b64decode(record['content'])
+              actual = hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest()
+              if actual != sha:
+                  raise SystemExit('Transport blob mismatch')
+              parts.append(content)
+          patch = lzma.decompress(base64.b64decode(b''.join(parts), validate=True))
+          if len(patch) != 99018 or hashlib.sha256(patch).hexdigest() != 'df892e3ca8a8d9626ae4c07908bdd51e412653d80856310f05ea01510252b13d':
+              raise SystemExit('Candidate patch mismatch')
+          pathlib.Path('/tmp/codeprobe-4f3.patch').write_bytes(patch)
+          PY
+          git apply --unidiff-zero --binary /tmp/codeprobe-4f3.patch
+      - name: Validate and regenerate coherent release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/check_release.py --require-node --write-release-evidence
+          git add --all
+          git diff --cached --check
+          test "$(git write-tree)" = '563497b4598327ff9cc5ffc89ce9c8229130a8ed'
+      - name: Measure supported-code coverage
+        shell: bash
+        run: python -I -S -B tools/check_coverage.py --json-out /tmp/coverage-4f3.json
+      - name: Prepare authenticated Pyodide fixture
+        if: success() || failure()
+        shell: bash
+        run: python -I -S -B tools/prepare_pyodide_fixture.py --output-dir /tmp/pyodide-core --json-out /tmp/pyodide-core.json
+      - name: Run actual worker analysis, cancellation, recovery and tamper checks
+        if: success() || failure()
+        shell: bash
+        env:
+          CODEPROBE_PYODIDE_FIXTURE_DIR: /tmp/pyodide-core
+          CODEPROBE_REQUIRE_HTTP_NAVIGATION: '1'
+        run: node tools/check_browser_functional.js
+      - name: Verify accessibility in a real browser
+        if: success() || failure()
+        shell: bash
+        env:
+          CODEPROBE_REQUIRE_HTTP_NAVIGATION: '1'
+        run: node tools/check_browser_accessibility.js
+      - name: Upload only verified immutable Git objects, without changing refs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git write-tree)" = '563497b4598327ff9cc5ffc89ce9c8229130a8ed'
+          git diff --exit-code
+          python -I -S -B - <<'PY'
+          import base64, json, os, pathlib, subprocess, urllib.request
+          root = pathlib.Path.cwd()
+          api = 'https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2/git/'
+          headers = {'Accept': 'application/vnd.github+json', 'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Content-Type': 'application/json', 'User-Agent': 'CodeProbe-4F3'}
+          def post(route, payload):
+              request = urllib.request.Request(api + route, data=json.dumps(payload).encode(), headers=headers, method='POST')
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().split('\0')
+          entries = []
+          for name in filter(None, paths):
+              path = root / name
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit('Only regular file additions/replacements are allowed')
+              local_sha = subprocess.check_output(['git', 'hash-object', name]).decode().strip()
+              result = post('blobs', {'content': base64.b64encode(path.read_bytes()).decode(), 'encoding': 'base64'})
+              if result['sha'] != local_sha:
+                  raise SystemExit('Source blob mismatch: ' + name)
+              entries.append({'path': name, 'mode': '100644', 'type': 'blob', 'sha': local_sha})
+          result = post('trees', {'base_tree': '10598790ef009d0b28b863aebcc8b60a0eebe2e7', 'tree': entries})
+          if result['sha'] != '563497b4598327ff9cc5ffc89ce9c8229130a8ed':
+              raise SystemExit('Remote tree mismatch')
+          print('VERIFIED_REMOTE_TREE=' + result['sha'])
+          print('No branch reference was changed by this job.')
+          PY
