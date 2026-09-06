@@ -896,10 +896,12 @@ def run_calibration(args: Any) -> Dict[str, Any]:
         manifest_path=manifest_path,
         sample_paths=sample_paths,
     )
+    # Serialise before creating any output: diagnostics must also be valid JSON.
+    profile_json = json.dumps(profile, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
     for output in outputs.values():
         output.parent.mkdir(parents=True, exist_ok=True)
     outputs["profile_path"].write_text(
-        json.dumps(profile, indent=2, ensure_ascii=False) + "\n",
+        profile_json,
         encoding="utf-8",
     )
     write_observations_csv(outputs["observations_path"], assigned)

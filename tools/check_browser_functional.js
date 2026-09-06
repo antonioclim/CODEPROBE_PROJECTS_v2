@@ -697,6 +697,68 @@ async function testInputReportContracts(cdp, baseUrl, downloads, fixtureState, c
   } finally { await closeSession(cdp, session); }
 }
 
+// Real HTTP-delivered UI and authenticated worker, with explicit storage-fault
+// injection and controlled completion of a real File read. No worker double.
+async function testPrivacyStorageFailures(cdp, baseUrl, fixtureState) {
+  for (const fault of ["getter", "first-removal", "second-removal", "verification"]) {
+    fixtureState.reset();
+    const session = await createSession(cdp, `${baseUrl}/app/index.html?storage-fault=${fault}`);
+    const id = session.sessionId;
+    try {
+      await waitForExpression(cdp, id, "appState.workerSession?.isReady()");
+      const outcome = await evaluate(cdp, id, `(() => {
+        const input = document.getElementById('fileInput'), transfer = new DataTransfer();
+        transfer.items.add(new File(['SYNTHETIC_PRIVATE_SOURCE'], 'private.py'));
+        input.files = transfer.files;
+        Object.defineProperty(input.files[0], 'arrayBuffer', {value: () => new Promise(resolve => {
+          window.finishFaultRead = () => resolve(new TextEncoder().encode('LATE_PRIVATE_SOURCE').buffer);
+        })});
+        input.dispatchEvent(new Event('change', {bubbles:true}));
+        document.getElementById('editor').value = 'PRIVATE_SOURCE';
+        document.getElementById('configOverride').value = '{}';
+        document.getElementById('calibrationProfile').value = '{}';
+        document.getElementById('historyEnabled').checked = true;
+        const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
+        let calls = 0;
+        Object.defineProperty(window, 'localStorage', {configurable:true, get() {
+          if (${JSON.stringify(fault)} === 'getter') throw new DOMException('Synthetic refusal', 'SecurityError');
+          return {removeItem() {
+            calls += 1;
+            if ((${JSON.stringify(fault)} === 'first-removal' && calls === 1) ||
+                (${JSON.stringify(fault)} === 'second-removal' && calls === 2)) throw new Error('Synthetic removal refusal');
+          }, getItem() { return ${JSON.stringify(fault)} === 'verification' ? 'retained' : null; }};
+        }});
+        const generation = appState.generation;
+        try { document.getElementById('privacyWipeBtn').click(); }
+        finally {
+          if (descriptor) Object.defineProperty(window, 'localStorage', descriptor);
+          else delete window.localStorage;
+        }
+        window.finishFaultRead();
+        return {generation, calls};
+      })()`);
+      await delay(50);
+      const result = await evaluate(cdp, id, `({
+        cleared: document.getElementById('editor').value === '' && document.getElementById('configOverride').value === '' && document.getElementById('calibrationProfile').value === '',
+        generation: appState.generation, ready: appState.workerSession.isReady(), busy: appState.workerSession.isBusy(),
+        disabled: document.getElementById('exportJsonBtn').disabled,
+        history: document.getElementById('historyEnabled').checked,
+        status: document.getElementById('statusText').textContent
+      })`);
+      assert(result.cleared && !result.ready && !result.busy && result.disabled && !result.history,
+        "storage refusal prevented session teardown or a late read restored input");
+      assert(result.generation > outcome.generation && result.status.includes('could not be verified'),
+        "failed persistent erasure lacks an honest status or generation invalidation");
+      if (fault !== 'getter') assert(outcome.calls === 2, "first storage error prevented the second erasure attempt");
+      fixtureState.reset();
+      await evaluate(cdp, id, `document.getElementById('editor').value = ${JSON.stringify("def square(value):\n    return value * value\n")}; document.getElementById('analyzeBtn').click()`);
+      await waitForExpression(cdp, id, "document.getElementById('statusText').textContent === 'Analysis completed.'");
+      assertSingleVerifiedRequests(fixtureState);
+      console.log(`[PASS] privacy-storage: ${fault}; session cleared, late read refused, uncertainty reported and authenticated retry passed`);
+    } finally { await closeSession(cdp, session); }
+  }
+}
+
 function nativeReplayFixture() {
   const script = `import argparse, json, pathlib, sys, tempfile
 sys.path[:0] = [str(pathlib.Path(sys.argv[1]) / 'src'), str(pathlib.Path(sys.argv[1]) / 'tools')]
@@ -847,6 +909,7 @@ async function main() {
     await testTamperedWorkerBootstrap(cdp, baseUrl, state);
     await testInputReportContracts(cdp, baseUrl, downloads, state, false);
     await testInputReportContracts(cdp, baseUrl, downloads, state, true);
+    await testPrivacyStorageFailures(cdp, baseUrl, state);
     await testNativeBrowserReplay(cdp, baseUrl, state);
     await testParserReplayBoundary(cdp, baseUrl, state);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });

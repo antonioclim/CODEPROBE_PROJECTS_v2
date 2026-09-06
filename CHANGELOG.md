@@ -6,6 +6,15 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ## [Unreleased]
 
+### Output, privacy and numeric boundaries
+
+- Validate report destinations before writes, refuse input/output aliases and
+  stage complete UTF-8 reports outside the source tree before replacement.
+- Complete in-memory privacy teardown even when storage access fails, attempt
+  both persistent erasures and state when erasure cannot be verified.
+- Reject non-finite effective weights, thresholds and review-policy values
+  before clamping or fitting; require conforming generated JSON before output.
+
 ### Provenance and parser qualification
 
 - Distinguish caller-declared engine provenance from the measured source digest.

@@ -1354,8 +1354,7 @@
     }
 
     function clearPrivacyData() {
-      localStorage.removeItem(HISTORY_KEY);
-      localStorage.removeItem(HISTORY_ENABLED_KEY);
+      // Session invalidation must not depend on persistent-storage access.
       if (els.historyEnabled) {
         els.historyEnabled.checked = false;
       }
@@ -1373,7 +1372,18 @@
       updateEditorMeta();
       scheduleHighlight();
       syncEditorScroll();
-      setStatus("Privacy data cleared from this browser session and local storage.");
+      let persistenceCleared = true;
+      for (const key of [HISTORY_KEY, HISTORY_ENABLED_KEY]) {
+        try {
+          localStorage.removeItem(key);
+          if (localStorage.getItem(key) !== null) persistenceCleared = false;
+        } catch (error) {
+          persistenceCleared = false;
+        }
+      }
+      setStatus(persistenceCleared
+        ? "Privacy data cleared from this browser session and local storage."
+        : "Session data cleared; persistent history erasure could not be verified. Browser storage may still contain reports.");
     }
 
     function handleHistoryClick(event) {
@@ -1551,8 +1561,9 @@
     els.privacyWipeBtn.addEventListener("click", clearPrivacyData);
 
     if (els.historyEnabled) {
-      const storedHistoryPreference = localStorage.getItem(HISTORY_ENABLED_KEY);
-      els.historyEnabled.checked = storedHistoryPreference === null ? false : storedHistoryPreference === "true";
+      let storedHistoryPreference = null;
+      try { storedHistoryPreference = localStorage.getItem(HISTORY_ENABLED_KEY); } catch (error) { /* Default to disabled. */ }
+      els.historyEnabled.checked = storedHistoryPreference === "true";
       els.historyEnabled.addEventListener("change", () => {
         localStorage.setItem(HISTORY_ENABLED_KEY, String(els.historyEnabled.checked));
         if (!els.historyEnabled.checked) {

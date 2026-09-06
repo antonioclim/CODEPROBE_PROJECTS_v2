@@ -243,6 +243,38 @@ async function run() {
       assert.equal(payload.files[1].content, undefined);
     });
   }
+  for (const fault of ["healthy", "getter", "first-removal", "second-removal", "verification"]) {
+    await check(`privacy wipe clears session and rejects late input under ${fault}`, async () => {
+      const f = main(), late = delayedFile("private.py");
+      const pending = f.context.handleFile(late.file);
+      let calls = 0, cancellations = 0;
+      f.state.workerSession = {cancel() { cancellations += 1; }};
+      f.els.editor.value = "PRIVATE_SOURCE";
+      f.els.configOverride.value = "private config";
+      f.els.calibrationProfile.value = "private profile";
+      f.els.historyEnabled.checked = true;
+      Object.defineProperty(f.context, "localStorage", {configurable: true, get() {
+        if (fault === "getter") throw new Error("synthetic storage refusal");
+        return {removeItem() {
+          calls += 1;
+          if ((fault === "first-removal" && calls === 1) || (fault === "second-removal" && calls === 2)) throw new Error("synthetic removal refusal");
+        }, getItem() { return fault === "verification" ? "retained" : null; }};
+      }});
+      const generation = f.state.generation;
+      f.context.clearPrivacyData();
+      late.read.resolve(bytes("LATE_PRIVATE_SOURCE")); await pending;
+      assert(f.state.generation > generation);
+      assert.equal(cancellations, 1);
+      assert.equal(f.els.editor.value, "");
+      assert.equal(f.els.configOverride.value, "");
+      assert.equal(f.els.calibrationProfile.value, "");
+      assert.equal(f.els.historyEnabled.checked, false);
+      assert.equal(f.state.projectPayload, null);
+      assert.equal(f.els.exportJsonBtn.disabled, true);
+      assert.match(f.els.status.textContent, fault === "healthy" ? /local storage\.$/ : /could not be verified/);
+      if (fault !== "getter") assert.equal(calls, 2);
+    });
+  }
   console.log(`[PASS] input-contracts: ${scenarios} hermetic event-order and export scenarios`);
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
+import zipfile
 import shutil
 import subprocess
 import sys
@@ -40,6 +42,162 @@ def main():
     total = add(1, 2)
     return multiply(total, 3)
 """
+
+
+class ReportDestinationTests(unittest.TestCase):
+    def run_cli(self, root, *options):
+        return subprocess.run(
+            [sys.executable, "-I", "-S", "-B", str(ROOT / "tools/analyze_project.py"), *options],
+            cwd=root, capture_output=True, text=True, encoding="utf-8", timeout=30,
+        )
+
+    def check_destinations(self, case):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            project = base / "project"
+            project.mkdir()
+            source = project / "main.py"
+            source.write_text(CODE, encoding="utf-8")
+            config = base / "config.json"
+            calibration = base / "calibration.json"
+            ignore = base / "ignore.txt"
+            config.write_text("{}", encoding="utf-8")
+            calibration.write_text("{}", encoding="utf-8")
+            ignore.write_text("# fixture\n", encoding="utf-8")
+            archive = base / "source.zip"
+            with zipfile.ZipFile(archive, "w") as handle:
+                handle.writestr("main.py", CODE)
+            inputs = [source, config, calibration, ignore, archive]
+            before = {path: path.read_bytes() for path in inputs}
+            jout, tout = base / "report.json", base / "report.txt"
+            jout.write_bytes(b"previous JSON output")
+            tout.write_bytes(b"previous text output")
+            options = ["--folder", str(project), "--config", str(config),
+                       "--calibration-profile", str(calibration), "--ignore-file", str(ignore)]
+            if case == "same":
+                tout = jout
+            elif case == "lexical":
+                tout = base / "." / "report.json"
+            elif case == "source":
+                jout = source
+            elif case == "inside":
+                jout = project / "new-report.json"
+            elif case in {"config", "calibration", "ignore"}:
+                jout = {"config": config, "calibration": calibration, "ignore": ignore}[case]
+            elif case == "archive":
+                options[:2] = ["--zip", str(archive)]
+                jout = archive
+            elif case in {"source-hardlink", "source-symlink", "output-hardlink", "output-symlink"}:
+                jout.unlink()
+                target = source if case.startswith("source") else tout
+                if case.endswith("hardlink"):
+                    os.link(target, jout)
+                else:
+                    try:
+                        jout.symlink_to(target)
+                    except OSError as exc:
+                        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+                            self.skipTest("symbolic-link privilege unavailable")
+                        raise
+            elif case == "ancestor":
+                alias = base / "alias"
+                try:
+                    alias.symlink_to(project, target_is_directory=True)
+                except OSError as exc:
+                    if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+                        self.skipTest("symbolic-link privilege unavailable")
+                    raise
+                jout = alias / "main.py"
+            outputs_before = {p: p.read_bytes() if p.is_file() else None for p in (jout, tout)}
+            completed = self.run_cli(base, *options, "--json-out", str(jout), "--text-out", str(tout))
+            self.assertEqual(completed.returncode, 0 if case == "distinct" else 2, completed.stderr)
+            self.assertEqual(before, {p: p.read_bytes() for p in inputs})
+            if case == "distinct":
+                self.assertEqual(json.loads(jout.read_text(encoding="utf-8"))["report_kind"], "project")
+                self.assertTrue(tout.read_text(encoding="utf-8"))
+            else:
+                self.assertEqual(outputs_before, {p: p.read_bytes() if p.is_file() else None for p in (jout, tout)})
+            self.assertEqual(list(base.rglob(".codeprobe-report-*")), [])
+
+    def test_distinct_reports_preserve_all_inputs(self): self.check_destinations("distinct")
+    def test_same_report_path_is_refused_before_writing(self): self.check_destinations("same")
+    def test_lexical_output_alias_is_refused(self): self.check_destinations("lexical")
+    def test_source_destination_is_refused(self): self.check_destinations("source")
+    def test_new_report_within_source_tree_is_refused(self): self.check_destinations("inside")
+    def test_metric_configuration_is_not_overwritten(self): self.check_destinations("config")
+    def test_calibration_input_is_not_overwritten(self): self.check_destinations("calibration")
+    def test_ignore_input_is_not_overwritten(self): self.check_destinations("ignore")
+    def test_zip_input_is_not_overwritten(self): self.check_destinations("archive")
+    def test_hardlinked_source_is_not_overwritten(self): self.check_destinations("source-hardlink")
+    def test_symlinked_source_is_not_overwritten(self): self.check_destinations("source-symlink")
+    def test_hardlinked_outputs_are_refused(self): self.check_destinations("output-hardlink")
+    def test_symlinked_outputs_are_refused(self): self.check_destinations("output-symlink")
+    def test_redirected_parent_cannot_target_source(self): self.check_destinations("ancestor")
+
+
+class FiniteConfigurationTests(unittest.TestCase):
+    def test_nonfinite_weights_are_rejected_before_clamping(self):
+        for value in (float("inf"), -float("inf"), float("nan"), 10 ** 400):
+            with self.subTest(value=type(value).__name__), self.assertRaises(ValueError):
+                engine.validate_metric_config_override({"line_length_uniformity": {"weight": value}})
+
+    def test_nonfinite_thresholds_are_rejected(self):
+        for value in (float("inf"), -float("inf"), float("nan"), 10 ** 400):
+            with self.subTest(value=type(value).__name__), self.assertRaises(ValueError):
+                engine.validate_metric_config_override({"line_length_uniformity": {"thresholds": {"ai_low": value}}})
+
+    def test_nonfinite_review_policy_is_rejected_before_clamping(self):
+        for value in (float("inf"), -float("inf"), float("nan")):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                engine.normalise_review_policy({"file": {"review_trigger": value}})
+
+    def test_finite_clamping_and_threshold_semantics_are_preserved(self):
+        for weight, expected in ((-2, 0.0), (.3, .3), (2, 1.0)):
+            result = engine.validate_metric_config_override({"line_length_uniformity": {"weight": weight, "thresholds": {"ai_low": -.1}}})
+            self.assertEqual(result["line_length_uniformity"]["weight"], expected)
+            self.assertEqual(result["line_length_uniformity"]["thresholds"]["ai_low"], -.1)
+
+    def test_overflowing_exponent_is_rejected_on_both_runtime_apis(self):
+        override = json.loads('{"line_length_uniformity":{"thresholds":{"ai_low":1e309}}}')
+        for project in (False, True):
+            payload = {"config_override": override}
+            payload.update({"files": [{"path": "main.py", "content": CODE}]} if project else {"filename": "main.py", "code": CODE})
+            with self.subTest(project=project), self.assertRaises(ValueError):
+                (engine.codeprobe_analyze_project if project else engine.codeprobe_analyze)(json.dumps(payload))
+
+    def test_nonfinite_manifest_is_refused_before_sample_analysis_and_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            manifest = base / "manifest.json"
+            manifest.write_text('{"samples":[],"metric_overrides":{"line_length_uniformity":{"thresholds":{"ai_low":1e309}}}}', encoding="utf-8")
+            with mock.patch.object(calibrate_profile, "analyse_sample") as analyse:
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    calibrate_profile.run_calibration(argparse.Namespace(manifest=str(manifest), out_dir=str(base / "out")))
+            analyse.assert_not_called()
+            self.assertFalse((base / "out").exists())
+
+    def test_serialisation_defence_precedes_any_calibration_output(self):
+        original = calibrate_profile.build_profile
+        def corrupt(*args, **kwargs):
+            profile = original(*args, **kwargs)
+            profile["diagnostic"] = float("inf")
+            return profile
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            with mock.patch.object(calibrate_profile, "build_profile", side_effect=corrupt):
+                with self.assertRaises(ValueError):
+                    ScoringReplayTests().calibrate(base)
+            self.assertFalse((base / "output").exists())
+
+    def test_runtime_json_emission_refuses_nonfinite_report_metadata(self):
+        original = engine.report_to_dict
+        def corrupt(*args, **kwargs):
+            report = original(*args, **kwargs)
+            report["diagnostic"] = float("nan")
+            return report
+        with mock.patch.object(engine, "report_to_dict", side_effect=corrupt):
+            with self.assertRaises(ValueError):
+                engine.codeprobe_analyze(json.dumps({"filename": "main.py", "code": CODE}))
 
 
 class EngineFingerprintContractTests(unittest.TestCase):

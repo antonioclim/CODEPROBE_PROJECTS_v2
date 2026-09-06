@@ -981,7 +981,7 @@ def utc_timestamp() -> str:
 
 def canonical_json(value: Any) -> str:
     """Serialise a JSON-like object deterministically for hashing."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str, allow_nan=False)
 
 
 def stable_sha256(value: Any) -> str:
@@ -1153,6 +1153,19 @@ def normalise_newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def finite_config_number(value: Any, label: str) -> float:
+    """Require a finite binary floating-point value before policy clamping."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"{label} must be numeric.")
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError(f"{label} must be finite.") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be finite.")
+    return number
+
+
 def validate_metric_config_override(external_override: Optional[Dict[str, Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
     """Validate a browser-supplied metric override before merging it."""
     if external_override is None:
@@ -1176,7 +1189,7 @@ def validate_metric_config_override(external_override: Optional[Dict[str, Dict[s
             elif key == "weight":
                 if not isinstance(value, (int, float)) or isinstance(value, bool):
                     raise ValueError(f"weight for {metric_name} must be numeric.")
-                clean_metric[key] = float(clamp(float(value), 0.0, 1.0))
+                clean_metric[key] = float(clamp(finite_config_number(value, f"weight for {metric_name}"), 0.0, 1.0))
             elif key == "contributes_to_overall":
                 if not isinstance(value, bool):
                     raise ValueError(f"contributes_to_overall for {metric_name} must be true or false.")
@@ -1194,7 +1207,7 @@ def validate_metric_config_override(external_override: Optional[Dict[str, Dict[s
                         raise ValueError(f"threshold name for {metric_name} must be a string.")
                     if not isinstance(threshold_value, (int, float)) or isinstance(threshold_value, bool):
                         raise ValueError(f"threshold {threshold_name} for {metric_name} must be numeric.")
-                    clean_thresholds[threshold_name] = float(threshold_value)
+                    clean_thresholds[threshold_name] = finite_config_number(threshold_value, f"threshold {threshold_name} for {metric_name}")
                 clean_metric[key] = clean_thresholds
             elif key == "notes":
                 if not isinstance(value, str):
@@ -1234,7 +1247,7 @@ def normalise_review_policy(raw_policy: Optional[Dict[str, Any]] = None) -> Dict
                 raise ValueError(f"Unsupported review-policy key for {kind}: {key}")
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 raise ValueError(f"review_policy.{kind}.{key} must be numeric.")
-            policy[kind][key] = clamp(float(value), 0.0, 1.0)
+            policy[kind][key] = clamp(finite_config_number(value, f"review_policy.{kind}.{key}"), 0.0, 1.0)
         low = policy[kind]["low_max"]
         moderate = policy[kind]["moderate_max"]
         elevated = policy[kind]["elevated_max"]
@@ -5882,7 +5895,7 @@ def codeprobe_engine_metadata(payload_json: str = "{}") -> str:
     except Exception:
         payload = {}
     fingerprint = payload.get("engine_fingerprint") or payload.get("engine_integrity")
-    return json.dumps(runtime_metadata(fingerprint=fingerprint), ensure_ascii=False)
+    return json.dumps(runtime_metadata(fingerprint=fingerprint), ensure_ascii=False, allow_nan=False)
 
 
 def codeprobe_analyze(payload_json: str) -> str:
@@ -5912,7 +5925,7 @@ def codeprobe_analyze(payload_json: str) -> str:
         report.notes.append("The supplied calibration profile was outside its declared report-kind or language scope and was not applied.")
     payload_report = report_to_dict(report)
     payload_report["calibration_scope"] = (_calibration_object(effective_raw) or {}).get("scope", {})
-    return json.dumps({"report": payload_report, "text": format_report_text(report)}, ensure_ascii=False)
+    return json.dumps({"report": payload_report, "text": format_report_text(report)}, ensure_ascii=False, allow_nan=False)
 
 
 def codeprobe_analyze_project(payload_json: str) -> str:
@@ -5926,4 +5939,5 @@ def codeprobe_analyze_project(payload_json: str) -> str:
             "text": format_project_report_text(report),
         },
         ensure_ascii=False,
+        allow_nan=False,
     )

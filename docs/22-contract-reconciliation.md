@@ -177,3 +177,44 @@ therefore matter above the raw ceiling; route invariance is not promised.
 Inspect exclusions and `overall_applicable`: false is not a zero-concern score.
 No ceiling has been raised and rejected contents are not read merely to report
 rejection. Select the assessed source subset when preparing a bounded input.
+
+## Report destinations and partial-write boundary
+
+The native analysis CLI preflights JSON/text destinations against each other,
+the project/ZIP and any explicit configuration, calibration or ignore input.
+Reports must be outside the input project tree, including new report paths.
+Existing hard-linked destinations and leaf links/reparse points are rejected;
+canonicalised parent aliases cannot redirect a report into the input tree.
+Destination directories must already exist. These checks happen before analysis
+and are repeated before publication. Prepare both reports in private temporary
+files and use individual atomic replacements. A failed later replacement may
+leave the earlier report updated: this is not a two-file transaction, a lock
+against other directory writers or a guarantee against power loss. Run in a
+quiescent destination directory. Detected conflicts return exit code 2 without
+altering the prior destination or input bytes.
+
+## Privacy erasure when browser storage is unavailable
+
+Clear privacy data invalidates input generations, cancels the worker, clears
+source/configuration/report state and disables local history before requesting
+persistent erasure. Each history key is attempted independently; a thrown getter,
+failed removal or failed read-back produces a visible persistence-uncertainty
+message. Session clearing does not prove that persistent reports were erased.
+A storage refusal at initial page setup leaves history disabled. Storage-fault
+regressions use explicitly injected failures; they do not assert that every
+browser emits each tested exception. Real Chromium qualification retains the
+HTTP delivery and authenticated Pyodide worker and exercises clean retries.
+
+## Finite numeric configuration and strict generated JSON
+
+Effective metric weights, thresholds and review-policy numbers must convert to
+finite binary floating-point values. Reject NaN, infinity and exponent/integer
+overflow before clamping or fitting; a JSON parse-constant hook alone cannot
+catch overflowing exponents such as 1e309. Finite weight clamping, threshold
+semantics, display rounding and unrounded decision scores are unchanged.
+Generated runtime reports and calibration profiles reject non-finite values
+rather than emitting non-standard JSON constants. Calibration serialises the
+profile before creating output directories/files. This guard does not promise
+unbounded precision or prohibit ordinary finite underflow. Successfully written
+non-operational diagnostic profiles retain the documented generation exit-code
+policy; non-finite configuration is a different, rejected condition.

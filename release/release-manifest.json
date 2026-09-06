@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 148,
-  "total_source_size_bytes": 2007286,
+  "total_source_size_bytes": 2030885,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -37,8 +37,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "size_bytes": 26009,
-      "sha256": "a65400fcae865fb29fbc986e3d9caa38e0694c2d553ac334906152c3aedd2a08"
+      "size_bytes": 26509,
+      "sha256": "48c439384753672bdb6e6630483445310567106de5250d2047cb775ba28e863c"
     },
     {
       "path": "CITATION.cff",
@@ -77,8 +77,8 @@
     },
     {
       "path": "app/codeprobe-ui.js",
-      "size_bytes": 77334,
-      "sha256": "a0b5238167dbbd31301cf861eebd47eb81379709fb3d51a76a872ced2e484b8e"
+      "size_bytes": 77829,
+      "sha256": "14f6fe21b98a71bc2bb8f0e70cb475bd885dd42cee672e7ae11a3c144641802e"
     },
     {
       "path": "app/codeprobe.css",
@@ -88,7 +88,7 @@
     {
       "path": "app/index.html",
       "size_bytes": 17169,
-      "sha256": "fc7b87981cca61731c13dc2b559145d0148264917ad5964d5066a9fda70ea073"
+      "sha256": "e67fce03eca537d5feaccad7b9682922c135882ee9839ac8fc85ad743dd49643"
     },
     {
       "path": "app/project-ui.js",
@@ -103,12 +103,12 @@
     {
       "path": "app/project.html",
       "size_bytes": 4576,
-      "sha256": "3fc8edffb255e4248590ca5315e64b425d133b9fdb9f8c3f524d15447718e422"
+      "sha256": "1b7235df34172ecd9f163d327ca53d6afcb2bcc5ad98088de94f29f1295dfb43"
     },
     {
       "path": "app/pyodide-loader.js",
       "size_bytes": 32903,
-      "sha256": "68af526a5df70557259d0e7bf5dd53d5a126044d701b1d7c8814007ad4d81687"
+      "sha256": "91d2aa9c0842189ddb13722d3bfa00e5c2073f79ce0fda05c70b3d9bd45502c3"
     },
     {
       "path": "app/pyodide-provenance.json",
@@ -118,7 +118,7 @@
     {
       "path": "app/resource-integrity.json",
       "size_bytes": 2388,
-      "sha256": "cf19b630f8f0eb1cf7f591a02e1992a525c1babf3d0cca2a2dd95fdd1b9cec25"
+      "sha256": "3622742a130839881f26f787dc3e801fcaf5125ac75eb1c9777767e0e72876f4"
     },
     {
       "path": "app/runtime-config.example.json",
@@ -287,8 +287,8 @@
     },
     {
       "path": "docs/22-contract-reconciliation.md",
-      "size_bytes": 9947,
-      "sha256": "afd1fc0b9e58f3b40fcfa6f59299fc2d30df22f65d172e79809f4bbf7867f49e"
+      "size_bytes": 12561,
+      "sha256": "05b5d4e9a24724d8bc8a8467106c7b129f8809097442445f89e414cca988df0c"
     },
     {
       "path": "docs/assets/interface-preview.png",
@@ -477,8 +477,8 @@
     },
     {
       "path": "src/codeprobe_runtime.py",
-      "size_bytes": 271794,
-      "sha256": "6cab072ae1b9ea51c72380a743644d22dda1d3d09643fdfc82bfba8df6e2ecea"
+      "size_bytes": 272542,
+      "sha256": "4567b2ce76ef95880d004b2e95a18799fcbd02acb4821fb57fa743870746a942"
     },
     {
       "path": "tests/test_app_runtime_tools_paths.py",
@@ -497,8 +497,8 @@
     },
     {
       "path": "tests/test_contract_repairs.py",
-      "size_bytes": 26230,
-      "sha256": "c984dc7a666f43d6d0c57ec1f1a8e69c087cd58a6ee0af64242b586538e28de5"
+      "size_bytes": 35429,
+      "sha256": "b152b4a04059e70dd8ff5fd833d39b100d72cb0bf8a7718fea9bd5f8e997bdfb"
     },
     {
       "path": "tests/test_coverage_policy.py",
@@ -637,8 +637,8 @@
     },
     {
       "path": "tools/analyze_project.py",
-      "size_bytes": 4953,
-      "sha256": "7c72cb7ddc4659c423a1d99967bc2fe63ae2830ac960cdae35c3b4997f630f1c"
+      "size_bytes": 8906,
+      "sha256": "620fcbc4cad38a4ebbbc17bd7d5c6a7a94232ba0c614fa96c1ca08b3771ce202"
     },
     {
       "path": "tools/audit_institutional_pack.py",
@@ -657,8 +657,8 @@
     },
     {
       "path": "tools/calibrate_profile.py",
-      "size_bytes": 45781,
-      "sha256": "b609ed8507b6a9cbdea30fa2d4b1ef5dedb2a0b8c96b443f7ae99687f52c4627"
+      "size_bytes": 45911,
+      "sha256": "bba613acb0cceffa1c9ca3f53186ab86bfdf9a186e6329fcd5d124356472a463"
     },
     {
       "path": "tools/check_browser_accessibility.js",
@@ -667,8 +667,8 @@
     },
     {
       "path": "tools/check_browser_functional.js",
-      "size_bytes": 50807,
-      "sha256": "402d92540ef74394129f549cb86bd23167bf758f87c3cd886f69a337d87d1011"
+      "size_bytes": 54964,
+      "sha256": "122b028bac796b8d330f32e07b16c4369d73784da84a5a98ec755f347f961b38"
     },
     {
       "path": "tools/check_coverage.py",
@@ -687,8 +687,8 @@
     },
     {
       "path": "tools/check_input_contracts.js",
-      "size_bytes": 13814,
-      "sha256": "16915fc118ecb07479f61a7fd9e31b9f89585dca20c116ffba9466f058fec6c2"
+      "size_bytes": 15617,
+      "sha256": "459ac7a118a43aebf4824b4720cc27ca19f8600ee308e75e1b75aee884260485"
     },
     {
       "path": "tools/check_naming.py",
@@ -723,7 +723,7 @@
     {
       "path": "tools/coverage-policy.json",
       "size_bytes": 1732,
-      "sha256": "8dfe1c13ecc9badbb33d2d2c79ce44184a46967d1d85b829a6eb396fe8b68d9b"
+      "sha256": "bf191bce0a5f1af4afa378ed9f39d6ea92196152668386baea07912163e34303"
     },
     {
       "path": "tools/final_audit.py",
@@ -746,5 +746,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "d00bbda6f60abcc538c168d9e4dac2fb278255f78230bbd389b0c07e9d700e85"
+  "manifest_sha256": "54d221eab130ab21cb6f5090594af3bcda8e22654df35b9cec2256170f0c1e37"
 }
