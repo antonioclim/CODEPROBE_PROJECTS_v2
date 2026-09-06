@@ -55,6 +55,7 @@ docs/18-runtime-integrity.md,,docs/18-runtime-integrity.md,technical documentati
 docs/19-release-recovery.md,,docs/19-release-recovery.md,technical documentation or asset,added_audit_phase4f2,audit-4f2,docs,high,"durable release-publication journal, recovery state machine and operator procedure"
 docs/20-worker-resilience.md,,docs/20-worker-resilience.md,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,docs,medium,Phase 4F3; no change to licence or promotion authority
 docs/21-runtime-lifecycle.md,,docs/21-runtime-lifecycle.md,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,docs,medium,Phase 4F3; no change to licence or promotion authority
+docs/22-contract-reconciliation.md,,docs/22-contract-reconciliation.md,"scoring, intake, report and publication contracts",added_audit_phase4h,audit-4h,docs,high,Phase 4H remediation of reproduced Phase 4G contracts
 docs/assets/interface-preview.png,,docs/assets/interface-preview.png,technical documentation or asset,keep,current,docs,medium,canonical current path
 docs/history/01-stabilisation.md,,docs/history/01-stabilisation.md,phase-history note,keep,current,docs,medium,canonical current path
 docs/history/02-parser-and-metrics.md,,docs/history/02-parser-and-metrics.md,phase-history note,keep,current,docs,medium,canonical current path
@@ -97,6 +98,7 @@ src/codeprobe_runtime.py,src/engine.py,src/codeprobe_runtime.py,browser-compatib
 tests/test_app_runtime_tools_paths.py,,tests/test_app_runtime_tools_paths.py,regression test,keep,current,tests,high,canonical current path
 tests/test_browser_security.py,,tests/test_browser_security.py,regression test,keep,current,tests,high,canonical current path
 tests/test_calibration_profiles.py,,tests/test_calibration_profiles.py,regression test,keep,current,tests,high,canonical current path
+tests/test_contract_repairs.py,,tests/test_contract_repairs.py,"native replay, provenance and publication regressions",added_audit_phase4h,audit-4h,tests,high,Phase 4H remediation of reproduced Phase 4G contracts
 tests/test_coverage_policy.py,,tests/test_coverage_policy.py,regression test,added_audit_phase4d,audit-4d,tests,high,"coverage policy, floor and required-CI regressions"
 tests/test_dependency_boundary.py,,tests/test_dependency_boundary.py,regression test,added_audit_phase4,audit-4,tests,high,added during hostile audit Phase 4 to guard dependency-boundary enforcement
 tests/test_documentation_resources.py,,tests/test_documentation_resources.py,regression test,keep,current,tests,high,canonical current path
@@ -134,6 +136,7 @@ tools/check_browser_functional.js,,tools/check_browser_functional.js,command-lin
 tools/check_coverage.py,,tools/check_coverage.py,command-line or release utility,added_audit_phase4d,audit-4d,tools,high,deterministic supported-code line-coverage gate
 tools/check_dependency_boundary.py,,tools/check_dependency_boundary.py,command-line or release utility,added_audit_phase4,audit-4,tools,high,added during hostile audit Phase 4 to verify the offline dependency contract
 tools/check_file_references.py,tools/check_references.py,tools/check_file_references.py,command-line or release utility,completed_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
+tools/check_input_contracts.js,,tools/check_input_contracts.js,deterministic browser input and export regressions,added_audit_phase4h,audit-4h,tools,high,Phase 4H remediation of reproduced Phase 4G contracts
 tools/check_naming.py,,tools/check_naming.py,command-line or release utility,added_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/check_pyodide_provenance.py,,tools/check_pyodide_provenance.py,command-line or release utility,added_audit_phase4c,audit-4c,tools,high,static validation of measured Pyodide core-startup provenance
 tools/check_release.py,src/release_check.py,tools/check_release.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable

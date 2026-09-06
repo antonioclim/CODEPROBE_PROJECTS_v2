@@ -2,18 +2,18 @@
   "schema": "codeprobe-final-package-audit/v1",
   "app_version": "2.2.0",
   "generated_at_utc": "not embedded; final ZIP hash is recorded in the external sidecar",
-  "file_count": 145,
+  "file_count": 148,
   "files_by_area": {
     ".github": 2,
     "app": 14,
     "calibration": 8,
-    "docs": 36,
+    "docs": 37,
     "educator": 10,
     "release": 3,
     "root": 10,
     "src": 11,
-    "tests": 29,
-    "tools": 22
+    "tests": 30,
+    "tools": 23
   },
   "release_set_safety_ok": true,
   "release_set_errors": [],

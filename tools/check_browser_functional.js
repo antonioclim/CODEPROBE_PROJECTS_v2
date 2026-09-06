@@ -613,6 +613,129 @@ async function testTamperedWorkerBootstrap(cdp, baseUrl, fixtureState) {
   console.log("[PASS] browser-resilience: tampered worker entry and changed second loader response refused before interpreter bootstrap");
 }
 
+
+// Real DOM/File events with deliberately controlled I/O completion. Analysis
+// and exported reports still use the authenticated Pyodide interpreter.
+async function testInputReportContracts(cdp, baseUrl, downloads, fixtureState, compact) {
+  fixtureState.reset();
+  const session = await createSession(cdp, `${baseUrl}/app/${compact ? "project" : "index"}.html?input-contracts=1`);
+  const id = session.sessionId;
+  const statusId = compact ? "status" : "statusText";
+  const button = compact ? "analyseBtn" : "analyzeBtn";
+  try {
+    if (!compact) await waitForExpression(cdp, id, "appState.workerSession?.isReady()");
+    await evaluate(cdp, id, `(() => {
+      window.contractBytes = Uint8Array.from(atob("UEsDBBQAAAAIAHYnJl2Js2mnTgAAAJEAAAAHAAAAbWFpbi5weUtJTVNITEnRyElNK9FRKMpMzyjRtOJSAIKi1JLSojwFkISCNkSGiysFqDy3NKcksyCnkoAeLRQ9iZl5GqiK4MaArDfUUTDS1FEw1uQCAFBLAQIUAxQAAAAIAHYnJl2Js2mnTgAAAJEAAAAHAAAAAAAAAAAAAACAAQAAAABtYWluLnB5UEsFBgAAAAABAAEANQAAAHMAAAAAAA=="), value => value.charCodeAt(0));
+      window.selectContractZip = (name, delayed) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([window.contractBytes], name, {type:'application/zip'}));
+        const input = document.getElementById('${compact ? "zipInput" : "projectZipInput"}');
+        input.files = transfer.files;
+        if (delayed) Object.defineProperty(input.files[0], 'arrayBuffer', {value: () => new Promise(resolve => {window.finishContractRead = () => resolve(window.contractBytes.buffer.slice(0));})});
+        input.dispatchEvent(new Event('change', {bubbles:true}));
+      };
+    })()`);
+    if (compact) {
+      await evaluate(cdp, id, "window.selectContractZip('alpha.zip', false)");
+      await waitForExpression(cdp, id, "document.getElementById('status').textContent === 'Loaded ZIP: alpha.zip.'");
+      await evaluate(cdp, id, "document.getElementById('analyseBtn').click()");
+      await waitForExpression(cdp, id, "document.getElementById('status').textContent === 'Project analysis completed.'");
+      await evaluate(cdp, id, "window.selectContractZip('beta.zip', true)");
+      assert(await evaluate(cdp, id, "document.getElementById('exportJsonBtn').disabled && document.getElementById('exportTextBtn').disabled && state.json === ''"), "loading beta retained alpha's export");
+      await evaluate(cdp, id, "window.finishContractRead()");
+      await waitForExpression(cdp, id, "document.getElementById('status').textContent === 'Loaded ZIP: beta.zip.'");
+      assert(await evaluate(cdp, id, "document.getElementById('exportJsonBtn').disabled"), "unanalyzed beta enabled an export");
+      await evaluate(cdp, id, "document.getElementById('analyseBtn').click()");
+      await waitForExpression(cdp, id, "document.getElementById('status').textContent === 'Project analysis completed.'");
+      fs.rmSync(downloads, {recursive:true, force:true}); fs.mkdirSync(downloads, {recursive:true});
+      await cdp.send("Browser.setDownloadBehavior", {behavior:"allow", downloadPath:downloads});
+      await evaluate(cdp, id, "document.getElementById('exportJsonBtn').click()");
+      await waitForFile(path.join(downloads, "beta.json"));
+      const report = JSON.parse(fs.readFileSync(path.join(downloads, "beta.json"), "utf8"));
+      assert(report.project_name === "beta", "beta download carries a stale project identity");
+      await evaluate(cdp, id, "document.getElementById('profileSelect').dispatchEvent(new Event('change', {bubbles:true}))");
+      assert(await evaluate(cdp, id, "document.getElementById('exportJsonBtn').disabled && state.json === ''"), "settings change retained a prior report");
+      await evaluate(cdp, id, "window.selectContractZip('old.zip', true); window.selectContractZip('latest.zip', false)");
+      await waitForExpression(cdp, id, "document.getElementById('status').textContent === 'Loaded ZIP: latest.zip.'");
+      await evaluate(cdp, id, "window.finishContractRead()");
+      await delay(50);
+      assert(await evaluate(cdp, id, "state.payload.project_name === 'latest'"), "older ZIP replaced the last selection");
+    } else {
+      await evaluate(cdp, id, `(() => {
+        const input = document.getElementById('fileInput'), transfer = new DataTransfer();
+        transfer.items.add(new File(['SYNTHETIC_PRIVATE_SOURCE'], 'private.py'));
+        input.files = transfer.files;
+        Object.defineProperty(input.files[0], 'arrayBuffer', {value: () => new Promise(resolve => {window.finishPrivateRead = () => resolve(new TextEncoder().encode('SYNTHETIC_PRIVATE_SOURCE').buffer);})});
+        input.dispatchEvent(new Event('change', {bubbles:true}));
+        document.getElementById('privacyWipeBtn').click();
+        window.finishPrivateRead();
+      })()`);
+      await delay(50);
+      assert(await evaluate(cdp, id, "document.getElementById('editor').value === '' && appState.currentReport === null && appState.engineBundle === null"), "late input resurrected wiped data");
+      fixtureState.reset();
+    }
+    await evaluate(cdp, id, `(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([${JSON.stringify("def add(left, right):\n    return left + right\n\ndef multiply(left, right):\n    return left * right\n\ndef main():\n    return multiply(add(1, 2), 3)\n")}], 'main.py'));
+      transfer.items.add(new File([new Uint8Array(1000001)], 'oversized.py'));
+      const input = document.getElementById('folderInput'); input.files = transfer.files;
+      window.rejectedContentReads = 0;
+      Object.defineProperty(input.files[0], '_codeprobeRelativePath', {value:'accepted/main.py'});
+      Object.defineProperty(input.files[1], '_codeprobeRelativePath', {value:'accepted/oversized.py'});
+      Object.defineProperty(input.files[1], 'arrayBuffer', {value: async () => {window.rejectedContentReads += 1; throw new Error('Rejected content must remain unread');}});
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    })()`);
+    await waitForExpression(cdp, id, `${compact ? "state" : "appState"}.loadingInput === false && !document.getElementById('${button}').disabled`);
+    await evaluate(cdp, id, `document.getElementById('${button}').click()`);
+    await waitForExpression(cdp, id, `document.getElementById('${statusId}').textContent === 'Project analysis completed.'`);
+    const observed = await evaluate(cdp, id, `(() => ({report:JSON.parse(document.getElementById('jsonReport').value), rejectedReads:window.rejectedContentReads}))()`);
+    assert(observed.rejectedReads === 0, "browser read prefiltered content");
+    assert(observed.report.included_file_count === 1 && observed.report.excluded_file_count === 1, "selected input accounting does not reconcile");
+    assert(observed.report.excluded_files.some(item => item.path.endsWith('oversized.py') && item.reason === 'browser_file_too_large'), "browser exclusion metadata disappeared in the real engine");
+    for (const child of observed.report.included_files) assert(!child.calibration_profile_id, "uncalibrated child declares a calibration identity");
+    console.log(`[PASS] browser-input-contracts: ${compact ? "compact" : "main"} intake ownership, report invalidation and real-engine exclusion accounting`);
+  } finally { await closeSession(cdp, session); }
+}
+
+function nativeReplayFixture() {
+  const script = `import argparse, json, pathlib, sys, tempfile
+sys.path[:0] = [str(pathlib.Path(sys.argv[1]) / 'src'), str(pathlib.Path(sys.argv[1]) / 'tools')]
+import calibrate_profile
+code = ${JSON.stringify("def add(left, right):\n    return left + right\n\ndef multiply(left, right):\n    return left * right\n\ndef main():\n    return multiply(add(1, 2), 3)\n")}
+with tempfile.TemporaryDirectory() as directory:
+    root = pathlib.Path(directory)
+    samples = []
+    for index, (label, split) in enumerate((('human','fit'),('ai','fit'),('human','evaluation'),('ai','evaluation'))):
+        name = 'sample-' + str(index) + '.py'
+        (root / name).write_text(code, encoding='utf-8')
+        samples.append(dict(path=name, label=label, split=split, group='g-' + str(index), kind='file'))
+    manifest = root / 'manifest.json'
+    manifest.write_text(json.dumps(dict(samples=samples, metric_overrides={'line_length_uniformity':{'weight':1.0}})), encoding='utf-8')
+    result = calibrate_profile.run_calibration(argparse.Namespace(manifest=str(manifest), root=None, profile='strict', target_fpr=.1, config=None, out_dir=str(root/'output')))
+    print(json.dumps(dict(code=code, profile=result['profile'], decision_score=result['results'][0]['decision_score'])))
+`;
+  const child = childProcess.spawnSync("python", ["-I", "-S", "-B", "-c", script, ROOT], {encoding:"utf8", timeout:30000, maxBuffer:1024*1024});
+  assert(child.status === 0, `native calibration fixture failed: ${child.stderr || child.error}`);
+  return JSON.parse(child.stdout);
+}
+async function testNativeBrowserReplay(cdp, baseUrl, fixtureState) {
+  const expected = nativeReplayFixture();
+  fixtureState.reset();
+  const session = await createSession(cdp, `${baseUrl}/app/index.html?replay-contract=1`);
+  try {
+    await waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()");
+    const result = await evaluate(cdp, session.sessionId, `appState.workerSession.analyse('file', ${JSON.stringify({filename:"replay.py",code:expected.code,calibration_profile:expected.profile})})`);
+    assert(result.report.profile === "strict", "browser ignored the bound scoring mode");
+    // Native libm and WebAssembly implementations can differ in their last bits.
+    assert(Math.abs(result.report.decision_score - expected.decision_score) < 1e-12, "native and browser scoring disagree");
+    assert(result.report.metric_config_digest === expected.profile.scoring_contract.metric_config_digest, "browser used a different effective configuration");
+    assert(result.report.engine_fingerprint.value === expected.profile.scoring_contract.engine_sha256, "browser used a different engine");
+    const invalid = await evaluate(cdp, session.sessionId, `appState.workerSession.analyse('file', ${JSON.stringify({filename:"replay.py",code:expected.code,profile:"default",calibration_profile:expected.profile})}).then(() => false, () => true)`);
+    assert(invalid, "browser accepted a conflicting explicit scoring mode");
+    console.log("[PASS] browser-calibration-contract: native fitted strict/override configuration replayed in authenticated Pyodide; conflicting mode refused");
+  } finally { await closeSession(cdp, session); }
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -671,6 +794,9 @@ async function main() {
     await testWorkerResponsiveness(cdp, baseUrl, state, false);
     await testWorkerResponsiveness(cdp, baseUrl, state, true);
     await testTamperedWorkerBootstrap(cdp, baseUrl, state);
+    await testInputReportContracts(cdp, baseUrl, downloads, state, false);
+    await testInputReportContracts(cdp, baseUrl, downloads, state, true);
+    await testNativeBrowserReplay(cdp, baseUrl, state);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);

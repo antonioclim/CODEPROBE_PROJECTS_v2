@@ -174,3 +174,13 @@ portable Windows interface does not expose an equivalent directory `fsync`, so
 the supported Windows claim is deterministic process-crash recovery and
 conservative fail-closed behaviour, not identical hardware power-loss
 semantics.
+
+## Recognised identity overlap
+
+A public member can match both recorded prior and candidate new identities.
+Classification preserves that overlap instead of inventing an external change.
+The recognised partial-packet rebuild route repairs missing members without
+weakening unknown-concurrent-state refusal or checksum-last readiness.
+Interrupted repair either retains a complete new packet or restores its
+recorded prior state, which can itself be partial. The tests and limits are
+described in `docs/22-contract-reconciliation.md`.

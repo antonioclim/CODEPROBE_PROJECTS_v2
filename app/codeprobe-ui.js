@@ -77,6 +77,7 @@
       workerSession: null,
       busy: false,
       generation: 0,
+      loadingInput: false,
       engineReady: false,
       engineFailed: false,
       enginePromise: null,
@@ -209,18 +210,16 @@
 
     async function getEngineBundle() {
       if (appState.engineBundle) return appState.engineBundle;
-      if (appState.localEngineFile) {
-        appState.engineBundle = await loadManualEngineBundle(appState.localEngineFile);
-        appState.engineSourceMode = "manual-unverified";
-      } else {
-        if (!window.CodeProbeRuntime?.loadVerifiedEngine) {
-          throw new Error("The verified Python engine loader is unavailable.");
-        }
-        appState.engineBundle = await window.CodeProbeRuntime.loadVerifiedEngine();
-        appState.engineSourceMode = "packaged-verified";
+      const generation = appState.generation;
+      const file = appState.localEngineFile;
+      const bundle = file ? await loadManualEngineBundle(file) : await window.CodeProbeRuntime.loadVerifiedEngine();
+      if (generation !== appState.generation || file !== appState.localEngineFile) {
+        throw new DOMException("Engine loading was cancelled.", "AbortError");
       }
-      appState.engineFingerprint = appState.engineBundle.fingerprint;
-      return appState.engineBundle;
+      appState.engineBundle = bundle;
+      appState.engineSourceMode = file ? "manual-unverified" : "packaged-verified";
+      appState.engineFingerprint = bundle.fingerprint;
+      return bundle;
     }
 
     async function getEngineFingerprint() {
@@ -242,8 +241,8 @@
       els.statusBar.setAttribute("aria-busy", busy ? "true" : "false");
       setStatus(text);
       appState.busy = busy;
-      els.analyzeBtn.disabled = busy || appState.engineFailed;
-      els.cancelBtn.disabled = !busy;
+      els.analyzeBtn.disabled = busy || appState.loadingInput || appState.engineFailed;
+      els.cancelBtn.disabled = !(busy || appState.loadingInput);
       els.editor.readOnly = busy || appState.analysisMode === "project";
       for (const key of ["openBtn", "openProjectZipBtn", "openFolderBtn", "loadEngineBtn", "languageSelect", "profileSelect", "configOverride", "calibrationProfile"]) {
         els[key].disabled = busy;
@@ -905,30 +904,63 @@
       els.editor.value = lines.join("\n") + "\n";
     }
 
+    function invalidateInputState() {
+      if (appState.busy) cancelAnalysis();
+      else { appState.generation += 1; clearReport(); }
+      appState.loadingInput = false;
+      els.analyzeBtn.disabled = appState.engineFailed;
+      els.cancelBtn.disabled = true;
+    }
+
+    function beginInputRead() {
+      invalidateInputState();
+      appState.loadingInput = true;
+      appState.projectPayload = null;
+      appState.currentFileName = "";
+      appState.fileWarnings = [];
+      appState.analysisMode = "single";
+      els.editor.value = "";
+      els.editor.readOnly = false;
+      els.analyzeBtn.disabled = true;
+      els.cancelBtn.disabled = false;
+      updateEditorMeta(); scheduleHighlight();
+      return appState.generation;
+    }
+
+    function finishInputRead(generation) {
+      if (generation !== appState.generation) return;
+      appState.loadingInput = false;
+      els.analyzeBtn.disabled = appState.busy || appState.engineFailed;
+      els.cancelBtn.disabled = !appState.busy;
+    }
+
+    function rejectedInput(file, path, reason) {
+      const size = Number.isSafeInteger(file.size) && file.size >= 0 ? file.size : 0;
+      return { path: String(path).slice(0, 4096), size_bytes: size, intake_rejection: { reason } };
+    }
+
     async function handleProjectZip(file) {
       if (!file) return;
-      if ((file.size || 0) > MAX_BROWSER_PROJECT_ZIP_BYTES) {
-        throw new Error(`Project ZIP exceeds the ${MAX_BROWSER_PROJECT_ZIP_BYTES} byte browser limit.`);
-      }
-      const zipBase64 = arrayBufferToBase64(await file.arrayBuffer());
-      appState.analysisMode = "project";
-      appState.projectPayload = {
-        project_name: String(file.name || "zip-project").replace(/\.zip$/i, "") || "zip-project",
-        zip_filename: file.name || "archive.zip",
-        zip_base64: zipBase64,
-        max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES,
-        max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES,
-        max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES,
-        max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES
-      };
-      appState.currentFileName = appState.projectPayload.project_name;
-      appState.fileWarnings = [];
-      setProjectEditorPreview(appState.projectPayload);
-      updateEditorMeta();
-      scheduleHighlight();
-      syncEditorScroll();
-      clearReport();
-      setStatus(`Project ZIP loaded: ${file.name}.`);
+      const generation = beginInputRead();
+      try {
+        if ((file.size || 0) > MAX_BROWSER_PROJECT_ZIP_BYTES) throw new Error(`Project ZIP exceeds the ${MAX_BROWSER_PROJECT_ZIP_BYTES} byte browser limit.`);
+        const buffer = await file.arrayBuffer();
+        if (generation !== appState.generation) return;
+        if (buffer.byteLength > MAX_BROWSER_PROJECT_ZIP_BYTES) throw new Error("Project ZIP exceeds the browser byte limit.");
+        appState.analysisMode = "project";
+        appState.projectPayload = {
+          project_name: String(file.name || "zip-project").replace(/\.zip$/i, "") || "zip-project",
+          zip_filename: file.name || "archive.zip", zip_base64: arrayBufferToBase64(buffer),
+          max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES, max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES,
+          max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES, max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES
+        };
+        appState.currentFileName = appState.projectPayload.project_name;
+        setProjectEditorPreview(appState.projectPayload);
+        updateEditorMeta(); scheduleHighlight(); syncEditorScroll();
+        setStatus(`Project ZIP loaded: ${file.name}.`);
+      } catch (error) {
+        if (generation === appState.generation) setStatus(error.message);
+      } finally { finishInputRead(generation); }
     }
 
     function projectTextCandidate(path) {
@@ -940,65 +972,51 @@
     async function handleProjectFiles(fileList) {
       const files = Array.from(fileList || []);
       if (!files.length) return;
-      if (files.length === 1 && /\.zip$/i.test(files[0].name || "")) {
-        await handleProjectZip(files[0]);
-        return;
-      }
-      const projectName = projectNameFromFiles(files);
-      if (files.length > MAX_BROWSER_PROJECT_ENTRIES) {
-        throw new Error(`Project selection exceeds the ${MAX_BROWSER_PROJECT_ENTRIES} entry browser limit.`);
-      }
-      const payloadFiles = [];
-      const warnings = [];
-      let acceptedBytes = 0;
-      for (const file of files) {
-        const rawPath = file._codeprobeRelativePath || file.webkitRelativePath || file.name || "file";
-        let path = rawPath;
-        try {
-          path = window.CodeProbeRuntime.normaliseProjectPath(rawPath);
-        } catch (error) {
-          payloadFiles.push({ path: rawPath, content: "", size_bytes: file.size || 0 });
-          warnings.push(`${rawPath}: ${error.message}`);
-          continue;
-        }
-        if (!projectTextCandidate(path) || file.size > MAX_BROWSER_PROJECT_TEXT_BYTES) {
-          payloadFiles.push({ path, content: "", size_bytes: file.size || 0 });
-          continue;
-        }
-        if (acceptedBytes + (file.size || 0) > MAX_BROWSER_PROJECT_TOTAL_BYTES) {
-          payloadFiles.push({ path, content: "", size_bytes: file.size || 0 });
-          warnings.push(`${path}: skipped because the browser project budget is ${MAX_BROWSER_PROJECT_TOTAL_BYTES} bytes`);
-          continue;
-        }
-        try {
-          const decoded = await decodeFile(file);
-          acceptedBytes += file.size || new TextEncoder().encode(decoded.text).length;
-          payloadFiles.push({ path, content: decoded.text, size_bytes: file.size || new TextEncoder().encode(decoded.text).length });
-          if (decoded.warnings && decoded.warnings.length) {
-            warnings.push(`${path}: ${decoded.warnings.join("; ")}`);
+      if (files.length === 1 && /\.zip$/i.test(files[0].name || "")) return handleProjectZip(files[0]);
+      const generation = beginInputRead();
+      try {
+        if (files.length > MAX_BROWSER_PROJECT_ENTRIES) throw new Error(`Project selection exceeds the ${MAX_BROWSER_PROJECT_ENTRIES} entry browser limit.`);
+        const payloadFiles = [], warnings = [];
+        let acceptedBytes = 0;
+        for (const file of files) {
+          if (generation !== appState.generation) return;
+          const rawPath = file._codeprobeRelativePath || file.webkitRelativePath || file.name || "file";
+          let path;
+          try { path = window.CodeProbeRuntime.normaliseProjectPath(rawPath); }
+          catch (_) { payloadFiles.push(rejectedInput(file, rawPath, "unsafe_path")); continue; }
+          let reason = !projectTextCandidate(path) ? "unsupported_file_type" : "";
+          if ((file.size || 0) > MAX_BROWSER_PROJECT_TEXT_BYTES) reason = "file_too_large";
+          if (!reason && acceptedBytes + (file.size || 0) > MAX_BROWSER_PROJECT_TOTAL_BYTES) reason = "project_total_byte_limit";
+          if (reason) { payloadFiles.push(rejectedInput(file, path, reason)); continue; }
+          try {
+            const decoded = await decodeFile(file);
+            if (generation !== appState.generation) return;
+            const bytes = new TextEncoder().encode(decoded.text).length;
+            if (bytes > MAX_BROWSER_PROJECT_TEXT_BYTES) { payloadFiles.push(rejectedInput(file, path, "file_too_large")); continue; }
+            if (acceptedBytes + bytes > MAX_BROWSER_PROJECT_TOTAL_BYTES) { payloadFiles.push(rejectedInput(file, path, "project_total_byte_limit")); continue; }
+            acceptedBytes += bytes;
+            payloadFiles.push({ path, content: decoded.text, size_bytes: bytes });
+            if (decoded.warnings?.length) warnings.push(`${path}: ${decoded.warnings.join("; ")}`);
+          } catch (_) {
+            if (generation !== appState.generation) return;
+            payloadFiles.push(rejectedInput(file, path, "unreadable_file"));
           }
-        } catch (error) {
-          payloadFiles.push({ path, content: "", size_bytes: file.size || 0 });
-          warnings.push(`${path}: ${error.message}`);
         }
-      }
-      appState.analysisMode = "project";
-      appState.projectPayload = {
-        project_name: projectName,
-        files: payloadFiles,
-        max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES,
-        max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES,
-        max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES,
-        max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES
-      };
-      appState.currentFileName = projectName;
-      appState.fileWarnings = warnings;
-      setProjectEditorPreview(appState.projectPayload);
-      updateEditorMeta();
-      scheduleHighlight();
-      syncEditorScroll();
-      clearReport();
-      setStatus(`Project files loaded: ${payloadFiles.length}${warnings.length ? ` (${warnings.length} skipped or warned)` : ""}.`);
+        if (generation !== appState.generation) return;
+        const projectName = projectNameFromFiles(files);
+        appState.analysisMode = "project";
+        appState.projectPayload = { project_name: projectName, files: payloadFiles,
+          max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES, max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES,
+          max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES, max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES };
+        appState.currentFileName = projectName;
+        appState.fileWarnings = warnings;
+        setProjectEditorPreview(appState.projectPayload);
+        updateEditorMeta(); scheduleHighlight(); syncEditorScroll();
+        const rejected = payloadFiles.filter(item => item.intake_rejection).length;
+        setStatus(`Project files loaded: ${payloadFiles.length - rejected}; ${rejected} intake exclusions retained.`);
+      } catch (error) {
+        if (generation === appState.generation) setStatus(error.message);
+      } finally { finishInputRead(generation); }
     }
 
     function getConfigOverrideObject() {
@@ -1100,6 +1118,7 @@
       const items = loadHistory();
       const item = items[index];
       if (!item) return;
+      invalidateInputState();
       try {
         const parsed = JSON.parse(item.jsonReport);
         renderReport({ report: parsed, text: item.textReport }, false);
@@ -1111,6 +1130,7 @@
     }
 
     function cancelAnalysis() {
+      appState.loadingInput = false;
       appState.generation += 1;
       appState.workerSession?.cancel();
       appState.engineReady = false;
@@ -1161,7 +1181,7 @@
     }
 
     async function analyzeNow() {
-      if (appState.busy) return;
+      if (appState.busy || appState.loadingInput) return;
       const generation = appState.generation;
       const isProject = appState.analysisMode === "project";
       const code = els.editor.value;
@@ -1301,29 +1321,28 @@
     }
 
     async function handleFile(file) {
-      if (!file || appState.busy) return;
-      if (file.size > MAX_BROWSER_PROJECT_TEXT_BYTES) { setStatus("Single-file loading is limited to 1 MB in the browser."); return; }
+      if (!file) return;
+      const generation = beginInputRead();
       try {
+        if (file.size > MAX_BROWSER_PROJECT_TEXT_BYTES) throw new Error("Single-file loading is limited to 1 MB in the browser.");
         const decoded = await decodeFile(file);
+        if (generation !== appState.generation) return;
+        if (new TextEncoder().encode(decoded.text).length > MAX_BROWSER_PROJECT_TEXT_BYTES) throw new Error("Decoded source exceeds the 1 MB browser limit.");
         appState.analysisMode = "single";
         appState.projectPayload = null;
-        appState.currentProjectReport = null;
         appState.currentFileName = file.name || "fragment.txt";
         appState.fileWarnings = decoded.warnings || [];
         els.editor.value = decoded.text;
-        updateEditorMeta();
-        scheduleHighlight();
-        syncEditorScroll();
-        markReportStale(appState.currentReport !== null || appState.currentProjectReport !== null);
+        updateEditorMeta(); scheduleHighlight(); syncEditorScroll();
         const warningText = appState.fileWarnings.length ? ` (${appState.fileWarnings.join("; ")})` : "";
         setStatus(`File loaded: ${appState.currentFileName}${warningText}`);
       } catch (error) {
-        setStatus(error.message);
-      }
+        if (generation === appState.generation) setStatus(error.message);
+      } finally { finishInputRead(generation); }
     }
 
     function reportBaseName(report) {
-      const raw = report?.filename || "report";
+      const raw = report?.project_name || report?.filename || "report";
       return String(raw).replace(/\.zip$/i, "").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "_") || "report";
     }
 
@@ -1347,6 +1366,8 @@
       appState.fileWarnings = [];
       appState.currentFileName = defaultFileNameForLanguage(els.languageSelect.value === "auto" ? "python" : els.languageSelect.value);
       els.editor.value = "";
+      els.configOverride.value = "";
+      els.calibrationProfile.value = "";
       clearReport();
       renderHistory();
       updateEditorMeta();
@@ -1406,9 +1427,12 @@
 
     async function handleDropDataTransfer(dataTransfer) {
       if (appState.busy) { setStatus("Cancel the current operation before loading another input."); return; }
+      const generation = beginInputRead();
       let droppedFiles;
       try { droppedFiles = await collectDroppedFiles(dataTransfer); }
-      catch (error) { setStatus(error.message); return; }
+      catch (error) { if (generation === appState.generation) setStatus(error.message); return; }
+      finally { finishInputRead(generation); }
+      if (generation !== appState.generation) return;
       if (!droppedFiles.length) {
         setStatus("No readable files were dropped.");
         return;
@@ -1444,19 +1468,20 @@
 
     els.fileInput.addEventListener("change", async event => {
       const [file] = Array.from(event.target.files || []);
-      await handleFile(file);
       els.fileInput.value = "";
+      await handleFile(file);
     });
 
     els.projectZipInput.addEventListener("change", async event => {
       const [file] = Array.from(event.target.files || []);
-      await handleProjectZip(file);
       els.projectZipInput.value = "";
+      await handleProjectZip(file);
     });
 
     els.folderInput.addEventListener("change", async event => {
-      await handleProjectFiles(event.target.files || []);
+      const files = Array.from(event.target.files || []);
       els.folderInput.value = "";
+      await handleProjectFiles(files);
     });
 
     els.engineFileInput.addEventListener("change", async event => {
@@ -1541,6 +1566,7 @@
     }
 
     els.languageSelect.addEventListener("change", () => {
+      invalidateInputState();
       if (appState.currentReport || appState.currentProjectReport) {
         markReportStale(true);
       }
@@ -1549,13 +1575,19 @@
     });
 
     els.profileSelect.addEventListener("change", () => {
+      invalidateInputState();
       els.summaryProfile.textContent = els.profileSelect.value;
       if (appState.currentReport || appState.currentProjectReport) {
         markReportStale(true);
       }
     });
 
+    for (const key of ["configOverride", "calibrationProfile"]) {
+      els[key].addEventListener("input", invalidateInputState);
+      els[key].addEventListener("change", invalidateInputState);
+    }
     els.editor.addEventListener("input", () => {
+      invalidateInputState();
       if (appState.analysisMode === "project") {
         appState.analysisMode = "single";
         appState.projectPayload = null;

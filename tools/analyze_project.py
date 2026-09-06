@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--folder", help="Project folder to walk without following links.")
     source.add_argument("--zip", help="Project ZIP archive to analyse.")
     parser.add_argument("--project-name", default="", help="Project name used in the report header.")
-    parser.add_argument("--profile", default="default", choices=sorted(engine.SCORING_PROFILES), help="Scoring profile.")
+    parser.add_argument("--profile", default=None, choices=sorted(engine.SCORING_PROFILES), help="Scoring profile.")
     parser.add_argument("--include-documentation", action="store_true", help="Include documentation as context.")
     parser.add_argument("--ignore-file", help="Additional bounded .codeprobeignore-style file.")
     parser.add_argument("--config", help="JSON metric override file.")

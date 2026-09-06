@@ -33,3 +33,14 @@ A passing test proves the tested scenario on its recorded environment. It does n
 ## Design sources
 
 The worker execution model and termination behaviour follow the WHATWG HTML living standard, Workers section: https://html.spec.whatwg.org/multipage/workers.html. The pinned runtime's worker integration is documented at https://pyodide.org/en/0.25.0/usage/webworker.html. These are implementation references, not evidence that this repository passed its gates; gate logs must refer to the resulting exact tree.
+
+## Intake ownership and report invalidation
+
+Worker-message ownership alone does not protect asynchronous file intake. File,
+ZIP and directory reads now carry a generation through successful and failed
+completion; only the current owner changes page state or loading controls.
+Cancellation, wipe, replacement and teardown invalidate pending reads and
+manual-engine caching. Selection and setting changes invalidate reports before
+reading or analysing replacements. Export identity belongs to the accepted
+report, not a later input selection. See `docs/22-contract-reconciliation.md`
+for the event-order and real-browser regression contracts.

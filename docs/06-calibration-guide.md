@@ -127,3 +127,20 @@ The exported `independent_holdout` flag means group-exclusive separation under t
 Internal deterministic keys still establish duplicate-source rejection, group equality and the fit/evaluation split. They do not appear in new sample-level exports. Only after partitioning and estimation, each sample receives a fresh UUID4 token and each distinct group receives a fresh token shared within that export. Profile JSON and observations CSV use the same tokens. Explicit manifest identifiers are also replaced, and no mapping is written. Re-running the same corpus preserves the analytical values but deliberately changes exported tokens and hence file digests.
 
 This blocks direct guessing of a path against an exported deterministic hash; it is not anonymisation. Scores, labels, row order, group sizes and user-supplied free-text course/profile metadata may disclose or link identities. Curators must review those fields and protect input manifests and local failure diagnostics. Source ZIP/release reproducibility is distinct from deliberately random calibration-output identifiers.
+
+## Bound scoring and feasibility
+
+New generated profiles bind the fitted base mode, actual engine SHA-256 and
+effective metric configuration to application. Manifest overrides and the
+replacement `--config` override are applied before sample scoring. An omitted
+mode selects the bound mode; an explicit mismatch or incompatible scope fails.
+Old unbound profiles remain provisional and should be refitted before their
+recorded evaluation is relied upon.
+
+The unrounded `decision_score` drives selection and review comparisons.
+`overall_score` remains the rounded presentation field. Profiles that cannot
+meet the requested fit target on the configured grid remain inspectable drafts
+with `operational: false`; application refuses them. Held-out evaluation reports
+its own target result without influencing selection. Operational status is not
+scientific validation or authorisation for high-stakes use. See
+`docs/22-contract-reconciliation.md` for the precise compatibility boundary.

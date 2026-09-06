@@ -1001,9 +1001,29 @@ def _classify_public_target(
         return "prior" if prior_record.get("existed") is False else "absent"
     if not stat.S_ISREG(metadata.st_mode):
         return "unknown"
-    if _record_matches(target, new_record):
+    # Derive overlapping membership from one coherent read, not two snapshots.
+    try:
+        content, metadata = read_regular_file_with_metadata(target)
+    except ReleaseSetError:
+        return "unknown"
+    digest = sha256_bytes(content)
+    mode = stat.S_IMODE(metadata.st_mode)
+    matches_new = (
+        len(content) == new_record["size_bytes"]
+        and digest == new_record["sha256"]
+        and _host_mode_matches(mode, new_record["mode"])
+    )
+    matches_prior = prior_record.get("existed") is True and (
+        len(content) == prior_record["size_bytes"]
+        and digest == prior_record["sha256"]
+        and _host_mode_matches(mode, prior_record["mode"])
+        and metadata.st_mtime_ns == prior_record["mtime_ns"]
+    )
+    if matches_new and matches_prior:
+        return "both"
+    if matches_new:
         return "new"
-    if prior_record.get("existed") is True and _prior_record_matches(target, prior_record):
+    if matches_prior:
         return "prior"
     return "unknown"
 
@@ -1055,7 +1075,7 @@ def _require_public_states(
     unexpected = {
         key: state
         for key, state in states.items()
-        if state not in expected.get(key, frozenset())
+        if not (({"new", "prior"} if state == "both" else {state}) & expected.get(key, frozenset()))
     }
     if unexpected:
         rendered = ", ".join(f"{key}={value}" for key, value in sorted(unexpected.items()))
@@ -1306,7 +1326,7 @@ def _recover_locked_transaction(
             recovery_path=transaction_dir,
         )
 
-    if all(value == "new" for value in states.values()):
+    if all(value in {"new", "both"} for value in states.values()):
         _verify_public_packet(targets)
         if journal["state"] != "committed":
             _write_journal_state(journal_path, journal, "committed", fault_hook)
@@ -1314,7 +1334,7 @@ def _recover_locked_transaction(
         _remove_control_path(lock_path)
         return RecoveryResult("new-packet-committed", "A complete verified new packet was retained.", True)
 
-    if all(value == "prior" for value in states.values()):
+    if all(value in {"prior", "both"} for value in states.values()):
         _remove_transaction_dir(transaction_dir)
         _remove_control_path(lock_path)
         return RecoveryResult("prior-packet-restored", "The prior packet was already complete.", True)

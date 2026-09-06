@@ -6,6 +6,21 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ## [Unreleased]
 
+### Contract reconciliation after targeted re-audit
+
+- Bind calibration, evaluation and application to one effective configuration,
+  base mode and actual engine identity, using unrounded decision scores.
+- Make unmet fit targets and unbound numerical summaries non-operational without
+  using evaluation data to retune the selected threshold.
+- Invalidate asynchronous intake, manual-engine caching and report/export state
+  on replacement, cancellation, settings changes or privacy wipe.
+- Preserve bounded browser rejection metadata without reading excluded content
+  and represent absent child calibration accurately.
+- Repair recognised partial packets when prior and new identities overlap,
+  preserving conservative handling of unknown concurrent modifications.
+- Add native replay, event-order, report identity and interruption regressions,
+  with separate real Chromium/Pyodide acceptance checks.
+
 - Prevent a cancelled manual-engine file read from starting a worker after cancellation.
 
 ### Worker resilience and export privacy

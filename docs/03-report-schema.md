@@ -137,3 +137,17 @@ For file reports, risk zones are usually metric-level objects. For project repor
 ## Bounded project-input metadata
 
 Project reports now record the effective hard limits under `input_packaging.limits`. Metadata-only exclusions such as `compression_ratio_exceeded`, `project_total_byte_limit`, `encrypted_zip_entry`, `special_zip_entry` and `nested_ignore_file` are decided before excluded ZIP members are decompressed. The `calibration_scope` field records the report-kind and language domain of the profile that was actually applied.
+
+## Replay and browser exclusion metadata
+
+File and project JSON add `decision_score`, the unrounded value used by the
+review comparison. The rounded `overall_score` remains available. New bound
+calibration metadata includes `scoring_contract`, `operational` and
+`operational_reason`; an absent calibration never becomes a named child policy.
+Project-level calibration is not represented as independently validated
+file-level calibration.
+
+Metadata-only browser rejections are included in selected-input accounting,
+with explicit caller-reported provenance and `browser_` reason prefixes. Unsafe
+paths remain independently rejected. These records do not authenticate missing
+contents or the selection history. See `docs/22-contract-reconciliation.md`.

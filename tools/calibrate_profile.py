@@ -74,6 +74,8 @@ class SampleResult:
     sample_id: str = ""
     split: str = ""
     group_id: str = ""
+    scoring_contract: Optional[Dict[str, str]] = None
+    decision_score: Optional[float] = None
 
 
 def load_manifest(path: Path) -> Dict[str, Any]:
@@ -221,6 +223,7 @@ def analyse_sample(
     profile: str,
     *,
     base_dir: Path | None = None,
+    metric_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     sample_id: str = "",
     split: str = "",
     group_id: str = "",
@@ -245,6 +248,7 @@ def analyse_sample(
                 max_ignore_rules=DEFAULT_MAX_IGNORE_RULES,
             )
             payload["profile"] = profile
+            payload["config_override"] = metric_overrides
             result = json.loads(engine.codeprobe_analyze_project(json.dumps(payload)))
             report = result["project_report"]
         else:
@@ -252,6 +256,7 @@ def analyse_sample(
                 "code": _read_text_file(path, root),
                 "filename": path.name,
                 "profile": profile,
+                "config_override": metric_overrides,
                 "language_hint": None if language_hint == "auto" else language_hint,
             }
             report = json.loads(engine.codeprobe_analyze(json.dumps(payload)))["report"]
@@ -269,6 +274,8 @@ def analyse_sample(
             applicable=applicable,
             sloc=int(report.get("sloc") or report.get("total_sloc") or 0),
             verdict_class=str(report.get("verdict_class") or "insufficient"),
+            decision_score=float(report["decision_score"]) if applicable else None,
+            scoring_contract=engine.scoring_contract(profile, engine.merged_metric_config(profile, metric_overrides)),
         )
     except Exception as exc:
         return SampleResult(
@@ -334,7 +341,7 @@ def choose_review_trigger(human_scores: Sequence[float], ai_scores: Sequence[flo
     grid = [round(x / 100.0, 2) for x in range(10, 91)]
     rows = [threshold_rates(human_scores, ai_scores, hybrid_scores, threshold) for threshold in grid]
     if human_scores and positive_scores:
-        eligible = [row for row in rows if row["false_positive_rate"] <= target_fpr]
+        eligible = [row for row in rows if sum(score >= row["threshold"] for score in human_scores) / len(human_scores) <= target_fpr]
         if eligible:
             best = max(eligible, key=lambda row: (row["true_positive_rate"], -row["threshold"]))
             return best["threshold"], rows, "selected_from_grid_at_target_fpr"
@@ -354,9 +361,9 @@ def bands_from_trigger(trigger: float) -> Dict[str, float]:
 def label_groups(results: Sequence[SampleResult]) -> Tuple[List[float], List[float], List[float]]:
     applicable = [item for item in results if item.applicable and item.score is not None]
     return (
-        [float(item.score) for item in applicable if item.label in NEGATIVE_LABELS],
-        [float(item.score) for item in applicable if item.label in POSITIVE_LABELS],
-        [float(item.score) for item in applicable if item.label in HYBRID_LABELS],
+        [float(item.decision_score if item.decision_score is not None else item.score) for item in applicable if item.label in NEGATIVE_LABELS],
+        [float(item.decision_score if item.decision_score is not None else item.score) for item in applicable if item.label in POSITIVE_LABELS],
+        [float(item.decision_score if item.decision_score is not None else item.score) for item in applicable if item.label in HYBRID_LABELS],
     )
 
 
@@ -453,6 +460,8 @@ def _opaque_sample_results(results: Sequence[SampleResult]) -> list[dict[str, An
 
 
 def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], target_fpr: float) -> Dict[str, Any]:
+    if not isinstance(target_fpr, (int, float)) or isinstance(target_fpr, bool) or not 0 <= target_fpr <= 1:
+        raise ValueError("target_fpr must be between 0 and 1")
     normalised = _normalise_results(results)
     failures = [item for item in normalised if item.verdict_class in {"error", "missing"}]
     if failures:
@@ -470,7 +479,13 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
             f"score: {detail}"
         )
     metric_overrides = manifest.get("metric_overrides") or {}
-    engine.validate_metric_config_override(metric_overrides)
+    metric_overrides = engine.validate_metric_config_override(metric_overrides)
+    base_profile = manifest.get("base_profile", "default")
+    expected_contract = engine.scoring_contract(base_profile, engine.merged_metric_config(base_profile, metric_overrides))
+    contracts = [item.scoring_contract for item in normalised]
+    bound_scores = all(contract == expected_contract for contract in contracts)
+    if any(contract is not None for contract in contracts) and not bound_scores:
+        raise ValueError("Calibration samples do not share the effective scoring contract.")
     assigned, strategy = _assign_splits(normalised, manifest)
     kind, language = _profile_domain(assigned)
     fit = [item for item in assigned if item.split == "fit"]
@@ -481,6 +496,11 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
     eval_human, eval_ai, eval_hybrid = label_groups(evaluation)
     all_human, all_ai, all_hybrid = label_groups(assigned)
     trigger, sensitivity, trigger_source = choose_review_trigger(fit_human, fit_ai, fit_hybrid, target_fpr)
+    fit_rates = threshold_rates(fit_human, fit_ai, fit_hybrid, trigger)
+    evaluation_rates = threshold_rates(eval_human, eval_ai, eval_hybrid, trigger)
+    # Feasibility is judged on fit data only; the holdout never selects a threshold.
+    target_met = sum(score >= trigger for score in fit_human) / len(fit_human) <= target_fpr
+    grid_feasible = any(sum(score >= row["threshold"] for score in fit_human) / len(fit_human) <= target_fpr for row in sensitivity)
     bands = bands_from_trigger(trigger)
     profile_id = str(manifest.get("profile_id") or manifest.get("name") or "course-local-profile")
     label = str(manifest.get("label") or manifest.get("title") or profile_id)
@@ -489,6 +509,11 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
         "tool_version": engine.APP_VERSION,
         "target_false_positive_rate": target_fpr,
         "trigger_source": trigger_source,
+        "target_met": target_met,
+        "grid_feasible": grid_feasible,
+        "evaluation_target_met": sum(score >= trigger for score in eval_human) / len(eval_human) <= target_fpr,
+        "target_status": "fit-target-met" if target_met else "fit-target-unmet",
+        "scoring_contract": expected_contract if bound_scores else None,
         "sample_count": len(assigned),
         "applicable_sample_count": len([item for item in assigned if item.applicable]),
         "evaluation_design": {
@@ -519,8 +544,8 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
             "ai_generated": describe_scores(eval_ai),
             "hybrid": describe_scores(eval_hybrid),
         },
-        "fit_at_selected_trigger": threshold_rates(fit_human, fit_ai, fit_hybrid, trigger),
-        "evaluation_at_selected_trigger": threshold_rates(eval_human, eval_ai, eval_hybrid, trigger),
+        "fit_at_selected_trigger": fit_rates,
+        "evaluation_at_selected_trigger": evaluation_rates,
         "sensitivity_partition": "fit",
         "sensitivity": sensitivity,
         "identifier_policy": {
@@ -540,8 +565,15 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
     ]
     if len(fit_human) < 20 or len(fit_ai) + len(fit_hybrid) < 20 or len(eval_human) < 10 or len(eval_ai) + len(eval_hybrid) < 10:
         notes.append("Calibration partitions are small; treat this profile as a draft and expand the corpus before high-stakes use.")
+    if not target_met:
+        notes.append("The requested fit target was not met on the configured threshold grid. This draft is non-operational; evaluation data must not be used to select a replacement threshold.")
+    if not bound_scores:
+        notes.append("Input scores have no verified common engine/configuration identity. This summary is non-operational.")
     return {
         "schema_version": engine.CALIBRATION_PROFILE_SCHEMA,
+        "scoring_contract": expected_contract if bound_scores else None,
+        "operational": target_met and bound_scores,
+        "operational_reason": "fit-target-met-and-scoring-bound" if target_met and bound_scores else ("fit-target-unmet" if not target_met else "unbound-sample-scores"),
         "profile_id": profile_id,
         "label": label,
         "course": manifest.get("course", ""),
@@ -571,6 +603,8 @@ def write_summary(path: Path, profile: Dict[str, Any]) -> None:
         f"Generated with CodeProbe {engine.APP_VERSION}.",
         f"Calibrated scope: `{kind}` / `{', '.join(scope.get('languages') or [])}`.",
         f"Suggested local review trigger: **{trigger * 100:.1f}%**.",
+        f"Operational for replay: `{profile.get('operational', False)}` ({profile.get('operational_reason', 'unbound')}).",
+        f"Fit target met: `{validation.get('target_met', False)}`; evaluation target met: `{validation.get('evaluation_target_met', False)}` (not used for selection).",
         f"Selection source: `{validation.get('trigger_source', 'unknown')}` using only the fit partition.",
         f"Evaluation design: `{design.get('strategy', 'unknown')}`; group-exclusive independent holdout: `{design.get('independent_holdout', False)}`.",
         f"Fit/evaluation samples: {design.get('fit_sample_count', 0)}/{design.get('evaluation_sample_count', 0)}.",
@@ -602,7 +636,7 @@ def write_summary(path: Path, profile: Dict[str, Any]) -> None:
 
 def write_observations_csv(path: Path, results: Sequence[SampleResult]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fields = ["sample_id", "group_id", "split", "path", "label", "kind", "language", "applicable", "score", "score_percent", "sloc", "verdict_class", "warning"]
+    fields = ["sample_id", "group_id", "split", "path", "label", "kind", "language", "applicable", "score", "score_percent", "decision_score", "sloc", "verdict_class", "warning"]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -618,6 +652,7 @@ def write_observations_csv(path: Path, results: Sequence[SampleResult]) -> None:
                 "applicable": item.applicable,
                 "score": "" if item.score is None else f"{item.score:.6f}",
                 "score_percent": "" if item.score is None else f"{item.score * 100:.2f}",
+                "decision_score": "" if item.decision_score is None else repr(item.decision_score),
                 "sloc": item.sloc,
                 "verdict_class": item.verdict_class,
                 "warning": item.warning,
@@ -784,6 +819,10 @@ def run_calibration(args: Any) -> Dict[str, Any]:
     if not 0.0 <= target_fpr <= 1.0:
         raise ValueError("target_fpr must be between 0 and 1, or between 0 and 100 as a percentage")
     profile_name = getattr(args, "profile", "default") or "default"
+    if profile_name not in engine.SCORING_PROFILES:
+        raise ValueError("Unknown calibration base profile")
+    manifest["base_profile"] = profile_name
+    manifest["metric_overrides"] = engine.validate_metric_config_override(manifest.get("metric_overrides") or {})
     results: List[SampleResult] = []
     records = _manifest_records(manifest)
     if not records:
@@ -842,7 +881,7 @@ def run_calibration(args: Any) -> Dict[str, Any]:
                 )
             seen_physical_sources[physical_key] = sample_id
         sample_paths.append((path, kind))
-        results.append(analyse_sample(path, record, profile_name, base_dir=base_dir, sample_id=sample_id, split=split, group_id=group_id))
+        results.append(analyse_sample(path, record, profile_name, base_dir=base_dir, metric_overrides=manifest["metric_overrides"], sample_id=sample_id, split=split, group_id=group_id))
     failures = [item for item in results if item.verdict_class in {"error", "missing"}]
     if failures:
         detail = "; ".join(f"{item.sample_id}: {item.warning}" for item in failures[:5])

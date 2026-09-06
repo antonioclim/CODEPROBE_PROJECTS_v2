@@ -216,3 +216,12 @@ boundary.
 Both browser interfaces now execute Python in an authenticated, terminable worker rather than on the UI thread. **Cancel analysis** discards the worker and pending result; a retry starts a new interpreter. Startup and analysis watchdogs are 60 and 30 seconds respectively. Expensive legal inputs can reach the deadline and return no report. File intake, serialisation and rendering have separate limits; these are not hard real-time guarantees. See [worker resilience](docs/20-worker-resilience.md).
 
 Calibration exports use fresh random sample/group identifiers only after fitting and partitioning. The export contains no identity mapping; scores, labels, row order and group sizes can still be linkable. This is not anonymisation. The pinned Pyodide 0.25.0 runtime is a frozen dependency, not the current upstream release; see [its lifecycle](docs/21-runtime-lifecycle.md) and [security policy](SECURITY.md). `CITATION.cff` attributes the existing CodeProbe contributors without inventing a DOI or article.
+
+## Scoring and input contract reconciliation
+
+New calibration profiles bind their engine, scoring mode and effective metric
+configuration to replay. Incompatible application is refused and an unmet fit
+target produces a non-operational draft. Browser intake invalidates stale reads
+and reports, while metadata-only rejections remain visible in the exported
+input inventory. See `docs/22-contract-reconciliation.md` for these contracts,
+legacy-profile limitations and recognised partial-packet repair.

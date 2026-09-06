@@ -1221,7 +1221,7 @@ def normalise_review_policy(raw_policy: Optional[Dict[str, Any]] = None) -> Dict
 
 def normalise_calibration_profile(raw_profile: Any = None) -> Dict[str, Any]:
     """Validate a course-local calibration profile supplied by JSON or object."""
-    if raw_profile in (None, ""):
+    if raw_profile in (None, "", {}):
         return {
             "profile_id": "",
             "label": "Default provisional policy",
@@ -1240,6 +1240,13 @@ def normalise_calibration_profile(raw_profile: Any = None) -> Dict[str, Any]:
             raise ValueError(f"Calibration profile is not valid JSON: {exc}") from exc
     if not isinstance(raw_profile, dict):
         raise ValueError("calibration_profile must be a JSON object.")
+
+    if not raw_profile:
+        return normalise_calibration_profile(None)
+    contract = validate_scoring_contract(raw_profile.get("scoring_contract"))
+    operational = raw_profile.get("operational", True)
+    if type(operational) is not bool:
+        raise ValueError("Calibration operational status must be Boolean.")
 
     raw_profile_id = raw_profile.get("profile_id") or raw_profile.get("id") or raw_profile.get("name")
     if raw_profile_id in (None, "") and raw_profile.get("source") == "default-provisional":
@@ -1291,6 +1298,9 @@ def normalise_calibration_profile(raw_profile: Any = None) -> Dict[str, Any]:
         "sample_summary": sample_summary,
         "scope": scope,
         "calibrated_policy_kind": calibrated_policy_kind,
+        "scoring_contract": contract,
+        "operational": operational,
+        "operational_reason": str(raw_profile.get("operational_reason") or "legacy-unbound")[:160],
         "source": "calibrated" if profile_id else "default-provisional",
     }
 
@@ -1311,6 +1321,11 @@ def _public_calibration_validation(raw: Any) -> Dict[str, Any]:
         "fit_at_selected_trigger",
         "evaluation_at_selected_trigger",
         "sensitivity_partition",
+        "target_met",
+        "grid_feasible",
+        "evaluation_target_met",
+        "target_status",
+        "scoring_contract",
     )
     return {key: raw[key] for key in allowed if key in raw}
 
@@ -1331,6 +1346,9 @@ def calibration_profile_public(profile: Dict[str, Any]) -> Dict[str, Any]:
         "scope": profile.get("scope", {}),
         "calibrated_policy_kind": profile.get("calibrated_policy_kind", ""),
         "metric_override_count": len(profile.get("metric_overrides") or {}),
+        "scoring_contract": profile.get("scoring_contract"),
+        "operational": profile.get("operational", True),
+        "operational_reason": profile.get("operational_reason", "legacy-unbound"),
     }
 
 
@@ -1345,18 +1363,66 @@ def apply_metric_override(merged: Dict[str, Dict[str, Any]], override: Optional[
             target[key] = value
 
 
+SCORING_CONTRACT_SCHEMA = "codeprobe-scoring-contract/v1"
+
+
+def validate_scoring_contract(raw: Any) -> Optional[Dict[str, str]]:
+    """Validate a replay identity; it is not an authenticity signature."""
+    if raw is None:
+        return None
+    fields = {"schema", "base_profile", "engine_sha256", "metric_config_digest"}
+    if not isinstance(raw, dict) or set(raw) != fields:
+        raise ValueError("Calibration scoring contract fields are invalid.")
+    if raw["schema"] != SCORING_CONTRACT_SCHEMA or not isinstance(raw["base_profile"], str) or raw["base_profile"] not in SCORING_PROFILES:
+        raise ValueError("Calibration scoring contract schema or base profile is invalid.")
+    for key in ("engine_sha256", "metric_config_digest"):
+        if not isinstance(raw[key], str) or not re.fullmatch(r"[0-9a-f]{64}", raw[key]):
+            raise ValueError("Calibration scoring contract digest is invalid.")
+    return dict(raw)
+
+
+def scoring_profile_for_payload(payload: Dict[str, Any], calibration: Dict[str, Any]) -> str:
+    contract = calibration.get("scoring_contract")
+    explicit = payload.get("profile")
+    if contract:
+        if explicit not in (None, "", contract["base_profile"]):
+            raise ValueError("Calibration base profile conflicts with the requested scoring mode.")
+        return contract["base_profile"]
+    return explicit or DEFAULT_PROFILE
+
+
 def merged_metric_config(
     profile: str,
     external_override: Optional[Dict[str, Dict[str, Any]]] = None,
     calibration_profile: Any = None,
 ) -> Dict[str, Dict[str, Any]]:
+    if profile not in SCORING_PROFILES:
+        raise ValueError("Unknown scoring profile.")
     merged = json.loads(json.dumps(METRIC_CONFIG))
-    for metric_name, override in SCORING_PROFILES.get(profile, {}).items():
+    for metric_name, override in SCORING_PROFILES[profile].items():
         merged.setdefault(metric_name, {}).update(override)
     calibration = normalise_calibration_profile(calibration_profile)
+    if calibration.get("operational") is False:
+        raise ValueError("Calibration profile is non-operational: " + calibration.get("operational_reason", "draft"))
     apply_metric_override(merged, calibration.get("metric_overrides"))
     apply_metric_override(merged, external_override)
+    contract = calibration.get("scoring_contract")
+    if contract:
+        # Caller-supplied report metadata is not an authority for engine identity.
+        actual_engine = engine_source_fingerprint()
+        if not actual_engine.get("available") or actual_engine.get("value") != contract["engine_sha256"]:
+            raise ValueError("Calibration engine identity does not match the loaded source; recalibrate.")
+        if profile != contract["base_profile"] or metric_config_digest(merged) != contract["metric_config_digest"]:
+            raise ValueError("Calibration scoring configuration does not match; recalibrate.")
     return merged
+
+
+def scoring_contract(profile: str, config: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
+    fingerprint = engine_source_fingerprint()
+    if not fingerprint.get("available"):
+        raise ValueError("The loaded engine source cannot be identified for calibration.")
+    return {"schema": SCORING_CONTRACT_SCHEMA, "base_profile": profile,
+            "engine_sha256": fingerprint["value"], "metric_config_digest": metric_config_digest(config)}
 
 
 def review_policy_for_kind(review_policy: Optional[Dict[str, Dict[str, float]]], kind: str) -> Dict[str, float]:
@@ -4823,7 +4889,7 @@ def collect_project_files(
             path = normalise_project_path(raw)
             if prefix and path.startswith(prefix):
                 path = path[len(prefix):]
-            if path == ".codeprobeignore":
+            if path == ".codeprobeignore" and not item.get("intake_rejection"):
                 root_ignore_text = str(item.get("content") if item.get("content") is not None else item.get("text") or "")
                 if len(root_ignore_text.encode("utf-8")) > limits["max_ignore_bytes"]:
                     raise ValueError(f".codeprobeignore exceeds the {limits['max_ignore_bytes']}-byte limit")
@@ -4838,6 +4904,19 @@ def collect_project_files(
             if not isinstance(item, dict):
                 raise ValueError("each files entry must be an object")
             raw = str(item.get("path") or item.get("name") or "")
+            rejection = item.get("intake_rejection")
+            if rejection is not None:
+                allowed_reasons = {"file_too_large", "project_total_byte_limit", "unsupported_file_type", "unreadable_file", "unsafe_path"}
+                if (not isinstance(rejection, dict) or set(rejection) != {"reason"}
+                        or not isinstance(rejection.get("reason"), str) or rejection["reason"] not in allowed_reasons
+                        or item.get("content") not in (None, "") or item.get("text") not in (None, "")
+                        or len(raw) > 4096 or type(item.get("size_bytes")) is not int
+                        or not 0 <= item["size_bytes"] <= 2**53 - 1):
+                    raise ValueError("Invalid metadata-only intake rejection.")
+                reason = "unsafe_path" if project_path_is_unsafe(raw) else "browser_" + rejection["reason"]
+                files.append(ProjectCandidateFile(raw, "", item["size_bytes"], reason,
+                    "Caller-reported browser intake exclusion; contents were not supplied or independently inspected."))
+                continue
             text = str(item.get("content") if item.get("content") is not None else item.get("text") or "")
             actual_size = len(text.encode("utf-8"))
             path = raw if project_path_is_unsafe(raw) else normalise_project_path(raw)
@@ -5240,12 +5319,15 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
     calibration_raw = payload.get("calibration_profile") if payload.get("calibration_profile") is not None else payload.get("calibration_profile_json")
     scope_allowed, scope_warning = calibration_scope_decision(calibration_raw, "project", "project")
+    if not scope_allowed and (_calibration_object(calibration_raw) or {}).get("scoring_contract"):
+        raise ValueError("Bound calibration is incompatible with this input: " + scope_warning)
     effective_calibration_raw = calibration_raw if scope_allowed else None
     calibration_profile = normalise_calibration_profile(effective_calibration_raw)
     review_policy = calibration_profile.get("review_policy")
+    profile = scoring_profile_for_payload(payload, calibration_profile)
     config = merged_metric_config(profile, override, calibration_profile)
     project_fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
-    engine = AnalysisEngine(config, calibration_profile={}, engine_fingerprint=project_fingerprint)
+    engine = AnalysisEngine(config, calibration_profile=None, engine_fingerprint=project_fingerprint)
     warnings: List[str] = list(calibration_profile.get("warnings", []))
     if scope_warning:
         warnings.append(scope_warning + " The generic project policy was used instead.")
@@ -5350,6 +5432,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             "loc": report.loc,
             "sloc": report.sloc,
             "overall_score": round(report.overall_score, 4),
+            "decision_score": report.overall_score,
             "overall_percent": round(report.overall_score * 100.0, 1),
             "overall_applicable": report.overall_applicable,
             "confidence": report.confidence,
@@ -5405,6 +5488,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "total_loc": total_loc,
         "total_sloc": total_sloc,
         "overall_score": round(aggregate_score, 4),
+        "decision_score": aggregate_score,
         "overall_percent": round(aggregate_score * 100.0, 1),
         "overall_applicable": aggregate_applicable,
         "confidence": confidence,
@@ -5679,6 +5763,7 @@ def report_to_dict(report: AnalysisReport) -> Dict[str, Any]:
         "loc": report.loc,
         "sloc": report.sloc,
         "overall_score": round(report.overall_score, 4),
+            "decision_score": report.overall_score,
         "overall_percent": round(report.overall_score * 100.0, 1),
         "overall_applicable": report.overall_applicable,
         "confidence": report.confidence,
@@ -5784,8 +5869,11 @@ def codeprobe_analyze(payload_json: str) -> str:
     detected = detect_language(filename, code, language_hint)
     calibration_raw = payload.get("calibration_profile") if payload.get("calibration_profile") is not None else payload.get("calibration_profile_json")
     scope_allowed, scope_warning = calibration_scope_decision(calibration_raw, "file", detected)
+    if not scope_allowed and (_calibration_object(calibration_raw) or {}).get("scoring_contract"):
+        raise ValueError("Bound calibration is incompatible with this input: " + scope_warning)
     effective_raw = calibration_raw if scope_allowed else None
     calibration_profile = normalise_calibration_profile(effective_raw)
+    profile = scoring_profile_for_payload(payload, calibration_profile)
     config = merged_metric_config(profile, override, calibration_profile)
     fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
     engine = AnalysisEngine(config, calibration_profile=calibration_profile, engine_fingerprint=fingerprint)
