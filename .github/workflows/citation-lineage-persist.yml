@@ -1,0 +1,116 @@
+name: Persist verified citation and lineage objects
+on:
+  push:
+    branches: [automation/citation-lineage-export-20260906]
+    paths: [.github/workflows/citation-lineage-persist.yml]
+permissions:
+  contents: read
+jobs:
+  persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+        working-directory: candidate
+    steps:
+      - name: Check out the exact unchanged parent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 3fe84e86d72876f674f37c152bc0cefe23500e29
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Reconstruct and persist immutable data only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I -S -B - <<'PY'
+          import base64, hashlib, json, os, subprocess, urllib.request, zlib
+          from pathlib import Path
+
+          api = 'https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2'
+          parent = '3fe84e86d72876f674f37c152bc0cefe23500e29'
+          base_tree = '838bd58ee74e8085ddd9d4b29a16804326e2f181'
+          expected_tree = '77835895535e13474d1cb094fa1b249cae623a30'
+          parts = [
+              ('7fc3101f834500a6c2929a72db95eef443bff337', 8200),
+              ('9429ca7930e678fae956a1e351d773d921442cfa', 8200),
+              ('6dcee58564e532b1617226b4fe45be08e3b6a615', 7896),
+          ]
+          allowed = {
+              '00-kit-index.md', 'CHANGELOG.md', 'CITATION.bib', 'CITATION.cff',
+              'CONTRIBUTING.md', 'README.md', 'docs/00-file-catalogue.md',
+              'docs/history/14-legacy-lineage.md', 'release/file-rename-map.csv',
+              'release/final-audit-report.json', 'release/final-audit-summary.md',
+              'release/release-manifest.json', 'tests/test_documentation_resources.py',
+              'tests/test_worker_contract.py', 'tools/coverage-policy.json',
+          }
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  raise RuntimeError('Unexpected API redirect refused')
+          opener = urllib.request.build_opener(NoRedirect())
+          def request(endpoint, payload=None):
+              req = urllib.request.Request(
+                  api + endpoint,
+                  data=None if payload is None else json.dumps(payload).encode('utf-8'),
+                  method='GET' if payload is None else 'POST',
+                  headers={
+                      'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                      'Accept': 'application/vnd.github+json',
+                      'Content-Type': 'application/json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              with opener.open(req, timeout=40) as response:
+                  data = response.read(2_000_001)
+              assert len(data) <= 2_000_000
+              return json.loads(data)
+          def git(*args):
+              return subprocess.check_output(['git', *args], timeout=40).decode('utf-8').strip()
+          def blob_id(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode('ascii') + b'\0' + data).hexdigest()
+
+          assert git('rev-parse', 'HEAD') == parent
+          assert git('rev-parse', 'HEAD^{tree}') == base_tree
+          assert not git('status', '--porcelain=v1')
+          encoded = bytearray()
+          for sha, length in parts:
+              record = request('/git/blobs/' + sha)
+              assert record['sha'] == sha and record['encoding'] == 'base64'
+              content = base64.b64decode(record['content'])
+              assert len(content) == length and blob_id(content) == sha
+              encoded.extend(content)
+          assert len(encoded) == 24296
+          compressed = base64.b64decode(encoded, validate=True)
+          assert hashlib.sha256(compressed).hexdigest() == 'dce00619c375accac7197a18f1d069d287c91e3d56f937973e1b0a262f475d0f'
+          decoder = zlib.decompressobj(31)
+          patch = decoder.decompress(compressed, 1_000_001)
+          assert decoder.eof and not decoder.unconsumed_tail and not decoder.unused_data
+          assert len(patch) == 54782
+          assert hashlib.sha256(patch).hexdigest() == '03b1a2e2916c4362516383f6083581075e00fdbba8d3357906d7e4944f9e56c8'
+          subprocess.run(['git', 'apply', '--check', '-'], input=patch, check=True, timeout=40)
+          subprocess.run(['git', 'apply', '--index', '-'], input=patch, check=True, timeout=40)
+          assert git('write-tree') == expected_tree
+          changed = set(git('diff', '--cached', '--name-only').splitlines())
+          assert changed == allowed, changed
+          assert not git('diff', '--name-only')
+          entries = []
+          for path in sorted(changed):
+              mode, kind, index_sha = git('ls-files', '-s', '--', path).split()[:3]
+              assert mode == '100644' and index_sha == '0'
+              data = Path(path).read_bytes()
+              expected = git('rev-parse', ':' + path)
+              assert blob_id(data) == expected
+              returned = request('/git/blobs', {'encoding':'base64', 'content':base64.b64encode(data).decode('ascii')})
+              assert returned['sha'] == expected
+              entries.append({'path':path, 'mode':'100644', 'type':'blob', 'sha':expected})
+          tree = request('/git/trees', {'base_tree':base_tree, 'tree':entries})
+          assert tree['sha'] == expected_tree
+          print('PERSISTED_TREE', tree['sha'])
+          print('PARENT', parent)
+          print('PERSISTED_ENTRIES', json.dumps(entries, sort_keys=True))
+          print('No product code or tests executed. No commit, branch ref, release, licence or visibility changed by this job.')
+          PY
