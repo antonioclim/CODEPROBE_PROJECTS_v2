@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: '24.20.0'
           package-manager-cache: false
-      - name: Authenticate and apply the exact source patch
+      - name: Authenticate and apply the exact source and test-correction patches
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -49,25 +49,28 @@ jobs:
           import base64, hashlib, json, lzma, os, subprocess, urllib.request
           from pathlib import Path
           api = 'https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2/git/blobs/'
-          chunks = []
-          for sha in ['68ad157789806378229b0b1f498411bb71018a10', '835a2c2f5295dd362340be8e7dcaf4aaeff32e60']:
+          def fetch(sha):
               req = urllib.request.Request(api + sha, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
               with urllib.request.urlopen(req, timeout=30) as response:
                   record = json.load(response)
               raw = base64.b64decode(record['content'])
               assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == sha
-              chunks.append(raw)
-          patch = lzma.decompress(base64.b64decode(b''.join(chunks), validate=True))
-          assert len(patch) == 44766
-          assert hashlib.sha256(patch).hexdigest() == '913866260bdef89a3ff75e54306b15b74c7e6e0f1a999feff05ee106188f28a9'
-          path = Path(os.environ['RUNNER_TEMP']) / '4k-evidence' / 'candidate.patch'
-          path.write_bytes(patch)
-          subprocess.run(['git', 'apply', '--check', str(path)], check=True)
-          subprocess.run(['git', 'apply', str(path)], check=True)
+              return raw
+          patches = [
+              ('candidate.patch', ['68ad157789806378229b0b1f498411bb71018a10', '835a2c2f5295dd362340be8e7dcaf4aaeff32e60'], 44766, '913866260bdef89a3ff75e54306b15b74c7e6e0f1a999feff05ee106188f28a9'),
+              ('test-correction.patch', ['3ab742aba6672aaf569d53c23a3af3682a994f40'], 2282, '09e4ac26669f9bfec47c15388e7396cd1339b0e5c858912be0d3323518a9d583'),
+          ]
+          for name, shas, length, digest in patches:
+              patch = lzma.decompress(base64.b64decode(b''.join(fetch(sha) for sha in shas), validate=True))
+              assert len(patch) == length and hashlib.sha256(patch).hexdigest() == digest
+              path = Path(os.environ['RUNNER_TEMP']) / '4k-evidence' / name
+              path.write_bytes(patch)
+              subprocess.run(['git', 'apply', '--check', str(path)], check=True)
+              subprocess.run(['git', 'apply', str(path)], check=True)
           PY
           git add --all
           git diff --cached --check
-          test "$(git write-tree)" = a1a5e0c97a6d5512528590c9f5ad42495b71fdae
+          test "$(git write-tree)" = 519581a051029a774f4f77998a62fec8bd3524ca
           git diff --cached --stat
       - name: Run maintained boundary regressions
         run: |
@@ -95,9 +98,9 @@ jobs:
         run: |
           set -euo pipefail
           git diff --exit-code
-          test "$(git write-tree)" = a1a5e0c97a6d5512528590c9f5ad42495b71fdae
+          test "$(git write-tree)" = 519581a051029a774f4f77998a62fec8bd3524ca
           test -z "$(git ls-files --others --exclude-standard)"
-          git ls-tree -r a1a5e0c97a6d5512528590c9f5ad42495b71fdae > "$RUNNER_TEMP/4k-evidence/tree.txt"
+          git ls-tree -r 519581a051029a774f4f77998a62fec8bd3524ca > "$RUNNER_TEMP/4k-evidence/tree.txt"
       - name: Preserve available evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -134,20 +137,22 @@ jobs:
               req = urllib.request.Request(api + route, data=None if payload is None else json.dumps(payload).encode(), headers=headers, method='GET' if payload is None else 'POST')
               with urllib.request.urlopen(req, timeout=30) as response:
                   return json.load(response)
-          encoded = []
-          for sha in ['68ad157789806378229b0b1f498411bb71018a10', '835a2c2f5295dd362340be8e7dcaf4aaeff32e60']:
-              record = call('blobs/' + sha)
-              raw = base64.b64decode(record['content'])
+          def fetch(sha):
+              raw = base64.b64decode(call('blobs/' + sha)['content'])
               assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == sha
-              encoded.append(raw)
-          patch = lzma.decompress(base64.b64decode(b''.join(encoded), validate=True))
-          assert len(patch) == 44766 and hashlib.sha256(patch).hexdigest() == '913866260bdef89a3ff75e54306b15b74c7e6e0f1a999feff05ee106188f28a9'
-          path = Path(os.environ['RUNNER_TEMP']) / '4k.patch'
-          path.write_bytes(patch)
-          subprocess.run(['git', 'apply', '--check', str(path)], check=True)
-          subprocess.run(['git', 'apply', str(path)], check=True)
+              return raw
+          for name, shas, length, digest in [
+              ('4k.patch', ['68ad157789806378229b0b1f498411bb71018a10', '835a2c2f5295dd362340be8e7dcaf4aaeff32e60'], 44766, '913866260bdef89a3ff75e54306b15b74c7e6e0f1a999feff05ee106188f28a9'),
+              ('4k-correction.patch', ['3ab742aba6672aaf569d53c23a3af3682a994f40'], 2282, '09e4ac26669f9bfec47c15388e7396cd1339b0e5c858912be0d3323518a9d583'),
+          ]:
+              patch = lzma.decompress(base64.b64decode(b''.join(fetch(sha) for sha in shas), validate=True))
+              assert len(patch) == length and hashlib.sha256(patch).hexdigest() == digest
+              path = Path(os.environ['RUNNER_TEMP']) / name
+              path.write_bytes(patch)
+              subprocess.run(['git', 'apply', '--check', str(path)], check=True)
+              subprocess.run(['git', 'apply', str(path)], check=True)
           subprocess.run(['git', 'add', '--all'], check=True)
-          expected = 'a1a5e0c97a6d5512528590c9f5ad42495b71fdae'
+          expected = '519581a051029a774f4f77998a62fec8bd3524ca'
           assert subprocess.check_output(['git', 'write-tree'], text=True).strip() == expected
           names = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().rstrip('\0').split('\0')
           assert len(names) == 15 and '.github/workflows/ci.yml' not in names and 'LICENSE' not in names
