@@ -1,0 +1,174 @@
+name: 4K verified boundary repairs
+on:
+  push:
+    branches: [automation/phase4f3-worker-20260906]
+    paths: [.github/workflows/phase4k-verified-candidate.yml]
+permissions:
+  contents: read
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  PYTHONUTF8: '1'
+  PYTHONHASHSEED: '31410'
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: candidate
+    steps:
+      - name: Check out the genuine authorised parent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 2fd940ad4ebb675860a4828ca1b531e356a5e1d0
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.20.0'
+          package-manager-cache: false
+      - name: Authenticate and apply the exact source patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/4k-evidence"
+          test "$(git rev-parse HEAD)" = 2fd940ad4ebb675860a4828ca1b531e356a5e1d0
+          test "$(git rev-parse HEAD^{tree})" = 0021e2499049f8c07dfe5c0eb462ea9b50ddd1c8
+          python -I -S -B - <<'PY'
+          import base64, hashlib, json, lzma, os, subprocess, urllib.request
+          from pathlib import Path
+          api = 'https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2/git/blobs/'
+          chunks = []
+          for sha in ['68ad157789806378229b0b1f498411bb71018a10', '835a2c2f5295dd362340be8e7dcaf4aaeff32e60']:
+              req = urllib.request.Request(api + sha, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  record = json.load(response)
+              raw = base64.b64decode(record['content'])
+              assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == sha
+              chunks.append(raw)
+          patch = lzma.decompress(base64.b64decode(b''.join(chunks), validate=True))
+          assert len(patch) == 44766
+          assert hashlib.sha256(patch).hexdigest() == '913866260bdef89a3ff75e54306b15b74c7e6e0f1a999feff05ee106188f28a9'
+          path = Path(os.environ['RUNNER_TEMP']) / '4k-evidence' / 'candidate.patch'
+          path.write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', str(path)], check=True)
+          subprocess.run(['git', 'apply', str(path)], check=True)
+          PY
+          git add --all
+          git diff --cached --check
+          test "$(git write-tree)" = a1a5e0c97a6d5512528590c9f5ad42495b71fdae
+          git diff --cached --stat
+      - name: Run maintained boundary regressions
+        run: |
+          set -euo pipefail
+          python -I -S -B -m unittest discover -s tests -p test_contract_repairs.py -v 2>&1 | tee "$RUNNER_TEMP/4k-evidence/targeted.log"
+      - name: Require the complete read-only gate
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/check_release.py --require-node --json-out "$RUNNER_TEMP/4k-evidence/canonical.json" 2>&1 | tee "$RUNNER_TEMP/4k-evidence/canonical.log"
+      - name: Enforce unchanged coverage floors
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/check_coverage.py --json-out "$RUNNER_TEMP/4k-evidence/coverage.json" 2>&1 | tee "$RUNNER_TEMP/4k-evidence/coverage.log"
+      - name: Exercise actual HTTP Chromium and authenticated Pyodide
+        if: runner.os == 'Linux'
+        env:
+          CODEPROBE_REQUIRE_HTTP_NAVIGATION: '1'
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/prepare_pyodide_fixture.py --output-dir "$RUNNER_TEMP/4k-pyodide" 2>&1 | tee "$RUNNER_TEMP/4k-evidence/fixture.log"
+          CODEPROBE_PYODIDE_FIXTURE_DIR="$RUNNER_TEMP/4k-pyodide" node tools/check_browser_functional.js 2>&1 | tee "$RUNNER_TEMP/4k-evidence/browser.log"
+          node tools/check_browser_accessibility.js 2>&1 | tee "$RUNNER_TEMP/4k-evidence/accessibility.log"
+      - name: Verify the candidate was not mutated by checks
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          test "$(git write-tree)" = a1a5e0c97a6d5512528590c9f5ad42495b71fdae
+          test -z "$(git ls-files --others --exclude-standard)"
+          git ls-tree -r a1a5e0c97a6d5512528590c9f5ad42495b71fdae > "$RUNNER_TEMP/4k-evidence/tree.txt"
+      - name: Preserve available evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeprobe-4k-staging-${{ runner.os }}
+          path: ${{ runner.temp }}/4k-evidence/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+  persist:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the same genuine parent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 2fd940ad4ebb675860a4828ca1b531e356a5e1d0
+          persist-credentials: false
+      - name: Reconstruct and upload immutable objects only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -I -S -B - <<'PY'
+          import base64, hashlib, json, lzma, os, subprocess, urllib.request
+          from pathlib import Path
+          api = 'https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2/git/'
+          headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'}
+          def call(route, payload=None):
+              req = urllib.request.Request(api + route, data=None if payload is None else json.dumps(payload).encode(), headers=headers, method='GET' if payload is None else 'POST')
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+          encoded = []
+          for sha in ['68ad157789806378229b0b1f498411bb71018a10', '835a2c2f5295dd362340be8e7dcaf4aaeff32e60']:
+              record = call('blobs/' + sha)
+              raw = base64.b64decode(record['content'])
+              assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == sha
+              encoded.append(raw)
+          patch = lzma.decompress(base64.b64decode(b''.join(encoded), validate=True))
+          assert len(patch) == 44766 and hashlib.sha256(patch).hexdigest() == '913866260bdef89a3ff75e54306b15b74c7e6e0f1a999feff05ee106188f28a9'
+          path = Path(os.environ['RUNNER_TEMP']) / '4k.patch'
+          path.write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', str(path)], check=True)
+          subprocess.run(['git', 'apply', str(path)], check=True)
+          subprocess.run(['git', 'add', '--all'], check=True)
+          expected = 'a1a5e0c97a6d5512528590c9f5ad42495b71fdae'
+          assert subprocess.check_output(['git', 'write-tree'], text=True).strip() == expected
+          names = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().rstrip('\0').split('\0')
+          assert len(names) == 15 and '.github/workflows/ci.yml' not in names and 'LICENSE' not in names
+          entries = []
+          for name in names:
+              raw = Path(name).read_bytes()
+              blob = call('blobs', {'content': base64.b64encode(raw).decode(), 'encoding': 'base64'})
+              sha = subprocess.check_output(['git', 'rev-parse', ':' + name], text=True).strip()
+              assert blob['sha'] == sha
+              entries.append({'path': name, 'mode': '100644', 'type': 'blob', 'sha': sha})
+          tree = call('trees', {'base_tree': '0021e2499049f8c07dfe5c0eb462ea9b50ddd1c8', 'tree': entries})
+          assert tree['sha'] == expected
+          record = {'tree': expected, 'parent': '2fd940ad4ebb675860a4828ca1b531e356a5e1d0', 'entries': entries, 'run_id': os.environ['GITHUB_RUN_ID'], 'refs_changed': False}
+          (Path(os.environ['RUNNER_TEMP']) / '4k-persisted.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(record, indent=2))
+          print('No commit or branch reference was created or modified.')
+          PY
+      - name: Preserve immutable-object identities
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeprobe-4k-immutable-identities
+          path: ${{ runner.temp }}/4k-persisted.json
+          if-no-files-found: error
+          retention-days: 30
