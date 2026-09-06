@@ -1,0 +1,157 @@
+name: 4J verified provenance and parser candidate
+on:
+  push:
+    branches: [automation/phase4f3-worker-20260906]
+    paths: [.github/workflows/phase4j-verified-candidate.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+        working-directory: candidate
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Check out the genuine authorised parent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 222c340d36da9e20d0db24d3798ceae265752622
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.20.0'
+          package-manager-cache: false
+      - name: Authenticate the exact bounded patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p ../evidence
+          test "$(git rev-parse HEAD)" = 222c340d36da9e20d0db24d3798ceae265752622
+          test "$(git rev-parse HEAD^{tree})" = 662ca84fc0e9bf3584bc80ecedbd764208903f2a
+          python -I -S -B - <<'PY'
+          import base64, hashlib, json, os, urllib.request, zlib
+          from pathlib import Path
+          shas = ['eb136f24399e5ce9330f1be9f191bf5f88c4022c', 'fbcc1281539543f7d9bdc5adb9fc1374dbca8e0a', '342a1aa5d501e4f90d207ae37867f13f393b7386', '69ca09a8dab1c51360d2d2d08fcbd73071c9db08']
+          def get_blob(sha):
+              request = urllib.request.Request('https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2/git/blobs/' + sha, headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'], 'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  record = json.load(response)
+              content = base64.b64decode(record['content'])
+              assert hashlib.sha1(b'blob '+str(len(content)).encode()+b'\0'+content).hexdigest() == sha
+              return content
+          patch = zlib.decompress(base64.b64decode(b''.join(get_blob(sha) for sha in shas), validate=True))
+          assert len(patch) == 28704
+          assert hashlib.sha256(patch).hexdigest() == '28ff8a51a2dca17af28043ab4bd9e09e7bb4ee67622455195161e47fdc6c5e33'
+          Path('../evidence/implementation.patch').write_bytes(patch)
+          PY
+          git apply --check ../evidence/implementation.patch
+          git apply ../evidence/implementation.patch
+      - name: Refresh dependent browser integrity metadata
+        run: |
+          python -I -S -B - <<'PY'
+          import base64, hashlib, json
+          from pathlib import Path
+          root=Path.cwd()
+          manifest=root/'app/resource-integrity.json'
+          metadata=json.loads(manifest.read_text(encoding='utf-8'))
+          old={item['path']:item.copy() for item in metadata['assets']}
+          payload=(root/'src/codeprobe_runtime.py').read_bytes()
+          digest=hashlib.sha256(payload).hexdigest()
+          assert digest == '6cab072ae1b9ea51c72380a743644d22dda1d3d09643fdfc82bfba8df6e2ecea'
+          loader=root/'app/pyodide-loader.js'
+          text=loader.read_text(encoding='utf-8')
+          assert old['../src/codeprobe_runtime.py']['sha256_hex'] in text
+          text=text.replace(old['../src/codeprobe_runtime.py']['sha256_hex'],digest).replace(str(old['../src/codeprobe_runtime.py']['size_bytes']),str(len(payload)))
+          loader.write_bytes(text.encode('utf-8'))
+          for item in metadata['assets']:
+              data=(root/'app'/item['path']).read_bytes()
+              measured=hashlib.sha256(data)
+              item.update(size_bytes=len(data),sha256_hex=measured.hexdigest(),sri_sha256='sha256-'+base64.b64encode(measured.digest()).decode())
+          for name in ('app/index.html','app/project.html'):
+              file=root/name
+              text=file.read_text(encoding='utf-8')
+              for item in metadata['assets']:
+                  text=text.replace(old[item['path']]['sri_sha256'],item['sri_sha256'])
+              file.write_bytes(text.encode('utf-8'))
+          manifest.write_bytes((json.dumps(metadata,indent=2)+'\n').encode('utf-8'))
+          PY
+      - name: Run the maintained contract tests
+        run: python -I -S -B -m unittest discover -s tests -p test_contract_repairs.py -v 2>&1 | tee ../evidence/contracts.log
+      - name: Refresh release evidence through the complete gate
+        run: python -I -S -B tools/check_release.py --require-node --write-release-evidence 2>&1 | tee ../evidence/refresh.log
+      - name: Verify the complete read-only gate
+        run: python -I -S -B tools/check_release.py --require-node --json-out "$RUNNER_TEMP/4j-gate.json" 2>&1 | tee ../evidence/gate.log
+      - name: Require the exact independently measured tree
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add --all
+          test "$(git write-tree)" = a36546e15cb1026c51de249d166fc9bc4a39d6ca
+          git diff --cached --binary > ../evidence/final.patch
+          git diff --cached --stat | tee ../evidence/changed-paths.txt
+          echo 'a36546e15cb1026c51de249d166fc9bc4a39d6ca' > ../evidence/tree.txt
+      - name: Enforce the unchanged coverage floors
+        if: runner.os == 'Linux'
+        run: python -I -S -B tools/check_coverage.py --json-out "$RUNNER_TEMP/4j-coverage.json" 2>&1 | tee ../evidence/coverage.log
+      - name: Exercise actual authenticated Pyodide and Chromium
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          python -I -S -B tools/prepare_pyodide_fixture.py --output-dir "$RUNNER_TEMP/4j-pyodide"
+          CODEPROBE_PYODIDE_FIXTURE_DIR="$RUNNER_TEMP/4j-pyodide" node tools/check_browser_functional.js 2>&1 | tee ../evidence/browser.log
+          node tools/check_browser_accessibility.js 2>&1 | tee ../evidence/accessibility.log
+      - name: Persist immutable verified objects, not branch references
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -I -S -B - <<'PY'
+          import base64, json, os, subprocess, urllib.request
+          from pathlib import Path
+          api='https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2/git/'
+          def post(endpoint,payload):
+              request=urllib.request.Request(api+endpoint,data=json.dumps(payload).encode('utf-8'),method='POST',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(request,timeout=45) as response:return json.load(response)
+          paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')
+          paths=list(filter(None,paths))
+          allowed={'CHANGELOG.md','README.md','app/index.html','app/project.html','app/pyodide-loader.js','app/resource-integrity.json','docs/03-report-schema.md','docs/17-supported-coverage.md','docs/22-contract-reconciliation.md','release/release-manifest.json','src/codeprobe_runtime.py','tests/test_contract_repairs.py','tools/calibrate_profile.py','tools/check_browser_functional.js','tools/coverage-policy.json'}
+          assert set(paths)==allowed
+          subprocess.run(['git','diff','--exit-code'],check=True)
+          entries=[]
+          for name in paths:
+              data=Path(name).read_bytes()
+              result=post('blobs',dict(encoding='base64',content=base64.b64encode(data).decode()))
+              expected=subprocess.check_output(['git','rev-parse',':'+name],text=True).strip()
+              assert result['sha']==expected
+              entries.append(dict(path=name,mode='100644',type='blob',sha=expected))
+          tree=post('trees',dict(base_tree='662ca84fc0e9bf3584bc80ecedbd764208903f2a',tree=entries))
+          assert tree['sha']=='a36546e15cb1026c51de249d166fc9bc4a39d6ca'
+          Path('../evidence/persisted-objects.json').write_text(json.dumps(dict(tree=tree['sha'],entries=entries),indent=2),encoding='utf-8')
+          print('VERIFIED_IMMUTABLE_TREE',tree['sha'])
+          print('No commit or branch reference was created or updated by this job.')
+          PY
+      - name: Preserve available evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeprobe-4j-staging-${{ runner.os }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
