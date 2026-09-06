@@ -1,0 +1,127 @@
+name: 4J exact source and evidence export
+on:
+  push:
+    branches: [automation/phase4f3-worker-20260906]
+    paths: [.github/workflows/phase4j-evidence-export.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the exact final source and genuine history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 2fd940ad4ebb675860a4828ca1b531e356a5e1d0
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export exact final and parent source
+        run: |
+          set -euo pipefail
+          mkdir -p payload/source payload/evidence
+          cd candidate
+          test "$(git rev-parse HEAD^{tree})" = 0021e2499049f8c07dfe5c0eb462ea9b50ddd1c8
+          test "$(git rev-parse HEAD^)" = 222c340d36da9e20d0db24d3798ceae265752622
+          git archive --format=zip --prefix=source/ --output=../payload/source/final-git-archive.zip HEAD
+          git archive --format=zip --prefix=source/ --output=../payload/source/parent-git-archive.zip HEAD^
+          git bundle create ../payload/source/authentic-head-history.bundle HEAD
+          git bundle verify ../payload/source/authentic-head-history.bundle > ../payload/source/bundle-verification.txt 2>&1
+          git diff --binary HEAD^ HEAD > ../payload/source/4j-final.patch
+          git ls-tree -r HEAD > ../payload/source/git-tree-inventory.txt
+          git log -1 --format=raw > ../payload/source/final-commit.txt
+          git log -1 --format=raw HEAD^ > ../payload/source/parent-commit.txt
+          git rev-list --count HEAD > ../payload/source/ancestor-count.txt
+          git status --porcelain=v1 > ../payload/source/checkout-status.txt
+          test ! -s ../payload/source/checkout-status.txt
+          cd ..
+          python3 -I -S -B - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('payload/source')
+          records={p.name:dict(size_bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(root.iterdir()) if p.is_file()}
+          Path('payload/source-manifest.json').write_text(json.dumps(records,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(records,indent=2))
+          PY
+      - name: Upload exact source transport
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeprobe-4j-exact-source-2fd940ad
+          path: |
+            payload/source/
+            payload/source-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+      - name: Collect complete before and after evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I -S -B - <<'PY'
+          import hashlib,json,os,time,urllib.parse,urllib.request
+          from pathlib import Path
+          api='https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2'
+          out=Path('payload/evidence')
+          class SafeRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,req,fp,code,msg,headers,newurl):
+                  new=super().redirect_request(req,fp,code,msg,headers,newurl)
+                  if new is not None and urllib.parse.urlsplit(req.full_url).netloc!=urllib.parse.urlsplit(newurl).netloc:
+                      new.remove_header('Authorization')
+                  return new
+          opener=urllib.request.build_opener(SafeRedirect())
+          def read(endpoint):
+              request=urllib.request.Request(api+endpoint,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+              with opener.open(request,timeout=45) as response:data=response.read(25_000_001)
+              if len(data)>25_000_000:raise RuntimeError('Evidence response exceeds collection ceiling')
+              return data
+          final=34030794701
+          for attempt in range(55):
+              metadata=json.loads(read('/actions/runs/'+str(final)))
+              if metadata['status']=='completed':break
+              time.sleep(10)
+          else:raise RuntimeError('Canonical CI did not complete within the collection budget')
+          assert metadata['head_sha']=='2fd940ad4ebb675860a4828ca1b531e356a5e1d0'
+          for run_id in (34026644392,34029506363,34030005417,34030440072,final):
+              (out/f'run-{run_id}.json').write_bytes(read('/actions/runs/'+str(run_id)))
+              data=read(f'/actions/runs/{run_id}/jobs?per_page=100')
+              (out/f'jobs-{run_id}.json').write_bytes(data)
+              jobs=json.loads(data)
+              assert jobs['total_count']==len(jobs['jobs'])
+              for job in jobs['jobs']:
+                  if job['status']!='completed':raise RuntimeError('Incomplete job in evidence set')
+                  (out/f'job-{job["id"]}.log').write_bytes(read(f'/actions/jobs/{job["id"]}/logs'))
+          endpoints={
+              'final-commit':'/git/commits/2fd940ad4ebb675860a4828ca1b531e356a5e1d0',
+              'final-tree':'/git/trees/0021e2499049f8c07dfe5c0eb462ea9b50ddd1c8?recursive=1',
+              'audit-ref':'/git/ref/heads/audit/codeprobe-hostile-remediation',
+              'main':'/branches/main',
+              'rulesets':'/rulesets?includes_parents=true&per_page=100',
+              'pull-request':'/pulls/1'}
+          for name,endpoint in endpoints.items():(out/(name+'.json')).write_bytes(read(endpoint))
+          pr=json.loads((out/'pull-request.json').read_text())
+          merge=pr.get('merge_commit_sha')
+          if merge:(out/'virtual-merge.json').write_bytes(read('/git/commits/'+merge))
+          ref='automation/phase4f3-worker-20260906'
+          for name in ('phase4j-parser-observation.yml','phase4j-verified-candidate.yml','phase4j-evidence-export.yml'):
+              endpoint='/contents/.github/workflows/'+name+'?ref='+urllib.parse.quote(ref,safe='')
+              (out/(name+'.api.json')).write_bytes(read(endpoint))
+          records={p.name:dict(size_bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(out.iterdir()) if p.is_file()}
+          Path('payload/evidence-manifest.json').write_text(json.dumps(records,indent=2)+'\n',encoding='utf-8')
+          print('Canonical outcome:',metadata['conclusion'])
+          print('Evidence files:',len(records))
+          PY
+      - name: Upload the CI evidence transport
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeprobe-4j-ci-evidence-2fd940ad
+          path: |
+            payload/evidence/
+            payload/evidence-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
