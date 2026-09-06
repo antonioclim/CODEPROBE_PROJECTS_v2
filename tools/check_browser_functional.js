@@ -736,6 +736,57 @@ async function testNativeBrowserReplay(cdp, baseUrl, fixtureState) {
   } finally { await closeSession(cdp, session); }
 }
 
+
+function nativeParserFixtures() {
+  const script = "import argparse, hashlib, json, pathlib, platform, sys, tempfile\nsys.path[:0] = [str(pathlib.Path(sys.argv[1]) / 'src'), str(pathlib.Path(sys.argv[1]) / 'tools')]\nimport calibrate_profile\ncode = 'type UserId = int\\n\\ndef lookup(name: str) -> UserId:\\n    \"\"\"Resolve a key.\"\"\"\\n    data = {\"a\": 1, \"b\": 2}\\n    return data.get(name, 0)\\n\\ndef increase(value: UserId) -> UserId:\\n    \"\"\"Increase the value.\"\"\"\\n    if value < 0:\\n        return 0\\n    return value + 1\\n\\ndef reduce(value: UserId) -> UserId:\\n    \"\"\"Reduce the value.\"\"\"\\n    if value > 0:\\n        return value - 1\\n    return 0\\n\\ndef combine(left: UserId, right: UserId) -> UserId:\\n    \"\"\"Combine the values.\"\"\"\\n    return increase(left) + reduce(right)\\n'\ncases = []\nfor syntax, text in [('modern', code), ('common', code.replace('type UserId = int', 'UserId = int', 1))]:\n    for kind in ('file', 'project'):\n        with tempfile.TemporaryDirectory() as directory:\n            root = pathlib.Path(directory)\n            samples = []\n            for index, (label, split) in enumerate((('human','fit'),('ai','fit'),('human','evaluation'),('ai','evaluation'))):\n                name = 'sample-' + str(index) + ('.py' if kind == 'file' else '')\n                item = root / name\n                if kind == 'project':\n                    item.mkdir()\n                    item /= 'main.py'\n                item.write_text(text, encoding='utf-8')\n                samples.append(dict(path=name, label=label, split=split, group='g-' + str(index), kind=kind))\n            manifest = root / 'manifest.json'\n            manifest.write_text(json.dumps(dict(samples=samples)), encoding='utf-8')\n            result = calibrate_profile.run_calibration(argparse.Namespace(manifest=str(manifest), root=None, profile='default', target_fpr=.1, config=None, out_dir=str(root/'output')))\n            payload = dict(calibration_profile=result['profile'])\n            if kind == 'file':\n                payload.update(filename='parser.py', code=text)\n            else:\n                payload.update(project_name='parser', files=[dict(path='main.py', content=text)])\n            cases.append(dict(syntax=syntax, kind=kind, payload=payload, source_sha256=hashlib.sha256(text.encode()).hexdigest(), decision_score=result['results'][2]['decision_score']))\nprint(json.dumps(dict(native_python=platform.python_version(), cases=cases)))\n";
+  const child = childProcess.spawnSync("python", ["-I", "-S", "-B", "-c", script, ROOT], {encoding:"utf8", timeout:30000, maxBuffer:1024*1024});
+  assert(child.status === 0, `native parser fixtures failed: ${child.stderr || child.error}`);
+  return JSON.parse(child.stdout);
+}
+
+async function testParserReplayBoundary(cdp, baseUrl, fixtureState) {
+  const expected = nativeParserFixtures();
+  fixtureState.reset();
+  const session = await createSession(cdp, `${baseUrl}/app/index.html?parser-contract=1`);
+  const observations = [];
+  try {
+    await waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()");
+    for (const item of expected.cases) {
+      // A terminated interpreter starts a new authenticated request generation.
+      if (!await evaluate(cdp, session.sessionId, "appState.workerSession.isReady()")) fixtureState.reset();
+      await evaluate(cdp, session.sessionId, "appState.workerSession.initialise()");
+      assertSingleVerifiedRequests(fixtureState);
+      if (item.syntax === "modern") {
+        const refusal = await evaluate(cdp, session.sessionId, `appState.workerSession.analyse(${JSON.stringify(item.kind)}, ${JSON.stringify(item.payload)}).then(() => ({rejected:false}), error => ({rejected:true, name:error.name, message:error.message}))`);
+        assert(refusal.rejected && refusal.name === "WorkerError", `calibrated ${item.kind} did not reject unsupported syntax`);
+        assert(refusal.message === "The analysis worker rejected the operation.", "worker error leaked interpreter details");
+        assert(!await evaluate(cdp, session.sessionId, "appState.workerSession.isReady()"), "failed worker remained reusable");
+        observations.push({syntax:item.syntax, kind:item.kind, source_sha256:item.source_sha256, result:"refused", error:refusal.name});
+        if (item.kind === "file") {
+          fixtureState.reset();
+          await evaluate(cdp, session.sessionId, "appState.workerSession.initialise()");
+          assertSingleVerifiedRequests(fixtureState);
+          const diagnostic = {...item.payload}; delete diagnostic.calibration_profile;
+          const fallback = await evaluate(cdp, session.sessionId, `appState.workerSession.analyse('file', ${JSON.stringify(diagnostic)})`);
+          assert(fallback.report.warnings.some(message => message.includes("AST warning")), "unbound parser fallback lost its warning");
+          assert(!fallback.report.calibration_profile_id, "unbound parser fallback acquired calibration provenance");
+        }
+        continue;
+      }
+      const result = await evaluate(cdp, session.sessionId, `appState.workerSession.analyse(${JSON.stringify(item.kind)}, ${JSON.stringify(item.payload)})`);
+      const report = item.kind === "file" ? result.report : result.project_report;
+      assert(Math.abs(report.decision_score - item.decision_score) < 1e-12, "common-syntax native/browser replay differs");
+      const provenance = report.engine_fingerprint;
+      assert(provenance.source === "packaged-verified" && provenance.matches_loaded_source === true, "normal browser provenance degraded");
+      assert(provenance.measured_sha256 === item.payload.calibration_profile.scoring_contract.engine_sha256, "measured browser engine disagrees with bound contract");
+      const runtime = report.tool_metadata.python_runtime;
+      assert(runtime.platform === "emscripten" && runtime.version.startsWith("3.11."), "unexpected pinned parser runtime");
+      observations.push({syntax:item.syntax, kind:item.kind, source_sha256:item.source_sha256, native_score:item.decision_score, wasm_score:report.decision_score, runtime, measured_sha256:provenance.measured_sha256});
+    }
+    console.log("[PASS] parser-replay-boundary: " + JSON.stringify({native_python:expected.native_python, observations}));
+  } finally { await closeSession(cdp, session); }
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -797,6 +848,7 @@ async function main() {
     await testInputReportContracts(cdp, baseUrl, downloads, state, false);
     await testInputReportContracts(cdp, baseUrl, downloads, state, true);
     await testNativeBrowserReplay(cdp, baseUrl, state);
+    await testParserReplayBoundary(cdp, baseUrl, state);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);

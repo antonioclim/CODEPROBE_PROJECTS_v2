@@ -249,11 +249,13 @@ def analyse_sample(
             )
             payload["profile"] = profile
             payload["config_override"] = metric_overrides
+            payload["require_python_ast"] = True
             result = json.loads(engine.codeprobe_analyze_project(json.dumps(payload)))
             report = result["project_report"]
         else:
             payload = {
                 "code": _read_text_file(path, root),
+                "require_python_ast": True,
                 "filename": path.name,
                 "profile": profile,
                 "config_override": metric_overrides,

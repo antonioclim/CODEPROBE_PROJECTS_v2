@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.2.0",
   "file_count": 148,
-  "total_source_size_bytes": 1988858,
+  "total_source_size_bytes": 2007286,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -37,8 +37,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "size_bytes": 25646,
-      "sha256": "14a0777ca0d83bc26a396d89f1b5e1bcf773420e942aa96c0a09fc58a9ec4130"
+      "size_bytes": 26009,
+      "sha256": "a65400fcae865fb29fbc986e3d9caa38e0694c2d553ac334906152c3aedd2a08"
     },
     {
       "path": "CITATION.cff",
@@ -57,8 +57,8 @@
     },
     {
       "path": "README.md",
-      "size_bytes": 15166,
-      "sha256": "fdfa61965ee51331d0e36ff163acf5bedf0c36760a13c5e05be58916c8ea0938"
+      "size_bytes": 15788,
+      "sha256": "134fe9d157d4664f53649905cb65d4b1c4fcad164a2ae810e9037232093d2400"
     },
     {
       "path": "SECURITY.md",
@@ -88,7 +88,7 @@
     {
       "path": "app/index.html",
       "size_bytes": 17169,
-      "sha256": "c0705455a0f900de392a14b8c86b9dffa24dc7133bbf8ab8d209d95a7c65c56d"
+      "sha256": "fc7b87981cca61731c13dc2b559145d0148264917ad5964d5066a9fda70ea073"
     },
     {
       "path": "app/project-ui.js",
@@ -103,12 +103,12 @@
     {
       "path": "app/project.html",
       "size_bytes": 4576,
-      "sha256": "9df0111b25b668676318c452a902e6c63c675cfaa37ab2343aba4bc844451289"
+      "sha256": "3fc8edffb255e4248590ca5315e64b425d133b9fdb9f8c3f524d15447718e422"
     },
     {
       "path": "app/pyodide-loader.js",
       "size_bytes": 32903,
-      "sha256": "7384ee4334ed32f9252d0769b06697069182aacfa9116500d38041877518db36"
+      "sha256": "68af526a5df70557259d0e7bf5dd53d5a126044d701b1d7c8814007ad4d81687"
     },
     {
       "path": "app/pyodide-provenance.json",
@@ -118,7 +118,7 @@
     {
       "path": "app/resource-integrity.json",
       "size_bytes": 2388,
-      "sha256": "d2d8a501bf57ec73131d75058a60afec999001491375d35e2cf0f880afd5a5e1"
+      "sha256": "cf19b630f8f0eb1cf7f591a02e1992a525c1babf3d0cca2a2dd95fdd1b9cec25"
     },
     {
       "path": "app/runtime-config.example.json",
@@ -192,8 +192,8 @@
     },
     {
       "path": "docs/03-report-schema.md",
-      "size_bytes": 6638,
-      "sha256": "c4e6decdeabddf4be64b0ade2f96a9b56622ee80d441567311cdc08fd13b9c73"
+      "size_bytes": 7758,
+      "sha256": "5d84052420975202bcb0495ad2158de36d87d5d77cca5cec3eb3762d06258f75"
     },
     {
       "path": "docs/04-browser-security.md",
@@ -262,8 +262,8 @@
     },
     {
       "path": "docs/17-supported-coverage.md",
-      "size_bytes": 4452,
-      "sha256": "9c76f7f9b8903ae7e94c334efb04636d087ea78cb3cec8dfcbffb16d2ed38a3d"
+      "size_bytes": 4495,
+      "sha256": "23565cd71c544a82e2498ce1c9590c3f1607308c270106a8fb8f62848bd95caa"
     },
     {
       "path": "docs/18-runtime-integrity.md",
@@ -287,8 +287,8 @@
     },
     {
       "path": "docs/22-contract-reconciliation.md",
-      "size_bytes": 7819,
-      "sha256": "9519d3a53829dadd6f11e849a99eab29c6709102d0e1d4d74ed7ff53eab0491c"
+      "size_bytes": 9947,
+      "sha256": "afd1fc0b9e58f3b40fcfa6f59299fc2d30df22f65d172e79809f4bbf7867f49e"
     },
     {
       "path": "docs/assets/interface-preview.png",
@@ -477,8 +477,8 @@
     },
     {
       "path": "src/codeprobe_runtime.py",
-      "size_bytes": 270009,
-      "sha256": "b4cb9ebb3a9ba8ed1365a9a6cbe82e7f11ca67fcc6e80a2fbc55bc982ede84d4"
+      "size_bytes": 271794,
+      "sha256": "6cab072ae1b9ea51c72380a743644d22dda1d3d09643fdfc82bfba8df6e2ecea"
     },
     {
       "path": "tests/test_app_runtime_tools_paths.py",
@@ -497,8 +497,8 @@
     },
     {
       "path": "tests/test_contract_repairs.py",
-      "size_bytes": 20380,
-      "sha256": "44e9fe05abc0668aaf3be42c59a4a62346e0ab95a86dca6f7bcc4cfc177123b5"
+      "size_bytes": 26230,
+      "sha256": "c984dc7a666f43d6d0c57ec1f1a8e69c087cd58a6ee0af64242b586538e28de5"
     },
     {
       "path": "tests/test_coverage_policy.py",
@@ -657,8 +657,8 @@
     },
     {
       "path": "tools/calibrate_profile.py",
-      "size_bytes": 45688,
-      "sha256": "b4da4e016ca6fba0448280ba803f491196c73370f38dc4c944aac9ef3f494f20"
+      "size_bytes": 45781,
+      "sha256": "b609ed8507b6a9cbdea30fa2d4b1ef5dedb2a0b8c96b443f7ae99687f52c4627"
     },
     {
       "path": "tools/check_browser_accessibility.js",
@@ -667,8 +667,8 @@
     },
     {
       "path": "tools/check_browser_functional.js",
-      "size_bytes": 44383,
-      "sha256": "01861a92a0e580e6730408f61506fb8f005ff0e341f1a543d430f4f3758a7946"
+      "size_bytes": 50807,
+      "sha256": "402d92540ef74394129f549cb86bd23167bf758f87c3cd886f69a337d87d1011"
     },
     {
       "path": "tools/check_coverage.py",
@@ -723,7 +723,7 @@
     {
       "path": "tools/coverage-policy.json",
       "size_bytes": 1732,
-      "sha256": "5f6655d6a1c1d7f480e897a5511dffb2ecb507ee4900b78c231cee619c41b73a"
+      "sha256": "8dfe1c13ecc9badbb33d2d2c79ce44184a46967d1d85b829a6eb396fe8b68d9b"
     },
     {
       "path": "tools/final_audit.py",
@@ -746,5 +746,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "f018eff12e14b53d796ae25a223706047638fb804023f11dff115982be3cae5c"
+  "manifest_sha256": "d00bbda6f60abcc538c168d9e4dac2fb278255f78230bbd389b0c07e9d700e85"
 }

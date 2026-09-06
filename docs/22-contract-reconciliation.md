@@ -144,3 +144,36 @@ scenarios. `tools/check_browser_functional.js` adds real-engine input-accounting
 and calibration replay to its existing response-integrity, cancellation,
 timeout, download and recovery checks. No coverage threshold or excluded
 production path is relaxed by these repairs.
+
+## Parser qualification and calibration
+
+Engine and configuration equality alone do not establish parser equivalence.
+A real-runtime synthetic qualification compared native CPython 3.14.7 with
+Pyodide 0.25.0 / CPython 3.11.3 in Node. A module containing `type UserId = int`
+scored 0.26544846394872545 natively and 0.25648308345270704 in WebAssembly, where
+an AST warning was emitted and applicable metrics decreased from 24 to 18.
+Both decisions remained below the fitted 0.27 trigger. The common-syntax
+control agreed within 1e-12. These fixtures are not empirical authorship data.
+
+Calibration fitting/evaluation and bound Python replay now require a successful
+AST parse; project members use the same requirement without acquiring fictional
+per-file calibration provenance. Unbound diagnostics retain fallback warnings.
+This is a capability boundary, not a blanket version-equality restriction.
+Accepted syntax may still differ semantically between runtimes: universal replay
+is not claimed. Refit existing bound profiles after the engine changes rather
+than editing their engine digests. Maintained real-browser tests exercise the
+common-syntax replay and rejection of this modern syntax in pinned Pyodide.
+
+## Raw browser intake versus filtered source budgets
+
+Folder selection and ZIP intake do not consume an identical budget. The browser
+counts decoded candidate bytes before every engine-side documentation exclusion.
+The raw folder ceiling is 20,000,000 bytes. Twenty 1,000,000-byte text documents
+plus a 165-byte source exceed it: documentation encountered first can exhaust
+the allowance, while source encountered first can be analysed. The rejected
+source remains in the exported exclusion inventory. A ZIP can filter documents
+before charging its assessable-source budget. Selection order and route can
+therefore matter above the raw ceiling; route invariance is not promised.
+Inspect exclusions and `overall_applicable`: false is not a zero-concern score.
+No ceiling has been raised and rejected contents are not read merely to report
+rejection. Select the assessed source subset when preparing a bounded input.

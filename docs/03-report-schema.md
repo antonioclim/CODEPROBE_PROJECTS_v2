@@ -151,3 +151,21 @@ Metadata-only browser rejections are included in selected-input accounting,
 with explicit caller-reported provenance and `browser_` reason prefixes. Unsafe
 paths remain independently rejected. These records do not authenticate missing
 contents or the selection history. See `docs/22-contract-reconciliation.md`.
+
+## Declared and measured engine provenance
+
+A caller-supplied `engine_fingerprint.value` remains available for compatibility,
+but it is not automatically an independently verified identity. When a valid
+claim is supplied, `measured_sha256` records the best-effort runtime-file digest
+and `matches_loaded_source` records equality (or null when measurement is
+unavailable). `declared_source` retains the supplied origin label. A contradictory
+or unverifiable verified-origin label is downgraded to `caller-unverified`.
+Matching packaged provenance is retained; a manual override remains unverified
+even when the digest matches. These JSON fields do not authenticate a caller,
+sign a report or prove the state of mutable interpreter memory.
+
+`tool_metadata.python_runtime` reports implementation, version and platform.
+Bound calibrated Python analysis requires a successful AST parse, including
+project members. Calibration sample scoring enforces the same condition.
+Unbound diagnostic analysis retains its warning-bearing fallback. Runtime
+metadata are observations, not a universal cross-version equivalence guarantee.

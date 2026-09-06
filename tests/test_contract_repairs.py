@@ -42,8 +42,71 @@ def main():
 """
 
 
+class EngineFingerprintContractTests(unittest.TestCase):
+    def test_contradictory_verified_labels_are_downgraded_on_both_apis(self):
+        claim = {"value": "f" * 64, "source": "packaged-verified"}
+        actual = engine.engine_source_fingerprint()["value"]
+        for project in (False, True):
+            payload = {"engine_fingerprint": claim}
+            payload.update({"files": [{"path": "main.py", "content": CODE}]} if project else {"filename": "main.py", "code": CODE})
+            with self.subTest(project=project):
+                result = json.loads((engine.codeprobe_analyze_project if project else engine.codeprobe_analyze)(json.dumps(payload)))
+                report = result["project_report" if project else "report"]
+                value = report["engine_fingerprint"]
+                self.assertEqual(value["source"], "caller-unverified")
+                self.assertEqual(value["declared_source"], "packaged-verified")
+                self.assertFalse(value["matches_loaded_source"])
+                self.assertEqual(value["measured_sha256"], actual)
+                self.assertEqual(report["tool_metadata"]["engine_fingerprint"], value)
+
+    def test_matching_browser_provenance_is_preserved(self):
+        actual = engine.engine_source_fingerprint()["value"]
+        value = engine.effective_engine_fingerprint({"value": actual, "scope": "src/codeprobe_runtime.py", "source": "packaged-verified"})
+        self.assertEqual(value["source"], "packaged-verified")
+        self.assertIs(value["matches_loaded_source"], True)
+        self.assertEqual(value["measured_sha256"], actual)
+
+    def test_missing_source_cannot_authenticate_a_claim(self):
+        with mock.patch.dict(engine.__dict__, {"__file__": None}):
+            value = engine.effective_engine_fingerprint({"value": "f" * 64, "source": "packaged-verified"})
+        self.assertEqual(value["source"], "caller-unverified")
+        self.assertIsNone(value["matches_loaded_source"])
+        self.assertEqual(value["measured_sha256"], "")
+
+    def test_manual_source_is_not_promoted_by_digest_equality(self):
+        actual = engine.engine_source_fingerprint()["value"]
+        value = engine.effective_engine_fingerprint({"value": actual, "source": "manual-unverified"})
+        self.assertEqual(value["source"], "manual-unverified")
+        self.assertIs(value["matches_loaded_source"], True)
+
+    def test_legacy_caller_value_is_retained_separately(self):
+        value = engine.effective_engine_fingerprint("f" * 64)
+        self.assertEqual(value["value"], "f" * 64)
+        self.assertEqual(value["source"], "caller")
+        self.assertEqual(value["measured_sha256"], engine.engine_source_fingerprint()["value"])
+        self.assertFalse(value["matches_loaded_source"])
+
+    def test_claimed_measurements_and_wrong_algorithms_or_scopes_are_not_trusted(self):
+        actual = engine.engine_source_fingerprint()["value"]
+        for extra in ({"value": "f" * 64}, {"algorithm": "sha512"}, {"scope": "another.py"}):
+            claim = {"value": actual, "source": "packaged-verified", "matches_loaded_source": True,
+                     "measured_sha256": "e" * 64, **extra}
+            with self.subTest(extra=extra):
+                value = engine.effective_engine_fingerprint(claim)
+                self.assertEqual(value["source"], "caller-unverified")
+                self.assertFalse(value["matches_loaded_source"])
+                self.assertEqual(value["measured_sha256"], actual)
+
+    def test_normalisation_is_idempotent_without_mutating_input(self):
+        claim = {"value": "f" * 64, "source": "packaged-verified"}
+        saved = copy.deepcopy(claim)
+        value = engine.effective_engine_fingerprint(claim)
+        self.assertEqual(engine.effective_engine_fingerprint(value), value)
+        self.assertEqual(claim, saved)
+
+
 class ScoringReplayTests(unittest.TestCase):
-    def calibrate(self, root, *, mode="default", overrides=None, cli_config=False, kind="file"):
+    def calibrate(self, root, *, mode="default", overrides=None, cli_config=False, kind="file", code=CODE):
         samples = []
         for index, (label, split) in enumerate((("human", "fit"), ("ai", "fit"), ("human", "evaluation"), ("ai", "evaluation"))):
             name = f"sample-{index}.py" if kind == "file" else f"project-{index}"
@@ -51,7 +114,7 @@ class ScoringReplayTests(unittest.TestCase):
             if kind == "project":
                 path.mkdir()
                 path = path / "main.py"
-            path.write_text(CODE, encoding="utf-8")
+            path.write_text(code, encoding="utf-8")
             samples.append({"path": name, "label": label, "split": split, "group": f"g-{index}", "kind": kind})
         manifest = {"profile_id": "synthetic-replay", "samples": samples}
         config = None
@@ -94,6 +157,37 @@ class ScoringReplayTests(unittest.TestCase):
             rate = profile["validation"]["evaluation_at_selected_trigger"]["false_positive_rate"]
             self.assertEqual(rate, float(report["review_triggered"]))
             self.assertIn("Operational for replay", Path(result["summary_path"]).read_text(encoding="utf-8"))
+
+    def test_bound_python_file_requires_ast_even_with_opt_out_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = self.calibrate(Path(tmp))["profile"]
+            payload = {"filename": "invalid.py", "code": "def broken(:\n", "calibration_profile": profile, "require_python_ast": False}
+            with self.assertRaisesRegex(ValueError, "successful AST parse"):
+                engine.codeprobe_analyze(json.dumps(payload))
+
+    def test_bound_project_requires_ast_without_inventing_child_calibration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = self.calibrate(Path(tmp), kind="project")["profile"]
+            payload = {"files": [{"path": "invalid.py", "content": "def broken(:\n"}], "calibration_profile": profile}
+            with self.assertRaisesRegex(ValueError, "successful AST parse"):
+                engine.codeprobe_analyze_project(json.dumps(payload))
+            report = self.replay(profile, kind="project")
+            self.assertFalse(report["included_files"][0]["calibration_profile_id"])
+
+    def test_calibration_rejects_python_parse_fallback_before_fitting(self):
+        for kind in ("file", "project"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(ValueError):
+                    self.calibrate(Path(tmp), kind=kind, code="def broken(:\n" + CODE)
+
+    def test_unbound_diagnostics_keep_ast_warning_and_runtime_metadata(self):
+        result = json.loads(engine.codeprobe_analyze(json.dumps({"filename": "invalid.py", "code": "def broken(:\n" + CODE})))
+        report = result["report"]
+        self.assertTrue(any("AST warning" in item for item in report["warnings"]))
+        self.assertFalse(report["calibration_profile_id"])
+        runtime = report["tool_metadata"]["python_runtime"]
+        self.assertEqual(runtime["version"], ".".join(map(str, sys.version_info[:3])))
+        self.assertEqual(runtime["platform"], sys.platform)
 
     def test_manifest_overrides_replay_on_files(self):
         self.check_replay()

@@ -25,6 +25,7 @@ import keyword
 import math
 import re
 import statistics
+import sys
 import time
 import tokenize
 import unicodedata
@@ -1028,8 +1029,26 @@ def engine_source_fingerprint() -> Dict[str, Any]:
 
 
 def effective_engine_fingerprint(raw: Any = None) -> Dict[str, Any]:
-    """Prefer caller-supplied runtime metadata; otherwise hash the loaded source."""
-    return normalise_engine_fingerprint(raw) or engine_source_fingerprint()
+    """Keep declared provenance distinct from the independently measured source."""
+    claimed = normalise_engine_fingerprint(raw)
+    measured = engine_source_fingerprint()
+    if not claimed:
+        return measured
+    available = bool(measured.get("available"))
+    matches = (
+        claimed["algorithm"] == "sha256"
+        and claimed["scope"] in {"codeprobe_runtime.py", "src/codeprobe_runtime.py"}
+        and claimed["value"] == measured.get("value")
+    ) if available else None
+    declared_source = str(raw.get("declared_source") or claimed["source"])[:80] if isinstance(raw, dict) else claimed["source"]
+    # A matching digest does not authenticate a caller or upgrade a manual engine.
+    if claimed["source"] not in {"caller", "manual-unverified"}:
+        if claimed["source"] not in {"packaged-verified", "runtime-file"} or matches is not True:
+            claimed["source"] = "caller-unverified"
+    claimed["declared_source"] = declared_source
+    claimed["matches_loaded_source"] = matches
+    claimed["measured_sha256"] = measured.get("value", "") if available else ""
+    return claimed
 
 
 def metric_config_digest(config: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
@@ -1085,6 +1104,11 @@ def runtime_metadata(config: Optional[Dict[str, Dict[str, Any]]] = None, fingerp
         "app_name": APP_NAME,
         "app_version": APP_VERSION,
         "engine_format": ENGINE_FORMAT,
+        "python_runtime": {
+            "implementation": sys.implementation.name,
+            "version": ".".join(str(part) for part in sys.version_info[:3]),
+            "platform": sys.platform,
+        },
         "methodology": METHODOLOGY_LABEL,
         "engine_fingerprint": effective_engine_fingerprint(fingerprint),
         "file_report_schema_version": FILE_REPORT_SCHEMA_VERSION,
@@ -5327,7 +5351,8 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     profile = scoring_profile_for_payload(payload, calibration_profile)
     config = merged_metric_config(profile, override, calibration_profile)
     project_fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
-    engine = AnalysisEngine(config, calibration_profile=None, engine_fingerprint=project_fingerprint)
+    engine = AnalysisEngine(config, calibration_profile=None, engine_fingerprint=project_fingerprint,
+                            require_python_ast=bool(calibration_profile.get("scoring_contract")) or bool(payload.get("require_python_ast")))
     warnings: List[str] = list(calibration_profile.get("warnings", []))
     if scope_warning:
         warnings.append(scope_warning + " The generic project policy was used instead.")
@@ -5611,11 +5636,12 @@ def format_project_report_text(report: Dict[str, Any]) -> str:
 class AnalysisEngine:
     """Run all enabled metrics on a shared analysis context."""
 
-    def __init__(self, config: Dict[str, Dict[str, Any]], calibration_profile: Any = None, engine_fingerprint: Any = None) -> None:
+    def __init__(self, config: Dict[str, Dict[str, Any]], calibration_profile: Any = None, engine_fingerprint: Any = None, *, require_python_ast: bool = False) -> None:
         self.config = config
         self.calibration_profile = normalise_calibration_profile(calibration_profile)
         self.review_policy = self.calibration_profile.get("review_policy")
         self.engine_fingerprint = effective_engine_fingerprint(engine_fingerprint)
+        self.require_python_ast = require_python_ast or bool(self.calibration_profile.get("scoring_contract"))
 
     def _review_policy_for_language(self, language: str) -> Dict[str, Dict[str, float]]:
         language_policies = self.calibration_profile.get("language_review_policy") or {}
@@ -5630,6 +5656,8 @@ class AnalysisEngine:
     ) -> AnalysisReport:
         start = time.perf_counter()
         context = build_analysis_context(code, filename, language_hint)
+        if self.require_python_ast and context.language == "python" and context.ast_tree is None:
+            raise ValueError("Calibrated Python analysis requires a successful AST parse on this runtime; use compatible source syntax.")
         active_review_policy = self._review_policy_for_language(context.language)
         metrics: List[MetricResult] = []
         warnings: List[str] = list(context.notes)
@@ -5876,7 +5904,8 @@ def codeprobe_analyze(payload_json: str) -> str:
     profile = scoring_profile_for_payload(payload, calibration_profile)
     config = merged_metric_config(profile, override, calibration_profile)
     fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
-    engine = AnalysisEngine(config, calibration_profile=calibration_profile, engine_fingerprint=fingerprint)
+    engine = AnalysisEngine(config, calibration_profile=calibration_profile, engine_fingerprint=fingerprint,
+                            require_python_ast=bool(payload.get("require_python_ast")))
     report = engine.analyse(code, filename, language_hint=language_hint, profile=profile)
     if scope_warning:
         report.warnings.append(scope_warning + " The generic file policy was used instead.")

@@ -225,3 +225,14 @@ target produces a non-operational draft. Browser intake invalidates stale reads
 and reports, while metadata-only rejections remain visible in the exported
 input inventory. See `docs/22-contract-reconciliation.md` for these contracts,
 legacy-profile limitations and recognised partial-packet repair.
+
+### Parser and intake qualification
+
+Bound Python calibration requires an AST parse on the executing runtime;
+unbound diagnostics may use the documented warning-bearing fallback. Runtime
+metadata do not certify universal cross-version replay. Caller-declared engine
+provenance is distinguished from the measured source digest. Raw browser folder
+budgets can be exhausted before documentation is filtered, so order and input
+route may matter above the raw intake ceiling. Inspect the exclusion inventory
+and applicability flag. See `docs/03-report-schema.md` and
+`docs/22-contract-reconciliation.md` for these boundaries.

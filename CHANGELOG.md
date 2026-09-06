@@ -6,6 +6,13 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ## [Unreleased]
 
+### Provenance and parser qualification
+
+- Distinguish caller-declared engine provenance from the measured source digest.
+- Require Python AST availability for calibration fitting and bound replay while
+  retaining warning-bearing unbound diagnostics and common-syntax replay.
+- Record actual runtime metadata and clarify raw intake budgets and coverage policy.
+
 ### Contract reconciliation after targeted re-audit
 
 - Read generated report fixtures explicitly as UTF-8 and exercise a legacy
