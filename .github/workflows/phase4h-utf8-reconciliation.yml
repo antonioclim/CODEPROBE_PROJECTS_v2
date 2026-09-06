@@ -77,7 +77,7 @@ jobs:
       - name: Apply the guarded UTF-8 correction and maintained regression
         run: |
           python -I -S -B - <<'PY'
-          import hashlib, json
+          import ast, hashlib, json
           from pathlib import Path
           path = Path('tests/test_contract_repairs.py')
           content = path.read_bytes()
@@ -88,21 +88,23 @@ jobs:
           text = text.replace('.read_text()', '.read_text(encoding="utf-8")')
           anchor = '    def test_cli_omitted_mode_uses_project_contract(self):\n'
           assert text.count(anchor) == 1
-          regression = '''    def test_report_file_reads_do_not_depend_on_the_host_locale(self):
-                  original = Path.read_text
-
-                  def legacy_read(path, encoding=None, errors=None, **options):
-                      return original(path, encoding=encoding or "cp1252", errors=errors, **options)
-
-                  # The generated files are UTF-8 even when the host default is not.
-                  with mock.patch.object(Path, "read_text", autospec=True, side_effect=legacy_read):
-                      self.check_replay()
-                      self.test_cli_omitted_mode_uses_project_contract()
-
-          '''
-          # Remove only the YAML indentation retained inside this literal.
-          regression = regression.replace('\n        ', '\n')
-          path.write_bytes(text.replace(anchor, regression + anchor).encode('utf-8'))
+          regression = '\n'.join([
+              '    def test_report_file_reads_do_not_depend_on_the_host_locale(self):',
+              '        original = Path.read_text',
+              '',
+              '        def legacy_read(path, encoding=None, errors=None, **options):',
+              '            return original(path, encoding=encoding or "cp1252", errors=errors, **options)',
+              '',
+              '        # The generated files are UTF-8 even when the host default is not.',
+              '        with mock.patch.object(Path, "read_text", autospec=True, side_effect=legacy_read):',
+              '            self.check_replay()',
+              '            self.test_cli_omitted_mode_uses_project_contract()',
+              '',
+              '',
+          ])
+          text = text.replace(anchor, regression + anchor)
+          ast.parse(text)
+          path.write_bytes(text.encode('utf-8'))
           policy_path = Path('tools/coverage-policy.json')
           policy = json.loads(policy_path.read_text(encoding='utf-8'))
           assert policy['minimum_tests'] == 447
