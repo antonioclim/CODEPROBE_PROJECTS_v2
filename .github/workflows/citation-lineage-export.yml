@@ -1,0 +1,66 @@
+name: Citation and lineage evidence export
+on:
+  push:
+    branches: [automation/citation-lineage-export-20260906]
+    paths: [.github/workflows/citation-lineage-export.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Read exact predecessor
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: antonioclim/CODEPROBE_PROJECTS_v1
+          ref: e7a1778b789c98c6c2029d8cfa85184757731ecf
+          path: v1
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read exact current source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 3fe84e86d72876f674f37c152bc0cefe23500e29
+          path: v2
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve byte identities and historical evidence
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          test "$(git -C v1 rev-parse HEAD)" = e7a1778b789c98c6c2029d8cfa85184757731ecf
+          test "$(git -C v2 rev-parse HEAD)" = 3fe84e86d72876f674f37c152bc0cefe23500e29
+          for repo in v1 v2; do
+            git -C "$repo" archive --format=zip --prefix="$repo/" --output="../evidence/$repo-source.zip" HEAD
+            git -C "$repo" bundle create "../evidence/$repo-history.bundle" HEAD
+            git -C "$repo" ls-tree -r HEAD > "evidence/$repo-tree.txt"
+            git -C "$repo" log --format='%H %aI %an <%ae> %s' > "evidence/$repo-commits.txt"
+            git -C "$repo" log -1 --format=raw > "evidence/$repo-head.txt"
+          done
+          python3 -I -S -B - <<'PY'
+          import hashlib, json, urllib.request
+          from pathlib import Path
+          url = 'https://raw.githubusercontent.com/citation-file-format/citation-file-format/1.2.0/schema.json'
+          with urllib.request.urlopen(url, timeout=30) as response:
+              data = response.read(2_000_001)
+          assert len(data) <= 2_000_000
+          json.loads(data)
+          Path('evidence/cff-1.2.0-schema.json').write_bytes(data)
+          Path('evidence/schema-origin.txt').write_text(url + '\n', encoding='utf-8')
+          records = [{'path':p.name,'size_bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(Path('evidence').iterdir())]
+          Path('evidence/transport-manifest.json').write_text(json.dumps(records, indent=2)+'\n', encoding='utf-8')
+          print('Fixed public snapshots preserved; no product or legacy test code executed.')
+          print(json.dumps(records, indent=2))
+          PY
+      - name: Transport evidence for local inspection
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeprobe-lineage-fixed-snapshots
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
