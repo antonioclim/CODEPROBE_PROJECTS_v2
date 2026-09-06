@@ -1,0 +1,62 @@
+name: Publish CodeProbe v2.2.0 as Latest
+
+on:
+  push:
+    branches:
+      - release/publish-v2.2.0-20260906
+    paths:
+      - .github/workflows/publish-v2.2.0.yml
+
+permissions: {}
+concurrency:
+  group: codeprobe-publish-v2.2.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+      issues: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: orchestration
+    steps:
+      - name: Check out the reviewed publication orchestration only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: orchestration
+          persist-credentials: false
+      - name: Check the exact publisher before supplying publication credentials
+        run: |
+          set -euo pipefail
+          python3 -I -S -B - <<'PY'
+          import ast, hashlib
+          from pathlib import Path
+          data = Path('.github/release/publish_v220.py').read_bytes()
+          assert hashlib.sha256(data).hexdigest() == '929b457c0cbd3a3a9d16d727247c5fdd3be23fc7ab6bf78c3da9505d209405b1'
+          ast.parse(data.decode('utf-8'))
+          print('Reviewed publisher identity and syntax verified.')
+          PY
+      - name: Verify unchanged source and publish a full release marked Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_WORK: ${{ runner.temp }}/codeprobe-full-release
+        run: |
+          set -euo pipefail
+          mkdir -p "$RELEASE_WORK"
+          python3 -I -S -B .github/release/publish_v220.py | tee "$RELEASE_WORK/publication.log"
+      - name: Preserve publication evidence and the exact uploaded assets
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeprobe-v2.2.0-full-release-evidence
+          path: ${{ runner.temp }}/codeprobe-full-release/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 9
