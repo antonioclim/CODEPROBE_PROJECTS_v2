@@ -60,9 +60,14 @@ jobs:
           assert len(patch) == 28704
           assert hashlib.sha256(patch).hexdigest() == '28ff8a51a2dca17af28043ab4bd9e09e7bb4ee67622455195161e47fdc6c5e33'
           Path('../evidence/implementation.patch').write_bytes(patch)
+          correction=get_blob('292c4fc7bddc38fe66cd776bb46dfcaf30e45935')
+          assert hashlib.sha256(correction).hexdigest()=='1717f78e467bd1e184f42237eb12d57a81c4bec7fdb18a4da54cf815f4ada197'
+          Path('../evidence/browser-correction.patch').write_bytes(correction)
           PY
           git apply --check ../evidence/implementation.patch
           git apply ../evidence/implementation.patch
+          git apply --check ../evidence/browser-correction.patch
+          git apply ../evidence/browser-correction.patch
       - name: Refresh dependent browser integrity metadata
         run: |
           python -I -S -B - <<'PY'
@@ -103,10 +108,10 @@ jobs:
           set -euo pipefail
           git diff --check
           git add --all
-          test "$(git write-tree)" = a36546e15cb1026c51de249d166fc9bc4a39d6ca
+          test "$(git write-tree)" = 9e30cb98f1b287b736656428377f9f44f77901d5
           git diff --cached --binary > ../evidence/final.patch
           git diff --cached --stat | tee ../evidence/changed-paths.txt
-          echo 'a36546e15cb1026c51de249d166fc9bc4a39d6ca' > ../evidence/tree.txt
+          echo '9e30cb98f1b287b736656428377f9f44f77901d5' > ../evidence/tree.txt
       - name: Enforce the unchanged coverage floors
         if: runner.os == 'Linux'
         run: python -I -S -B tools/check_coverage.py --json-out "$RUNNER_TEMP/4j-coverage.json" 2>&1 | tee ../evidence/coverage.log
@@ -142,7 +147,7 @@ jobs:
               assert result['sha']==expected
               entries.append(dict(path=name,mode='100644',type='blob',sha=expected))
           tree=post('trees',dict(base_tree='662ca84fc0e9bf3584bc80ecedbd764208903f2a',tree=entries))
-          assert tree['sha']=='a36546e15cb1026c51de249d166fc9bc4a39d6ca'
+          assert tree['sha']=='9e30cb98f1b287b736656428377f9f44f77901d5'
           Path('../evidence/persisted-objects.json').write_text(json.dumps(dict(tree=tree['sha'],entries=entries),indent=2),encoding='utf-8')
           print('VERIFIED_IMMUTABLE_TREE',tree['sha'])
           print('No commit or branch reference was created or updated by this job.')
