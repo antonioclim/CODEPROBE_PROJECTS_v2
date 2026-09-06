@@ -57,3 +57,5 @@ python -I -S -B tools/check_coverage.py \
 ```
 
 The diagnostic JSON must be written outside the checkout. Raw monitoring data and coverage directories are not release artefacts.
+
+Worker protocol races use explicit JavaScript doubles; real worker/Python behaviour remains in the required Chromium functional job. Neither is counted in this Python executable-line denominator. New calibration identifier tests preserve the existing partition and estimation contracts; random export identities are tested separately. No coverage floor is reduced for this extension.

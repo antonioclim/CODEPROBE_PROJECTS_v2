@@ -8,6 +8,7 @@
       folderBtn: document.getElementById("folderBtn"), folderInput: document.getElementById("folderInput"),
       profileSelect: document.getElementById("profileSelect"), analyseBtn: document.getElementById("analyseBtn"),
       calibrationProfile: document.getElementById("calibrationProfile"),
+      cancelBtn: document.getElementById("cancelBtn"),
       exportJsonBtn: document.getElementById("exportJsonBtn"), exportTextBtn: document.getElementById("exportTextBtn"),
       status: document.getElementById("status"), score: document.getElementById("score"),
       scoreProgress: document.getElementById("projectScoreProgress"), scoreBar: document.getElementById("projectScoreBar"), reading: document.getElementById("reading"),
@@ -15,7 +16,7 @@
       reviewPanel: document.getElementById("reviewPanel"), dropOverlay: document.getElementById("dropOverlay"),
       textReport: document.getElementById("textReport"), jsonReport: document.getElementById("jsonReport")
     };
-    const state = { pyodide: null, ready: false, payload: null, projectName: "project", text: "", json: "", engineBundle: null, engineFingerprint: null };
+    const state = { workerSession: null, busy: false, generation: 0, ready: false, payload: null, projectName: "project", text: "", json: "", engineBundle: null, engineFingerprint: null };
     function setStatus(text, { busy = false } = {}) {
       els.status.textContent = String(text);
       els.status.setAttribute("aria-busy", busy ? "true" : "false");
@@ -76,53 +77,20 @@
       }
       return file;
     }
-    function readAllDirectoryEntries(reader) {
-      return new Promise((resolve, reject) => {
-        const entries = [];
-        function readBatch() { reader.readEntries(batch => { if (!batch.length) { resolve(entries); return; } entries.push(...batch); readBatch(); }, reject); }
-        readBatch();
-      });
-    }
-    async function filesFromEntry(entry, prefix = "") {
-      if (!entry) return [];
-      if (entry.isFile) return new Promise(resolve => entry.file(file => resolve([annotateDroppedFile(file, `${prefix}${file.name}`)]), () => resolve([])));
-      if (entry.isDirectory) {
-        const entries = await readAllDirectoryEntries(entry.createReader());
-        const files = [];
-        for (const child of entries) { files.push(...await filesFromEntry(child, `${prefix}${entry.name}/`)); if (files.length > MAX_BROWSER_DROP_FILES) break; }
-        return files;
-      }
-      return [];
-    }
     async function collectDroppedFiles(dataTransfer) {
-      const items = Array.from(dataTransfer?.items || []);
-      const entries = items.map(item => (item.kind === "file" && typeof item.webkitGetAsEntry === "function") ? item.webkitGetAsEntry() : null).filter(Boolean);
-      if (entries.length) {
-        const files = [];
-        for (const entry of entries) { files.push(...await filesFromEntry(entry)); if (files.length > MAX_BROWSER_DROP_FILES) break; }
-        return files;
-      }
-      return Array.from(dataTransfer?.files || []);
+      return window.CodeProbeRuntime.collectDroppedFiles(dataTransfer);
     }
     function hasFileDrag(event) { return Array.from(event.dataTransfer?.types || []).includes("Files"); }
     function showDropOverlay(show) { if (els.dropOverlay) { els.dropOverlay.classList.toggle("hidden", !show); els.dropOverlay.setAttribute("aria-hidden", show ? "false" : "true"); } }
     async function handleDroppedProject(dataTransfer) {
-      const files = await collectDroppedFiles(dataTransfer);
+      if (state.busy) { setStatus("Cancel the current operation before loading another input."); return; }
+      let files;
+      try { files = await collectDroppedFiles(dataTransfer); }
+      catch (error) { setStatus(error.message); return; }
       if (!files.length) { setStatus("No readable files were dropped."); return; }
       if (files.length > MAX_BROWSER_DROP_FILES) { setStatus(`Too many files were dropped (${files.length}). Use tools/analyze_project.py for very large projects.`); return; }
       if (files.length === 1 && /\.zip$/i.test(files[0].name || "")) await loadZip(files[0]);
       else await loadFolder(files);
-    }
-    async function engineFingerprint() {
-      if (state.engineFingerprint) return state.engineFingerprint;
-      if (!state.engineBundle) {
-        if (!window.CodeProbeRuntime?.loadVerifiedEngine) {
-          throw new Error("The verified Python engine loader is unavailable.");
-        }
-        state.engineBundle = await window.CodeProbeRuntime.loadVerifiedEngine();
-      }
-      state.engineFingerprint = state.engineBundle.fingerprint;
-      return state.engineFingerprint;
     }
     function looksBinary(bytes) {
       if (!bytes.length) return false;
@@ -145,19 +113,35 @@
         decoding_warning: decoded.warning
       };
     }
+    function setBusy(busy) {
+      state.busy = busy;
+      els.analyseBtn.disabled = busy || !state.payload;
+      els.cancelBtn.disabled = !busy;
+      for (const key of ["zipBtn", "folderBtn", "profileSelect", "calibrationProfile"]) els[key].disabled = busy;
+    }
+    function clearResults() {
+      state.text = ""; state.json = "";
+      els.textReport.value = ""; els.jsonReport.value = "";
+      els.exportJsonBtn.disabled = true; els.exportTextBtn.disabled = true;
+      els.score.textContent = "—"; setProgressBar(null);
+      els.reading.textContent = "—"; els.analysed.textContent = "0"; els.excluded.textContent = "0";
+      els.reviewPanel.replaceChildren();
+    }
+    function cancelAnalysis() {
+      state.generation += 1;
+      state.workerSession?.cancel();
+      state.ready = false;
+      clearResults();
+      setBusy(false);
+      setStatus("Analysis cancelled; the worker was terminated.");
+    }
     async function initEngine() {
-      if (state.ready) return;
+      if (state.workerSession?.isReady()) return;
       setStatus("Loading Pyodide and src/codeprobe_runtime.py…", { busy: true });
-      if (!window.CodeProbeRuntime?.loadVerifiedPyodide) {
-        throw new Error("The verified Pyodide runtime loader is unavailable.");
-      }
-      state.pyodide = await window.CodeProbeRuntime.loadVerifiedPyodide();
-      state.engineBundle = await window.CodeProbeRuntime.loadVerifiedEngine();
-      state.engineFingerprint = state.engineBundle.fingerprint;
-      state.pyodide.FS.writeFile("codeprobe_runtime.py", state.engineBundle.copyBytes());
-      state.pyodide.runPython("import codeprobe_runtime");
+      if (!state.workerSession) state.workerSession = window.CodeProbeRuntime.createAnalysisSession();
+      const metadata = await state.workerSession.initialise();
+      state.engineFingerprint = metadata.fingerprint;
       state.ready = true;
-      setStatus("Engine ready.");
     }
     async function loadZip(file) {
       if ((file.size || 0) > MAX_BROWSER_PROJECT_ZIP_BYTES) { setStatus(`ZIP exceeds the ${MAX_BROWSER_PROJECT_ZIP_BYTES} byte browser limit.`); return; }
@@ -209,18 +193,17 @@
       return parsed;
     }
     async function analyse() {
-      if (!state.payload) return;
-      try { await initEngine(); }
-      catch (error) { setStatus("The in-browser Python engine could not be loaded."); return; }
-      let calibration_profile = null;
-      try { calibration_profile = calibrationProfileObject(); }
-      catch (error) { setStatus(error.message); return; }
-      const payload = { ...state.payload, profile: els.profileSelect.value, calibration_profile, engine_fingerprint: await engineFingerprint() };
-      state.pyodide.globals.set("payload_json", JSON.stringify(payload));
-      let resultText = "";
-      try { resultText = state.pyodide.runPython("import codeprobe_runtime\ncodeprobe_runtime.codeprobe_analyze_project(payload_json)"); }
-      finally { state.pyodide.globals.delete("payload_json"); }
-      const result = JSON.parse(resultText);
+      if (!state.payload || state.busy) return;
+      const generation = state.generation;
+      setBusy(true); clearResults();
+      try {
+        const calibration_profile = calibrationProfileObject();
+        await initEngine();
+        if (generation !== state.generation) return;
+        const payload = { ...state.payload, profile: els.profileSelect.value, calibration_profile };
+        setStatus("Project analysis running…", { busy: true });
+        const result = await state.workerSession.analyse("project", payload);
+        if (generation !== state.generation) return;
       const report = result.project_report;
       state.text = result.text;
       state.json = JSON.stringify(report, null, 2);
@@ -235,12 +218,21 @@
       renderReview(report);
       els.exportJsonBtn.disabled = false; els.exportTextBtn.disabled = false;
       setStatus("Project analysis completed.");
+      } catch (error) {
+        if (generation !== state.generation) return;
+        state.ready = state.workerSession?.isReady() || false;
+        setStatus(error.name === "TimeoutError" || error.name === "AbortError" ? error.message : "Project analysis failed; no report was accepted.");
+      } finally {
+        if (generation === state.generation) setBusy(false);
+      }
     }
     function download(name, content, type) { const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
     els.zipBtn.addEventListener("click", () => els.zipInput.click());
     els.folderBtn.addEventListener("click", () => els.folderInput.click());
     els.zipInput.addEventListener("change", async event => { const [file] = Array.from(event.target.files || []); if (file) await loadZip(file); els.zipInput.value = ""; });
     els.folderInput.addEventListener("change", async event => { await loadFolder(event.target.files); els.folderInput.value = ""; });
+    els.cancelBtn.addEventListener("click", () => cancelAnalysis());
+    window.addEventListener("pagehide", () => cancelAnalysis());
     els.analyseBtn.addEventListener("click", analyse);
     let dragDepth = 0;
     document.addEventListener("dragenter", event => { if (!hasFileDrag(event)) return; event.preventDefault(); dragDepth += 1; showDropOverlay(true); });

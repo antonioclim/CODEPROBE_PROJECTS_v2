@@ -24,6 +24,7 @@ PUBLIC_EXACT_PATHS = frozenset({
     "app/codeprobe.css",
     "app/project.css",
     "app/pyodide-loader.js",
+    "app/analysis-worker.js",
     "app/codeprobe-ui.js",
     "app/project-ui.js",
     "app/runtime-config.json",

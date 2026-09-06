@@ -48,6 +48,7 @@ REQUIRED_RESOURCE_ASSETS = {
     "codeprobe.css",
     "project.css",
     "pyodide-loader.js",
+    "analysis-worker.js",
     "codeprobe-ui.js",
     "project-ui.js",
     "runtime-config.json",
@@ -270,6 +271,11 @@ def browser_script_files() -> list[Path]:
                 raise ReleaseSetError(f"{html.name} script is missing: {src}")
             if path.suffix.lower() == ".js" and path not in files:
                 files.append(path)
+    worker = APP / "analysis-worker.js"
+    if not worker.is_file():
+        raise ReleaseSetError("the isolated analysis worker is missing")
+    if worker not in files:
+        files.append(worker)
     return files
 
 

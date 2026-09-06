@@ -488,7 +488,7 @@ class IndependentCalibrationBoundaryTests(unittest.TestCase):
             serialised = json.dumps(result["profile"])
             for name in names:
                 self.assertNotIn(name, serialised)
-            self.assertRegex(serialised, r"sample-[0-9a-f]{24}\.py")
+            self.assertRegex(serialised, r"sample-[0-9a-f]{32}")
 
 
 if __name__ == "__main__":

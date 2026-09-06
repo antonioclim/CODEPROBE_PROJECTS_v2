@@ -52,3 +52,5 @@ This page is the quickest way to locate the right part of the package. For curre
 ## Interpretation boundary
 
 CodeProbe reports a heuristic AI-style concern score. It does not prove AI authorship, misconduct or independent authorship. Use the report as part of a review packet containing the analysed files, ignored files, repository history, tests, design notes, disclosure and, where needed, an oral code walkthrough.
+
+For isolated analysis and cancellation, read [worker resilience](docs/20-worker-resilience.md). For dependency reviews, read [runtime lifecycle](docs/21-runtime-lifecycle.md). Security reporting is described in [SECURITY.md](SECURITY.md); citation metadata is in `CITATION.cff`.

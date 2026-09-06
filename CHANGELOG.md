@@ -6,6 +6,16 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 ## [Unreleased]
 
+- Prevent a cancelled manual-engine file read from starting a worker after cancellation.
+
+### Worker resilience and export privacy
+
+- Move both browser analysis routes into an authenticated dedicated worker, with single-flight admission, startup/analysis deadlines, termination on cancel and stale-result rejection.
+- Add real Chromium legal-input responsiveness, deadline/retry and worker-bootstrap tamper checks alongside hermetic protocol races.
+- Bound dropped-directory enumeration and single-file input; avoid expensive syntax highlighting for large fragments.
+- Replace exported calibration identifiers with fresh opaque tokens only after partitioning and fitting, without exporting an identity mapping.
+- Add security reporting, runtime lifecycle, review routing and collective contributor citation metadata without changing the licence or claiming branch-rule enforcement.
+
 ### Reconciliation
 
 - Preserve exact control-file bytes on Windows with binary descriptors, close failed lock writes before removal and declare pointer-sized process handles.

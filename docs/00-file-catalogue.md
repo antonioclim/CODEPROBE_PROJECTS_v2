@@ -10,6 +10,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 - `added_audit_phase4d`: 4
 - `added_audit_phase4f1`: 4
 - `added_audit_phase4f2`: 3
+- `added_audit_phase4f3`: 8
 - `added_phase13`: 10
 - `completed_migration`: 30
 - `completed_phase13`: 4
@@ -21,14 +22,18 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 |---|---|---|---|---|---:|---|
 | `.codeprobeignore.example` | `—` | `root` | standard project file | `keep` | current | `low` |
 | `.gitattributes` | `—` | `root` | repository checkout policy | `added_audit_phase4` | audit-4 | `high` |
+| `.github/CODEOWNERS` | `—` | `.github` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `medium` |
 | `.github/workflows/ci.yml` | `—` | `.github` | continuous-integration workflow | `added_audit_phase4` | audit-4 | `high` |
 | `.gitignore` | `—` | `root` | standard project file | `keep` | current | `low` |
 | `00-kit-index.md` | `KIT_INDEX.md` | `root` | standard project file | `completed_phase13` | 13 | `low` |
 | `CHANGELOG.md` | `—` | `root` | standard project file | `keep` | current | `low` |
+| `CITATION.cff` | `—` | `root` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `medium` |
 | `CONTRIBUTING.md` | `—` | `root` | standard project file | `keep` | current | `low` |
 | `LICENSE` | `—` | `root` | standard project file | `keep` | current | `low` |
 | `README.md` | `—` | `root` | standard project file | `keep` | current | `low` |
+| `SECURITY.md` | `—` | `root` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `medium` |
 | `app/README.md` | `—` | `app` | browser app asset | `keep` | current | `high` |
+| `app/analysis-worker.js` | `—` | `app` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `high` |
 | `app/codeprobe-ui.js` | `src/index.js` | `app` | browser app asset | `completed_migration` | current | `high` |
 | `app/codeprobe.css` | `—` | `app` | browser app asset | `keep` | current | `high` |
 | `app/index.html` | `src/index.html` | `app` | browser app asset | `completed_migration` | current | `high` |
@@ -69,6 +74,8 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `docs/17-supported-coverage.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4d` | audit-4d | `medium` |
 | `docs/18-runtime-integrity.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4f1` | audit-4f1 | `medium` |
 | `docs/19-release-recovery.md` | `—` | `docs` | technical documentation or asset | `added_audit_phase4f2` | audit-4f2 | `high` |
+| `docs/20-worker-resilience.md` | `—` | `docs` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `medium` |
+| `docs/21-runtime-lifecycle.md` | `—` | `docs` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `medium` |
 | `docs/assets/interface-preview.png` | `—` | `docs` | technical documentation or asset | `keep` | current | `medium` |
 | `docs/history/01-stabilisation.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
 | `docs/history/02-parser-and-metrics.md` | `—` | `docs` | phase-history note | `keep` | current | `medium` |
@@ -136,6 +143,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tests/test_release_reproducibility.py` | `—` | `tests` | regression test | `added_audit_phase4` | audit-4 | `high` |
 | `tests/test_report_schema.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_runtime_smoke.py` | `—` | `tests` | regression test | `keep` | current | `high` |
+| `tests/test_worker_contract.py` | `—` | `tests` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `high` |
 | `tools/README.md` | `—` | `tools` | command-line or release utility | `keep` | current | `high` |
 | `tools/analyze_project.py` | `src/analyze_project.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/audit_institutional_pack.py` | `src/institutional_audit.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
@@ -151,6 +159,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tools/check_pyodide_provenance.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4c` | audit-4c | `high` |
 | `tools/check_release.py` | `src/release_check.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/check_release_reproducibility.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4` | audit-4 | `high` |
+| `tools/check_worker_protocol.js` | `—` | `tools` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `high` |
 | `tools/compare_releases.py` | `—` | `tools` | command-line or release utility | `keep` | current | `high` |
 | `tools/coverage-policy.json` | `—` | `tools` | command-line or release utility | `added_audit_phase4d` | audit-4d | `high` |
 | `tools/final_audit.py` | `—` | `tools` | command-line or release utility | `added_phase13` | 13 | `high` |

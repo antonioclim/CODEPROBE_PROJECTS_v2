@@ -74,3 +74,7 @@ This boundary is deliberately narrower than a supply-chain certification. It doe
 ## Browser storage
 
 The application stores no source code in local report history. History is disabled by default and, when enabled, stores the exported report text/JSON. These reports may still contain filenames, scores, metric details and snippets from metric explanations. In sensitive contexts, keep history disabled and use **Clear privacy data** after analysis.
+
+## Worker bootstrap
+
+The worker entry has a packaged SHA-256/size record. Its loader is fetched with the page's SRI value before the two verified sources are joined in a Blob worker. Only this verified bootstrap permits worker `importScripts` of authenticated core bytes. No unchecked remote import exception is introduced. The worker retains existing Pyodide/engine verification and rejects arbitrary protocol commands. See [worker resilience](20-worker-resilience.md) and [security policy](../SECURITY.md).

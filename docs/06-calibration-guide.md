@@ -121,3 +121,9 @@ A generated profile must use group-exclusive fit and evaluation partitions. The 
 
 Hard-linked aliases of the same filesystem object are rejected. Copied-identical, templated or semantically related samples cannot be inferred reliably from filenames alone; curators must place dependent samples in the same group and exclude duplicated evidence.
 The exported `independent_holdout` flag means group-exclusive separation under the declared group identifiers and physical-source checks. It is not evidence that copied, templated or semantically related samples are statistically independent.
+
+## Export identifier privacy
+
+Internal deterministic keys still establish duplicate-source rejection, group equality and the fit/evaluation split. They do not appear in new sample-level exports. Only after partitioning and estimation, each sample receives a fresh UUID4 token and each distinct group receives a fresh token shared within that export. Profile JSON and observations CSV use the same tokens. Explicit manifest identifiers are also replaced, and no mapping is written. Re-running the same corpus preserves the analytical values but deliberately changes exported tokens and hence file digests.
+
+This blocks direct guessing of a path against an exported deterministic hash; it is not anonymisation. Scores, labels, row order, group sizes and user-supplied free-text course/profile metadata may disclose or link identities. Curators must review those fields and protect input manifests and local failure diagnostics. Source ZIP/release reproducibility is distinct from deliberately random calibration-output identifiers.

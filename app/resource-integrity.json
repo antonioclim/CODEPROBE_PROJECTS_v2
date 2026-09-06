@@ -16,21 +16,21 @@
     },
     {
       "path": "pyodide-loader.js",
-      "size_bytes": 22581,
-      "sha256_hex": "23019df5878e9d80dd13b8bded25524b367158e12177e303e7d0ca1967424558",
-      "sri_sha256": "sha256-IwGd9YeOnYDdE7i97SVSSzZxWOEhd+MD59DKGWdCRVg="
+      "size_bytes": 32903,
+      "sha256_hex": "ab4f997fde742654f612240b1190d4b62b24482c0d6d65904ab242b255c211ce",
+      "sri_sha256": "sha256-q0+Zf950JlT2EiQLEZDUtiskSCwNbWWQSrJCslXCEc4="
     },
     {
       "path": "codeprobe-ui.js",
-      "size_bytes": 74735,
-      "sha256_hex": "c5e8ef60f778ef49bd4959c2f9c9aed264182a455cab3ca9d18344f5d92b540c",
-      "sri_sha256": "sha256-xejvYPd470m9SVnC+cmu0mQYKkVcqzyp0YNE9dkrVAw="
+      "size_bytes": 74536,
+      "sha256_hex": "02e25a5d7a48b8bfdf87a335085e087b2eba001c588468cec787dc69b2c34769",
+      "sri_sha256": "sha256-AuJaXXpIuL/fh6M1CF4Iey66ABxYhGjOx4fcabLDR2k="
     },
     {
       "path": "project-ui.js",
-      "size_bytes": 16704,
-      "sha256_hex": "60eabdd986bc1deed9c9dfd356e933f06dc9792fae214d79685f2999f9838383",
-      "sri_sha256": "sha256-YOq92Ya8He7Zyd/TVukz8G3JeS+uIU15aF8pmfmDg4M="
+      "size_bytes": 16049,
+      "sha256_hex": "38a55531c13fb1071425cad014165cf61164f9ec2604899f88e22aacf7e9fca8",
+      "sri_sha256": "sha256-OKVVMcE/sQcUJcrQFBZc9hFk+ewmBImfiOIqrPfp/Kg="
     },
     {
       "path": "runtime-config.json",
@@ -49,6 +49,12 @@
       "size_bytes": 264631,
       "sha256_hex": "5575a1005894b1d4035787f8a964113b849ad6d8ec3bf5041c850e2ba8c6f378",
       "sri_sha256": "sha256-VXWhAFiUsdQDV4f4qWQRO4Sa1tjsO/UEHIUOK6jG83g="
+    },
+    {
+      "path": "analysis-worker.js",
+      "size_bytes": 3190,
+      "sha256_hex": "7a4edb8c7ff98001bd9fce07edb0a678c94611fb07810d6c07f9223c413562d5",
+      "sri_sha256": "sha256-ek7bjH/5gAG9n84H7bCmeMlGEfsHgQ1sB/kiPEE1YtU="
     }
   ]
 }

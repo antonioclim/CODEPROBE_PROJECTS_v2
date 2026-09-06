@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "Cite the exact repository commit used. The audit snapshot is not a validated authorship detector and has no claimed article or DOI."
+title: "CodeProbe"
+type: software
+authors:
+  - name: "CodeProbe contributors"
+repository-code: "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2"
+license: MIT
+abstract: "Transparent formative source-code style and quality triage. Predictive validity for LLM detection and authorship attribution has not been established."

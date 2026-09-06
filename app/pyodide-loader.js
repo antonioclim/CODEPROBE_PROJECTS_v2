@@ -1,6 +1,9 @@
 (function () {
   "use strict";
 
+  const window = globalThis;
+  const BASE_URL = typeof document === "undefined" ? window.CODEPROBE_BASE_URL : document.baseURI;
+
   const DEFAULT_CONFIG = Object.freeze({
     schema: "codeprobe-runtime-config/v1",
     production: true,
@@ -101,7 +104,7 @@
     return value;
   }
 
-  function absoluteURL(value, base = document.baseURI) {
+  function absoluteURL(value, base = BASE_URL) {
     return new URL(String(value), base).href;
   }
 
@@ -134,7 +137,7 @@
     configPromise = (async () => {
       let raw = null;
       try {
-        const response = await fetch("runtime-config.json", {
+        const response = await fetch(absoluteURL("runtime-config.json"), {
           cache: "no-store",
           credentials: "same-origin"
         });
@@ -244,15 +247,43 @@
     return bytes.slice();
   }
 
-  async function fetchVerifiedArtifact(record, url) {
+  async function boundedResponseBytes(response, limit) {
+    const declared = response.headers.get("Content-Length");
+    if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > limit)) {
+      await response.body?.cancel();
+      throw new Error("Runtime response exceeds its declared byte budget.");
+    }
+    if (!response.body) throw new Error("Runtime response has no readable body.");
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        if (length > limit) { await reader.cancel(); throw new Error("Runtime response exceeds its byte budget."); }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return bytes;
+  }
+
+  async function fetchVerifiedArtifact(record, url, signal = undefined) {
     const target = absoluteURL(url);
     const sameOrigin = new URL(target).origin === window.location.origin;
     const response = await fetch(target, {
       cache: "reload",
+      signal,
       credentials: sameOrigin ? "same-origin" : "omit"
     });
     if (!response.ok) throw new Error(`Could not fetch ${record.name} (${response.status}).`);
-    const buffer = await response.arrayBuffer();
+    const buffer = await boundedResponseBytes(response, record.size_bytes);
     if (buffer.byteLength !== record.size_bytes) {
       throw new Error(`${record.name} size mismatch: expected ${record.size_bytes}, got ${buffer.byteLength}.`);
     }
@@ -284,6 +315,10 @@
     const blobURL = URL.createObjectURL(source);
     let script = null;
     try {
+      if (typeof document === "undefined") {
+        window.importScripts(blobURL);
+        return;
+      }
       await new Promise((resolve, reject) => {
         script = document.createElement("script");
         script.src = blobURL;
@@ -432,6 +467,7 @@
   }
 
   async function loadVerifiedPyodide(options = {}) {
+    if (typeof document !== "undefined") throw new Error("Python execution requires the dedicated analysis worker.");
     if (pyodideRuntimePromise) return pyodideRuntimePromise;
     pyodideRuntimePromise = (async () => {
       const config = await loadRuntimeConfig();
@@ -544,7 +580,196 @@
     return verifiedEnginePromise;
   }
 
+
+  // This record is refreshed before local SRI and release manifests are generated.
+  const PACKAGED_WORKER_RECORD = Object.freeze({
+    name: "analysis-worker.js",
+    path: "analysis-worker.js",
+    size_bytes: 3190,
+    sha256_hex: "7a4edb8c7ff98001bd9fce07edb0a678c94611fb07810d6c07f9223c413562d5"
+  });
+
+  const WORKER_STARTUP_MS = 60000;
+  const WORKER_ANALYSIS_MS = 30000;
+  const MAX_WORKER_PAYLOAD_CHARACTERS = 24000000;
+  const MAX_WORKER_RESULT_CHARACTERS = 16000000;
+
+  function operationError(name, message) {
+    const error = new Error(message);
+    error.name = name;
+    return error;
+  }
+
+  function createAnalysisSession() {
+    if (typeof document === "undefined") throw new Error("Analysis sessions belong to the page.");
+    let worker = null;
+    let active = null;
+    let sequence = 0;
+    let ready = false;
+    let metadata = null;
+    let workerSource = null;
+
+    function dispose() {
+      if (worker) worker.terminate();
+      worker = null;
+      ready = false;
+      metadata = null;
+    }
+
+    function stop(error = operationError("AbortError", "Analysis cancelled; the worker was terminated.")) {
+      const operation = active;
+      active = null;
+      dispose();
+      if (operation) {
+        clearTimeout(operation.timer);
+        operation.controller.abort();
+        operation.reject(error);
+      }
+    }
+
+    async function makeWorker(signal) {
+      if (!workerSource) {
+        // The page's SRI attribute authenticates the exact loader bytes executed
+        // here. A second, changed response cannot enter the worker unchecked.
+        const script = document.querySelector('script[src="pyodide-loader.js"]');
+        if (!script || !/^sha256-[A-Za-z0-9+/]+={0,2}$/.test(script.integrity)) {
+          throw new Error("The worker requires the packaged loader SRI record.");
+        }
+        const response = await fetch(script.src, { integrity: script.integrity, cache: "no-store", signal });
+        if (!response.ok) throw new Error("The authenticated worker loader could not be read.");
+        const loader = await boundedResponseBytes(response, 100000);
+        const entry = await fetchVerifiedArtifact(PACKAGED_WORKER_RECORD, absoluteURL(PACKAGED_WORKER_RECORD.path), signal);
+        if (signal.aborted) throw operationError("AbortError", "Worker startup cancelled.");
+        workerSource = [loader, entry];
+      }
+      const prefix = `self.CODEPROBE_BASE_URL = ${JSON.stringify(BASE_URL)};\n`;
+      const url = URL.createObjectURL(new Blob([prefix, workerSource[0], "\n", workerSource[1]], { type: "text/javascript" }));
+      try {
+        return new Worker(url, { name: "CodeProbe analysis" });
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    function request(type, data, milliseconds) {
+      if (active) return Promise.reject(operationError("BusyError", "An analysis operation is already active."));
+      if (!Number.isFinite(milliseconds) || milliseconds < 1 || milliseconds > (type === "init" ? WORKER_STARTUP_MS : WORKER_ANALYSIS_MS)) {
+        return Promise.reject(new RangeError("The operation deadline is outside the supported range."));
+      }
+      return new Promise((resolve, reject) => {
+        const operation = { id: ++sequence, resolve, reject, controller: new AbortController(), timer: null };
+        active = operation;
+        operation.timer = setTimeout(() => {
+          if (active === operation) stop(operationError("TimeoutError", "Analysis deadline exceeded; the worker was terminated."));
+        }, milliseconds);
+        (async () => {
+          if (!worker) {
+            const created = await makeWorker(operation.controller.signal);
+            if (active !== operation) { created.terminate(); return; }
+            worker = created;
+            created.onerror = () => {
+              if (worker === created) stop(operationError("WorkerError", "The analysis worker failed."));
+            };
+            created.onmessageerror = () => {
+              if (worker === created) stop(operationError("WorkerError", "The analysis worker returned an unreadable message."));
+            };
+            created.onmessage = event => {
+              if (worker !== created || !active) return;
+              const message = event.data;
+              if (!message || message.id !== active.id) return;
+              if (message.started === true) { active.started = true; return; }
+              const pending = active;
+              if (message.error) {
+                stop(operationError("WorkerError", "The analysis worker rejected the operation."));
+                return;
+              }
+              if (typeof message.result !== "string" || message.result.length > MAX_WORKER_RESULT_CHARACTERS) {
+                stop(operationError("WorkerError", "The analysis worker result is invalid or too large."));
+                return;
+              }
+              let result;
+              try { result = JSON.parse(message.result); }
+              catch (_) { stop(operationError("WorkerError", "The analysis worker returned invalid JSON.")); return; }
+              clearTimeout(pending.timer);
+              active = null;
+              pending.resolve(result);
+            };
+          }
+          if (active === operation) worker.postMessage({ id: operation.id, type, ...data });
+        })().catch(error => { if (active === operation) stop(error); });
+      });
+    }
+
+    return Object.freeze({
+      async initialise(manual = null, milliseconds = WORKER_STARTUP_MS) {
+        if (ready) return metadata;
+        const result = await request("init", { manual }, milliseconds);
+        if (!worker) throw operationError("AbortError", "Worker startup cancelled.");
+        ready = true;
+        metadata = Object.freeze(result);
+        return metadata;
+      },
+      analyse(kind, payload, milliseconds = WORKER_ANALYSIS_MS) {
+        if (!ready) return Promise.reject(operationError("WorkerError", "The analysis worker is not ready."));
+        if (!["file", "project"].includes(kind)) return Promise.reject(new TypeError("Unsupported analysis kind."));
+        const payloadJson = JSON.stringify(payload);
+        if (payloadJson.length > MAX_WORKER_PAYLOAD_CHARACTERS) return Promise.reject(new RangeError("Analysis payload exceeds the worker budget."));
+        return request("analyse", { kind, payloadJson }, milliseconds);
+      },
+      cancel: stop,
+      isReady() { return ready; },
+      isBusy() { return active !== null; },
+      isExecuting() { return Boolean(active && active.started); },
+      getMetadata() { return metadata; }
+    });
+  }
+
+  async function collectDroppedFiles(dataTransfer) {
+    const limit = 2000;
+    const started = Date.now();
+    let visited = 0;
+    function check() {
+      if (Date.now() - started >= 10000) throw new Error("Dropped-directory enumeration exceeded its 10-second budget.");
+    }
+    function callbackResult(register) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Dropped-directory enumeration timed out.")), Math.max(1, 10000 - (Date.now() - started)));
+        try {
+          register(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+        } catch (error) { clearTimeout(timer); reject(error); }
+      });
+    }
+    const items = dataTransfer?.items || [];
+    if (items.length > limit || (dataTransfer?.files?.length || 0) > limit) throw new Error("Too many dropped entries.");
+    const roots = Array.from(items).map(item => item.kind === "file" && typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null).filter(Boolean);
+    if (!roots.length) return Array.from(dataTransfer?.files || []);
+    const files = [];
+    async function visit(entry, prefix, depth) {
+      check();
+      if (++visited > limit || depth > 32) throw new Error("Dropped-directory entry or depth budget exceeded.");
+      if (entry.isFile) {
+        const file = await callbackResult((resolve, reject) => entry.file(resolve, reject));
+        Object.defineProperty(file, "_codeprobeRelativePath", { value: normaliseProjectPath(prefix + file.name), configurable: true });
+        files.push(file);
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        for (;;) {
+          check();
+          const batch = await callbackResult((resolve, reject) => reader.readEntries(resolve, reject));
+          if (!batch.length) break;
+          if (batch.length > limit - visited) throw new Error("Dropped-directory entry budget exceeded.");
+          for (const child of batch) await visit(child, `${prefix}${entry.name}/`, depth + 1);
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+    }
+    for (const entry of roots) await visit(entry, "", 0);
+    return files;
+  }
+
   window.CodeProbeRuntime = Object.freeze({
+    collectDroppedFiles,
+    createAnalysisSession,
     loadRuntimeConfig,
     loadProvenance,
     ensurePyodideLoader,

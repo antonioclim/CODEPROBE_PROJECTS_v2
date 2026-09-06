@@ -16,6 +16,7 @@ EXPECTED_RESOURCE_ASSETS = {
     "codeprobe.css",
     "project.css",
     "pyodide-loader.js",
+    "analysis-worker.js",
     "codeprobe-ui.js",
     "project-ui.js",
     "runtime-config.json",

@@ -1,14 +1,18 @@
 current_path,previous_path,proposed_final_path,role,action,phase,area,risk_level,rationale
 .codeprobeignore.example,,.codeprobeignore.example,standard project file,keep,current,root,low,canonical current path
 .gitattributes,,.gitattributes,repository checkout policy,added_audit_phase4,audit-4,root,high,added during hostile audit Phase 4 to make checkout bytes deterministic
+.github/CODEOWNERS,,.github/CODEOWNERS,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,.github,medium,Phase 4F3; no change to licence or promotion authority
 .github/workflows/ci.yml,,.github/workflows/ci.yml,continuous-integration workflow,added_audit_phase4,audit-4,.github,high,added during hostile audit Phase 4 to enforce the required release gates
 .gitignore,,.gitignore,standard project file,keep,current,root,low,canonical current path
 00-kit-index.md,KIT_INDEX.md,00-kit-index.md,standard project file,completed_phase13,13,root,low,final naming-stable path; previous_path records migration source where applicable
 CHANGELOG.md,,CHANGELOG.md,standard project file,keep,current,root,low,canonical current path
+CITATION.cff,,CITATION.cff,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,root,medium,Phase 4F3; no change to licence or promotion authority
 CONTRIBUTING.md,,CONTRIBUTING.md,standard project file,keep,current,root,low,canonical current path
 LICENSE,,LICENSE,standard project file,keep,current,root,low,canonical current path
 README.md,,README.md,standard project file,keep,current,root,low,canonical current path
+SECURITY.md,,SECURITY.md,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,root,medium,Phase 4F3; no change to licence or promotion authority
 app/README.md,,app/README.md,browser app asset,keep,current,app,high,canonical current path
+app/analysis-worker.js,,app/analysis-worker.js,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,app,high,Phase 4F3; no change to licence or promotion authority
 app/codeprobe-ui.js,src/index.js,app/codeprobe-ui.js,browser app asset,completed_migration,current,app,high,final naming-stable path; previous_path records migration source where applicable
 app/codeprobe.css,,app/codeprobe.css,browser app asset,keep,current,app,high,canonical current path
 app/index.html,src/index.html,app/index.html,browser app asset,completed_migration,current,app,high,final naming-stable path; previous_path records migration source where applicable
@@ -49,6 +53,8 @@ docs/16-ci-and-repository-controls.md,,docs/16-ci-and-repository-controls.md,tec
 docs/17-supported-coverage.md,,docs/17-supported-coverage.md,technical documentation or asset,added_audit_phase4d,audit-4d,docs,medium,"supported-code coverage scope, floors and limitations"
 docs/18-runtime-integrity.md,,docs/18-runtime-integrity.md,technical documentation or asset,added_audit_phase4f1,audit-4f1,docs,medium,documents byte-consumption integrity and the real functional browser gate
 docs/19-release-recovery.md,,docs/19-release-recovery.md,technical documentation or asset,added_audit_phase4f2,audit-4f2,docs,high,"durable release-publication journal, recovery state machine and operator procedure"
+docs/20-worker-resilience.md,,docs/20-worker-resilience.md,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,docs,medium,Phase 4F3; no change to licence or promotion authority
+docs/21-runtime-lifecycle.md,,docs/21-runtime-lifecycle.md,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,docs,medium,Phase 4F3; no change to licence or promotion authority
 docs/assets/interface-preview.png,,docs/assets/interface-preview.png,technical documentation or asset,keep,current,docs,medium,canonical current path
 docs/history/01-stabilisation.md,,docs/history/01-stabilisation.md,phase-history note,keep,current,docs,medium,canonical current path
 docs/history/02-parser-and-metrics.md,,docs/history/02-parser-and-metrics.md,phase-history note,keep,current,docs,medium,canonical current path
@@ -116,6 +122,7 @@ tests/test_release_recovery.py,,tests/test_release_recovery.py,automated regress
 tests/test_release_reproducibility.py,,tests/test_release_reproducibility.py,regression test,added_audit_phase4,audit-4,tests,high,added during hostile audit Phase 4 to guard clone and archive safety
 tests/test_report_schema.py,,tests/test_report_schema.py,regression test,keep,current,tests,high,canonical current path
 tests/test_runtime_smoke.py,,tests/test_runtime_smoke.py,regression test,keep,current,tests,high,canonical current path
+tests/test_worker_contract.py,,tests/test_worker_contract.py,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,tests,high,Phase 4F3; no change to licence or promotion authority
 tools/README.md,,tools/README.md,command-line or release utility,keep,current,tools,high,canonical current path
 tools/analyze_project.py,src/analyze_project.py,tools/analyze_project.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/audit_institutional_pack.py,src/institutional_audit.py,tools/audit_institutional_pack.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
@@ -131,6 +138,7 @@ tools/check_naming.py,,tools/check_naming.py,command-line or release utility,add
 tools/check_pyodide_provenance.py,,tools/check_pyodide_provenance.py,command-line or release utility,added_audit_phase4c,audit-4c,tools,high,static validation of measured Pyodide core-startup provenance
 tools/check_release.py,src/release_check.py,tools/check_release.py,command-line or release utility,completed_migration,current,tools,high,final naming-stable path; previous_path records migration source where applicable
 tools/check_release_reproducibility.py,,tools/check_release_reproducibility.py,command-line or release utility,added_audit_phase4,audit-4,tools,high,added during hostile audit Phase 4 to compare Git exports and release packets
+tools/check_worker_protocol.js,,tools/check_worker_protocol.js,"worker resilience, export privacy or governance metadata",added_audit_phase4f3,audit-4f3,tools,high,Phase 4F3; no change to licence or promotion authority
 tools/compare_releases.py,,tools/compare_releases.py,command-line or release utility,keep,current,tools,high,canonical current path
 tools/coverage-policy.json,,tools/coverage-policy.json,command-line or release utility,added_audit_phase4d,audit-4d,tools,high,version-pinned supported-code coverage policy and non-regression floors
 tools/final_audit.py,,tools/final_audit.py,command-line or release utility,added_phase13,13,tools,high,final naming-stable path; previous_path records migration source where applicable

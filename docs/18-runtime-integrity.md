@@ -51,3 +51,7 @@ The CI job is required by `Required CI`. It uses an authenticated local fixture 
 ## Assurance limits
 
 The boundary does not prove that Pyodide's upstream build is reproducible, that optional packages are safe, that the CDN will remain available or that the ecosystem has no current vulnerabilities. It also does not validate CodeProbe's AI-style concern score. Those are separate supply-chain, operational and scientific questions.
+
+## Worker consumption
+
+The same authenticated startup consumption contract now runs inside a dedicated worker. Both pages call the session API rather than `runPython`. Changed second loader responses fail SRI; a modified worker entry fails its embedded digest before a Python interpreter is created. Core and engine checks remain required independently. See [worker resilience](20-worker-resilience.md).

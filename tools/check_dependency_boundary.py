@@ -1583,6 +1583,14 @@ def check_javascript_package_loading(root: Path) -> list[str]:
             )
             continue
         _without_comments, executable_code, literals = _javascript_views(source)
+        # The only importScripts site consumes a Blob built from exact-hash
+        # startup bytes. It is not an allowance for URL-based worker imports.
+        if path == root / "app" / "pyodide-loader.js":
+            verified_site = '      if (typeof document === "undefined") {\n        window.importScripts(blobURL);\n        return;\n      }'
+            if source.count(verified_site) == 1:
+                start = source.index(verified_site)
+                end = start + len(verified_site)
+                executable_code = executable_code[:start] + " " * (end - start) + executable_code[end:]
         for start, _end, _value, quote in literals:
             if quote != "`":
                 continue

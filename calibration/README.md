@@ -126,3 +126,5 @@ Sample paths are replaced with deterministic pseudonyms unless the manifest supp
 
 Hard-linked aliases of the same filesystem object are rejected. Copied-identical, templated or semantically related samples cannot be inferred reliably from filenames alone; curators must place dependent samples in the same group and exclude duplicated evidence.
 The exported `independent_holdout` flag means group-exclusive separation under the declared group identifiers and physical-source checks. It is not evidence that copied, templated or semantically related samples are statistically independent.
+
+New exports replace sample and group keys with random UUID4 tokens after the analytical split and fitting steps. No identity map is emitted. Analytical values remain reproducible while identifier bytes intentionally differ between exports. See [the privacy boundary](../docs/06-calibration-guide.md#export-identifier-privacy). This does not anonymise scores, group structure or free-text metadata.

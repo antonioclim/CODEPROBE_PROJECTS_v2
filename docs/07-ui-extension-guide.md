@@ -73,3 +73,5 @@ node tools/check_browser_accessibility.js
 ```
 
 The browser gate launches the shipped local server and an installed Chromium-family browser, blocks the external Pyodide CDN and verifies the interface contract without treating successful runtime download as an accessibility prerequisite.
+
+New analysis panels must use the shared worker session, not a page-level Python runtime. Preserve single-flight admission, generation checks, cancellation, deadlines and verified engine identity. Do not add a production debug command that executes arbitrary Python. Extend both the hermetic protocol tests and real Chromium gate for any protocol change.

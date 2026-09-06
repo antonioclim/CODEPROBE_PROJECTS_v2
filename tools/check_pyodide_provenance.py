@@ -247,14 +247,37 @@ def audit_pyodide_provenance(root: Path) -> list[str]:
                         if digest_match and integrity_record.get("sha256_hex") != digest_match.group("value"):
                             errors.append("embedded and resource-integrity engine digests disagree")
 
+        worker_path = root_path / "app" / "analysis-worker.js"
+        try:
+            worker_bytes = worker_path.read_bytes()
+            worker_source = worker_bytes.decode("utf-8")
+        except (OSError, UnicodeError):
+            errors.append("analysis-worker.js is missing or unreadable")
+        else:
+            worker_record = re.search(
+                r"const\s+PACKAGED_WORKER_RECORD\s*=\s*Object\.freeze\(\{(?P<body>.*?)\}\);",
+                loader, re.S,
+            )
+            if not worker_record:
+                errors.append("packaged worker integrity record is missing")
+            else:
+                body = worker_record.group("body")
+                digest = hashlib.sha256(worker_bytes).hexdigest()
+                size = re.search(r"\bsize_bytes\s*:\s*(?P<value>\d+)\s*,", body)
+                if f'sha256_hex: "{digest}"' not in body or not size or int(size.group("value")) != len(worker_bytes) or 'path: "analysis-worker.js"' not in body:
+                    errors.append("packaged worker integrity record differs from exact bytes")
+            for token in ("CodeProbeRuntime.loadVerifiedPyodide", "CodeProbeRuntime.loadVerifiedEngine", 'runtime.globals.delete("payload_json")'):
+                if token not in worker_source:
+                    errors.append(f"worker is missing {token}")
+
         direct_engine_fetch = re.compile(
             r"""fetch\s*\(\s*(?:new\s+URL\s*\(\s*)?["'](?:\.\./)?src/codeprobe_runtime\.py["']"""
         )
         for name, source in (("codeprobe-ui.js", main_ui), ("project-ui.js", project_ui)):
-            if "CodeProbeRuntime.loadVerifiedPyodide" not in source:
-                errors.append(f"{name} does not use the verified Pyodide entry point")
-            if "CodeProbeRuntime.loadVerifiedEngine" not in source:
-                errors.append(f"{name} does not use the verified Python-engine entry point")
+            if "CodeProbeRuntime.createAnalysisSession" not in source:
+                errors.append(f"{name} does not use the isolated worker entry point")
+            if ".runPython(" in source:
+                errors.append(f"{name} executes Python on the UI thread")
             if re.search(r"\bwindow\.loadPyodide\s*\(|(?<![.\w])loadPyodide\s*\(", source):
                 errors.append(f"{name} bypasses the verified Pyodide entry point")
             if direct_engine_fetch.search(source):

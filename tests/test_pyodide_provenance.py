@@ -101,7 +101,8 @@ class PyodideProvenanceTests(unittest.TestCase):
         self.assertIn("copyBytes() { return copyBytes(bytes); }", loader)
         for name in ("codeprobe-ui.js", "project-ui.js"):
             source = (ROOT / "app" / name).read_text(encoding="utf-8")
-            self.assertIn("CodeProbeRuntime.loadVerifiedEngine", source)
+            self.assertIn("CodeProbeRuntime.createAnalysisSession", source)
+            self.assertNotIn(".runPython(", source)
             self.assertNotRegex(
                 source,
                 r"fetch\s*\(\s*['\"]\.\./src/codeprobe_runtime\.py['\"]",

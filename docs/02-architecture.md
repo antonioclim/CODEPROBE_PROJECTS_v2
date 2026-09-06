@@ -188,3 +188,7 @@ are defined in `docs/19-release-recovery.md`.
 ## Coverage extraction seam
 
 Coverage policy and collection live in `tools/check_coverage.py` rather than in the release builder or the analysis engine. This keeps measurement orthogonal to product behaviour. The collector uses `sys.monitoring` to observe executable lines in maintained Python files, while the full test suite, Chromium job and release reproducibility remain separate gates. The sole excluded production path is the coverage driver itself because it must configure the monitor before measurement begins.
+
+## Worker execution boundary
+
+The page controls one cancellable session. Authenticated loader and worker bytes create a classic worker, which alone initialises Pyodide and imports the verified Python engine. The protocol admits only initialisation and fixed file/project operations. Cancellation and timeout terminate the worker; request identity and UI generations exclude late results. See [worker resilience](20-worker-resilience.md).

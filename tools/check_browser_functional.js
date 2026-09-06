@@ -24,6 +24,7 @@ const PUBLIC_EXACT = new Set([
   "/app/codeprobe.css",
   "/app/project.css",
   "/app/pyodide-loader.js",
+  "/app/analysis-worker.js",
   "/app/codeprobe-ui.js",
   "/app/project-ui.js",
   "/app/runtime-config.json",
@@ -269,10 +270,14 @@ function createFixtureServer(root) {
     counts: new Map(),
     tamperEngine: false,
     tamperCore: "",
-    reset({ tamperEngine = false, tamperCore = "" } = {}) {
+    tamperWorker: false,
+    tamperLoaderSecond: false,
+    reset({ tamperEngine = false, tamperCore = "", tamperWorker = false, tamperLoaderSecond = false } = {}) {
       this.counts.clear();
       this.tamperEngine = tamperEngine;
       this.tamperCore = tamperCore;
+      this.tamperWorker = tamperWorker;
+      this.tamperLoaderSecond = tamperLoaderSecond;
     },
     count(pathname) { return this.counts.get(pathname) || 0; },
   };
@@ -312,6 +317,10 @@ function createFixtureServer(root) {
     }
     if (pathname === "/src/codeprobe_runtime.py" && (state.tamperEngine || count > 1)) {
       content = Buffer.concat([content, Buffer.from("\n# integrity tamper\n", "utf8")]);
+    }
+    if ((pathname === "/app/analysis-worker.js" && state.tamperWorker) ||
+        (pathname === "/app/pyodide-loader.js" && state.tamperLoaderSecond && count > 1)) {
+      content = Buffer.concat([content, Buffer.from("\nself.workerTamperExecuted = true;\n", "utf8")]);
     }
     const type = MIME_TYPES[path.extname(pathname).toLowerCase()] || "application/octet-stream";
     response.writeHead(200, {
@@ -513,6 +522,97 @@ async function testTamperedEngineFailsClosed(cdp, baseUrl, state) {
   }
 }
 
+
+// Large but legal source, below the browser's 1 MB file limit. No synthetic
+// worker delay, production test hook or unverified Python engine is used.
+const LEGAL_BUSY_SOURCE = "def transform(value):\n    return value + 1\n".repeat(20000);
+
+async function loadProjectFixture(cdp, sessionId, content) {
+  await evaluate(cdp, sessionId, `(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([${JSON.stringify(content)}], 'busy.py', {type:'text/x-python'}));
+    const input = document.getElementById('folderInput');
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', {bubbles:true}));
+  })()`);
+  await waitForExpression(cdp, sessionId, "document.getElementById('status').textContent.startsWith('Loaded folder: 1 text file(s)')");
+}
+
+async function testWorkerResponsiveness(cdp, baseUrl, fixtureState, compact) {
+  fixtureState.reset();
+  const session = await createSession(cdp, `${baseUrl}/app/${compact ? 'project' : 'index'}.html?resilience=1`);
+  const id = session.sessionId;
+  const active = compact ? "state.workerSession" : "appState.workerSession";
+  const analyseId = compact ? "analyseBtn" : "analyzeBtn";
+  const statusId = compact ? "status" : "statusText";
+  try {
+    if (compact) {
+      await loadProjectFixture(cdp, id, LEGAL_BUSY_SOURCE);
+    } else {
+      await waitForExpression(cdp, id, "appState.workerSession?.isReady()");
+      await evaluate(cdp, id, `document.getElementById('editor').value = ${JSON.stringify(LEGAL_BUSY_SOURCE)}; document.getElementById('editor').dispatchEvent(new Event('input', {bubbles:true}));`);
+    }
+    await evaluate(cdp, id, `(() => {
+      window.resilienceTicks = 0;
+      window.resilienceTimer = setInterval(() => { if (${active}?.isExecuting()) window.resilienceTicks += 1; }, 25);
+      document.getElementById('${analyseId}').click();
+    })()`);
+    await waitForExpression(cdp, id, `${active}?.isExecuting()`, 60000);
+    await waitForExpression(cdp, id, "window.resilienceTicks >= 3", 5000);
+    const start = Date.now();
+    const cancelled = await evaluate(cdp, id, `(() => {
+      document.getElementById('cancelBtn').click();
+      clearInterval(window.resilienceTimer);
+      return {busy:${active}.isBusy(), ready:${active}.isReady(), status:document.getElementById('${statusId}').textContent,
+        disabled:document.getElementById('exportJsonBtn').disabled, hasPagePython:typeof window.pyodide !== 'undefined' || typeof window.loadPyodide !== 'undefined'};
+    })()`);
+    assert(Date.now() - start < 5000, "page cancellation was not responsive under a legal Python workload");
+    assert(!cancelled.busy && !cancelled.ready && cancelled.disabled && !cancelled.hasPagePython, "cancellation retained a live worker, report export or page Python interpreter");
+    assert(cancelled.status.includes("cancelled"), "cancel action did not produce an explicit status");
+    await delay(150);
+    assert(await evaluate(cdp, id, "document.getElementById('exportJsonBtn').disabled"), "late cancelled result enabled report export");
+
+    // A fresh worker is an intentional clean bootstrap, not a second response
+    // inside one bootstrap. Reset the adversarial fixture's request generation.
+    fixtureState.reset();
+    if (compact) await loadProjectFixture(cdp, id, "def square(value):\n    return value * value\n");
+    else await evaluate(cdp, id, "document.getElementById('editor').value = 'def square(value):\\n    return value * value\\n';");
+    await evaluate(cdp, id, `document.getElementById('${analyseId}').click()`);
+    await waitForExpression(cdp, id, `document.getElementById('${statusId}').textContent === '${compact ? 'Project analysis completed.' : 'Analysis completed.'}'`);
+    assertSingleVerifiedRequests(fixtureState);
+
+    // Exercise an actual short deadline while the verified interpreter is warm.
+    const timed = await evaluate(cdp, id, `(() => {
+      let ticks = 0;
+      const timer = setInterval(() => { ticks += 1; }, 10);
+      const start = performance.now();
+      return ${active}.analyse('file', {code:${JSON.stringify(LEGAL_BUSY_SOURCE)}, filename:'deadline.py', language_hint:'python'}, 100)
+        .then(() => ({accepted:true}), error => ({accepted:false, name:error.name, elapsed:performance.now()-start, ticks, ready:${active}.isReady()}))
+        .finally(() => clearInterval(timer));
+    })()`);
+    assert(!timed.accepted && timed.name === "TimeoutError" && !timed.ready, "verified legal workload did not terminate at the requested deadline");
+    assert(timed.ticks > 0 && timed.elapsed < 5000, "deadline delivery blocked the page");
+    fixtureState.reset();
+    const retry = await evaluate(cdp, id, `(() => ${active}.initialise().then(() => ${active}.analyse('file', {code:'def add(a, b):\\n    return a + b\\n', filename:'retry.py', language_hint:'python'})))()`);
+    assert(retry.report && retry.report.engine_fingerprint.source === "packaged-verified", "deadline retry did not use a fresh authenticated interpreter");
+    assertSingleVerifiedRequests(fixtureState);
+    console.log(`[PASS] browser-resilience: ${compact ? 'project' : 'main'} UI heartbeat, execution cancellation, clean retry, deadline and second retry`);
+  } finally { await closeSession(cdp, session); }
+}
+
+async function testTamperedWorkerBootstrap(cdp, baseUrl, fixtureState) {
+  for (const options of [{tamperWorker:true}, {tamperLoaderSecond:true}]) {
+    fixtureState.reset(options);
+    const session = await createSession(cdp, `${baseUrl}/app/index.html?worker-tamper=1`);
+    try {
+      await waitForExpression(cdp, session.sessionId, "document.getElementById('engineBadge').textContent === 'Initialisation failed'");
+      assert(await evaluate(cdp, session.sessionId, "document.getElementById('analyzeBtn').disabled && document.getElementById('exportJsonBtn').disabled"), "tampered bootstrap was not fail-closed");
+      for (const name of CORE_NAMES) assert(fixtureState.count(`/app/vendor/pyodide/v0.25.0/full/${name}`) === 0, "tampered worker began fetching the Python runtime");
+    } finally { await closeSession(cdp, session); }
+  }
+  console.log("[PASS] browser-resilience: tampered worker entry and changed second loader response refused before interpreter bootstrap");
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -568,6 +668,9 @@ async function main() {
     await testProjectAnalysis(cdp, baseUrl, downloads, state, engineDigest);
     await testTamperedCoreFailsClosedAndReloadRetries(cdp, baseUrl, state);
     await testTamperedEngineFailsClosed(cdp, baseUrl, state);
+    await testWorkerResponsiveness(cdp, baseUrl, state, false);
+    await testWorkerResponsiveness(cdp, baseUrl, state, true);
+    await testTamperedWorkerBootstrap(cdp, baseUrl, state);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);

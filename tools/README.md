@@ -52,3 +52,5 @@ CODEPROBE_PYODIDE_FIXTURE_DIR=/path/outside/the/checkout/pyodide-core \
 ```
 
 The preparation command verifies the exact five-file Pyodide startup fixture. The Chromium gate then performs real single-file and project analyses, downloads and validates JSON/text reports, checks Latin-1 and Unicode-NFC boundaries, proves that a hostile second runtime response is not consumed and requires tampered runtime or Python-engine bytes to fail before import. It uses no npm dependency graph. The fixture directory and browser downloads must remain outside the tracked checkout.
+
+`check_worker_protocol.js` exercises session races with explicit worker doubles. The required `check_browser_functional.js` gate separately proves actual authenticated Python-worker execution, cancellation, deadlines and clean retry.

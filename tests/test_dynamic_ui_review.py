@@ -67,7 +67,8 @@ def parse_items(items):
         self.assertIn('id="globalDropOverlay"', html)
         self.assertIn("renderManualReview", script)
         self.assertIn("collectDroppedFiles", script)
-        self.assertIn("webkitGetAsEntry", script)
+        self.assertIn("CodeProbeRuntime.collectDroppedFiles", script)
+        self.assertIn("webkitGetAsEntry", (ROOT / "app" / "pyodide-loader.js").read_text(encoding="utf-8"))
         self.assertRegex(script, r"document\.addEventListener\(\"drop\"")
 
     def test_project_interface_accepts_drop_and_renders_guidance(self):
@@ -77,7 +78,8 @@ def parse_items(items):
         self.assertIn('id="dropOverlay"', html)
         self.assertIn("renderReview", script)
         self.assertIn("handleDroppedProject", script)
-        self.assertIn("webkitGetAsEntry", script)
+        self.assertIn("CodeProbeRuntime.collectDroppedFiles", script)
+        self.assertIn("webkitGetAsEntry", (ROOT / "app" / "pyodide-loader.js").read_text(encoding="utf-8"))
 
 
 class BrowserInputBudgetTests(unittest.TestCase):
