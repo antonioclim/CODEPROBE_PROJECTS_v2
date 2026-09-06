@@ -45,37 +45,40 @@ jobs:
           test "$(git rev-parse HEAD)" = '09f4d81c5bfcb0b2f7ebfa12d180a00962d2a0f8'
           python -I -S -B - <<'PY'
           import base64, hashlib, json, lzma, os, pathlib, urllib.request
-          shas = ['9998a1de4ca1a6be2bba3c252488f4a797ade455', '591ee4da79dfc44d5e344cae2932681f73321604', '904368958cfa9687685def698d4c5986f8156a1e', 'bc4e9c2a4743c80fc1a30dca7f286d77008d5dae', 'b680f2539032d231e340b025332089024f676e97', '335a3c383fa7fa9c22192d189c1e77e5e1616f7e']
           headers = {'Accept': 'application/vnd.github+json', 'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'User-Agent': 'CodeProbe-4H'}
-          parts = []
-          for sha in shas:
+          def blob(sha):
               url = 'https://api.github.com/repos/antonioclim/CODEPROBE_PROJECTS_v2/git/blobs/' + sha
               with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
                   record = json.load(response)
               content = base64.b64decode(record['content'])
-              actual = hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest()
-              if actual != sha:
+              if hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest() != sha:
                   raise SystemExit('Transport blob mismatch')
-              parts.append(content)
-          patch = lzma.decompress(base64.b64decode(b''.join(parts), validate=True))
+              return content
+          shas = ['9998a1de4ca1a6be2bba3c252488f4a797ade455', '591ee4da79dfc44d5e344cae2932681f73321604', '904368958cfa9687685def698d4c5986f8156a1e', 'bc4e9c2a4743c80fc1a30dca7f286d77008d5dae', 'b680f2539032d231e340b025332089024f676e97', '335a3c383fa7fa9c22192d189c1e77e5e1616f7e']
+          patch = lzma.decompress(base64.b64decode(b''.join(blob(sha) for sha in shas), validate=True))
           if len(patch) != 116637 or hashlib.sha256(patch).hexdigest() != '70e9832c99e4d0a122fcf162665a66b2851c87c6d68fa79748c78835e568ec2f':
               raise SystemExit('Candidate patch mismatch')
           pathlib.Path('/tmp/codeprobe-4h.patch').write_bytes(patch)
+          correction = lzma.decompress(base64.b64decode(blob('5a7d605c9fcddc0fcb9fa5b184b4196b7cf6e44f'), validate=True))
+          if hashlib.sha256(correction).hexdigest() != '80574ce95169acf6d27ef5b46913e407f20d0bd71a61819dfaf0b0edd34ec839':
+              raise SystemExit('Correction patch mismatch')
+          pathlib.Path('/tmp/codeprobe-4h-correction.patch').write_bytes(correction)
           PY
           git apply --unidiff-zero --binary /tmp/codeprobe-4h.patch
+          git apply --unidiff-zero --binary /tmp/codeprobe-4h-correction.patch
           git add --all
           git diff --cached --check
-          test "$(git write-tree)" = '03cbbf2ec7df6c347a0eecdb2898c1888ac462d5'
+          test "$(git write-tree)" = '45608c9457459af659993cd2faf08fd78f2c0908'
       - name: Run the complete read-only canonical gate
         shell: bash
         run: |
           set -euo pipefail
-          python -I -S -B tools/check_release.py --require-node | tee /tmp/4h-gate.log
+          python -I -S -B tools/check_release.py --require-node 2>&1 | tee /tmp/4h-gate.log
       - name: Measure supported-code coverage without lowering floors
         shell: bash
         run: |
           set -euo pipefail
-          python -I -S -B tools/check_coverage.py --json-out /tmp/coverage-4h.json | tee /tmp/4h-coverage.log
+          python -I -S -B tools/check_coverage.py --json-out /tmp/coverage-4h.json 2>&1 | tee /tmp/4h-coverage.log
       - name: Prepare authenticated Pyodide fixture
         if: success() || failure()
         shell: bash
@@ -88,7 +91,7 @@ jobs:
           CODEPROBE_REQUIRE_HTTP_NAVIGATION: '1'
         run: |
           set -euo pipefail
-          node tools/check_browser_functional.js | tee /tmp/4h-browser.log
+          node tools/check_browser_functional.js 2>&1 | tee /tmp/4h-browser.log
       - name: Verify accessibility in a real browser
         if: success() || failure()
         shell: bash
@@ -96,14 +99,14 @@ jobs:
           CODEPROBE_REQUIRE_HTTP_NAVIGATION: '1'
         run: |
           set -euo pipefail
-          node tools/check_browser_accessibility.js | tee /tmp/4h-accessibility.log
+          node tools/check_browser_accessibility.js 2>&1 | tee /tmp/4h-accessibility.log
       - name: Upload only verified immutable Git objects and evidence
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(git write-tree)" = '03cbbf2ec7df6c347a0eecdb2898c1888ac462d5'
+          test "$(git write-tree)" = '45608c9457459af659993cd2faf08fd78f2c0908'
           git diff --exit-code
           python -I -S -B - <<'PY'
           import base64, json, os, pathlib, subprocess, urllib.request
@@ -126,7 +129,7 @@ jobs:
                   raise SystemExit('Source blob mismatch: ' + name)
               entries.append({'path': name, 'mode': '100644', 'type': 'blob', 'sha': local_sha})
           result = post('trees', {'base_tree': '56a93711260d7bae47eceba0172b10b2d9b86336', 'tree': entries})
-          if result['sha'] != '03cbbf2ec7df6c347a0eecdb2898c1888ac462d5':
+          if result['sha'] != '45608c9457459af659993cd2faf08fd78f2c0908':
               raise SystemExit('Remote tree mismatch')
           print('VERIFIED_REMOTE_TREE=' + result['sha'])
           evidence = {'schema': 'codeprobe-4h-staging-evidence/v1', 'tree': result['sha'], 'run_id': os.environ['GITHUB_RUN_ID'], 'logs': {}}
