@@ -10,10 +10,12 @@ The broker is the exclusive owner of child reaping and of both output pipes.
 
 from __future__ import annotations
 
+import errno
 import math
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -435,7 +437,94 @@ def _posix_child_exited(process: subprocess.Popen[bytes]) -> bool:
     return observed is not None
 
 
-def _signal_owned_group(process: subprocess.Popen[bytes], signum: int) -> None:
+def _darwin_group_is_zombie_only(
+    process: subprocess.Popen[bytes], *, deadline: float,
+) -> bool:
+    """Check the narrow XNU killpg EPERM case without releasing the leader.
+
+    XNU excludes zombies from group signalling and can return EPERM when no
+    member remains eligible. Bounded libproc observations, with the waitable
+    leader still present, distinguish observed zombies from denied live members.
+    Unavailable, truncated or expanding observations fail closed. These reads
+    are not atomic; disappearance of reaped zombies is permitted.
+    """
+    if time.monotonic() >= deadline or not _posix_child_exited(process):
+        return False
+    import ctypes
+
+    class _BSDShortInfo(ctypes.Structure):
+        _fields_ = [
+            ("pid", ctypes.c_uint32), ("ppid", ctypes.c_uint32),
+            ("pgid", ctypes.c_uint32), ("status", ctypes.c_uint32),
+            ("comm", ctypes.c_char * 16),
+            ("flags", ctypes.c_uint32), ("uid", ctypes.c_uint32),
+            ("gid", ctypes.c_uint32), ("ruid", ctypes.c_uint32),
+            ("rgid", ctypes.c_uint32), ("svuid", ctypes.c_uint32),
+            ("svgid", ctypes.c_uint32), ("rfu", ctypes.c_uint32),
+        ]
+
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        libproc.proc_listpids.argtypes = [
+            ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_int,
+        ]
+        libproc.proc_listpids.restype = ctypes.c_int
+        libproc.proc_pidinfo.argtypes = [
+            ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int,
+        ]
+        libproc.proc_pidinfo.restype = ctypes.c_int
+
+        def snapshot() -> set[int] | None:
+            if time.monotonic() >= deadline:
+                return None
+            members = (ctypes.c_int * 1024)()
+            capacity = ctypes.sizeof(members)
+            # PROC_PGRP_ONLY includes both allproc and zombproc in XNU.
+            filled = libproc.proc_listpids(2, process.pid, members, capacity)
+            item_size = ctypes.sizeof(ctypes.c_int)
+            if filled <= 0 or filled >= capacity or filled % item_size:
+                return None
+            identifiers = set(members[:filled // item_size])
+            if (
+                len(identifiers) != filled // item_size
+                or any(pid <= 0 for pid in identifiers)
+                or process.pid not in identifiers
+            ):
+                return None
+            return identifiers
+
+        def all_zombies(members: set[int]) -> bool:
+            for pid in members:
+                if time.monotonic() >= deadline:
+                    return False
+                info = _BSDShortInfo()
+                # PROC_PIDT_SHORTBSDINFO with arg=1 also looks up zombies.
+                filled = libproc.proc_pidinfo(pid, 13, 1, ctypes.byref(info), ctypes.sizeof(info))
+                if (
+                    filled != ctypes.sizeof(info) or info.pid != pid
+                    or info.pgid != process.pid or info.status != 5  # SZOMB
+                ):
+                    return False
+            return True
+
+        initial = snapshot()
+        if initial is None or not all_zombies(initial):
+            return False
+        final = snapshot()
+        # PID sets alone cannot reject a reaped zombie's PID reused by a live
+        # member. Recheck final states; these observations are not atomic.
+        if final is None or not final.issubset(initial) or not all_zombies(final):
+            return False
+    except (OSError, AttributeError, ValueError):
+        # Preserve the original killpg EPERM when libproc cannot prove safety.
+        return False
+    # Do not catch the ownership error if another reaper has released the PID.
+    return time.monotonic() < deadline and _posix_child_exited(process)
+
+
+def _signal_owned_group(
+    process: subprocess.Popen[bytes], signum: int, *, deadline: float | None = None,
+) -> None:
     # A waitable child anchors this PID until the last group signal. In
     # particular, Popen.poll/terminate/kill must not be used on this POSIX path.
     _posix_child_exited(process)
@@ -443,6 +532,12 @@ def _signal_owned_group(process: subprocess.Popen[bytes], signum: int) -> None:
         os.killpg(process.pid, signum)
     except ProcessLookupError:
         pass
+    except PermissionError as exc:
+        if exc.errno != errno.EPERM or sys.platform != "darwin" or not _darwin_group_is_zombie_only(
+            process,
+            deadline=deadline if deadline is not None else time.monotonic() + 1.0,
+        ):
+            raise
 
 
 class _OutputPipe:
@@ -508,10 +603,10 @@ def _terminate_tree(
                 process.kill()
         return
     if not graceful:
-        _signal_owned_group(process, signal.SIGKILL)
+        _signal_owned_group(process, signal.SIGKILL, deadline=cleanup_deadline)
         return
     try:
-        _signal_owned_group(process, signal.SIGTERM)
+        _signal_owned_group(process, signal.SIGTERM, deadline=cleanup_deadline)
         remaining = _TERMINATION_GRACE_SECONDS
         if cleanup_deadline is not None:
             remaining = min(remaining, max(0.0, cleanup_deadline - time.monotonic()))
@@ -519,7 +614,7 @@ def _terminate_tree(
         # injected into the monitor's sleep does not interrupt cleanup again.
         threading.Event().wait(remaining)
     finally:
-        _signal_owned_group(process, signal.SIGKILL)
+        _signal_owned_group(process, signal.SIGKILL, deadline=cleanup_deadline)
 
 
 def _finish_process(

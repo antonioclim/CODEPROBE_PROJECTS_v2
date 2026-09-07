@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import json
 import os
+import signal
+import struct
 import sys
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -373,7 +377,7 @@ class ProcessControlTests(unittest.TestCase):
 
     def test_invalid_deadlines_and_byte_limits_never_launch(self) -> None:
         cases = [("timeout", value) for value in (float("nan"), float("inf"),
-                 -float("inf"), 0, -1, True)]
+                 -float("inf"), 0, -1, True, 10 ** 400)]
         cases += [(name, value) for name in ("stdout_limit", "stderr_limit")
                   for value in (0, -1, 1.5, True)]
         for keyword, value in cases:
@@ -615,6 +619,229 @@ class ProcessControlTests(unittest.TestCase):
                   "A01-F003 universal containment remains OPEN")
             (fixture.root / "stop").touch()
             fixture.assert_stopped()
+
+
+class _LibprocFixture:
+    """Finite public-ABI responses; this double never loads a native library."""
+
+    anchor = 4101
+    member = 4102
+
+    def __init__(self, *, snapshots=None, list_sizes=None, records=None,
+                 info_sizes=None, after_info=None) -> None:
+        self.snapshots = snapshots or [[self.anchor, self.member], [self.anchor, self.member]]
+        self.list_sizes = list_sizes or []
+        self.records = records or {}
+        self.info_sizes = info_sizes or {}
+        self.after_info = after_info
+        self.list_index = 0
+        self.info_counts = {}
+        self.proc_listpids = mock.Mock(side_effect=self._listpids)
+        self.proc_pidinfo = mock.Mock(side_effect=self._pidinfo)
+
+    def _listpids(self, kind, group, buffer, capacity):
+        if kind != 2 or group != self.anchor:
+            raise AssertionError("Fixture expects a process-group query")
+        index = self.list_index
+        self.list_index += 1
+        pids = self.snapshots[min(index, len(self.snapshots) - 1)]
+        data = struct.pack("=" + "i" * len(pids), *pids)
+        if data:
+            ctypes.memmove(buffer, data, min(len(data), capacity))
+        result = self.list_sizes[index] if index < len(self.list_sizes) else len(data)
+        if result == "full":
+            return capacity
+        if result == "oversized":
+            return capacity + ctypes.sizeof(ctypes.c_int)
+        return result
+
+    def _pidinfo(self, pid, flavour, include_zombies, buffer, capacity):
+        if flavour != 13 or include_zombies != 1 or capacity != 64:
+            raise AssertionError("Fixture requires the public short-BSD zombie query contract")
+        # Explicit public proc_bsdshortinfo layout, independent of the helper's
+        # ctypes structure: four identity/state words, comm and eight words.
+        record = {"pid": pid, "ppid": self.anchor, "pgid": self.anchor, "state": 5}
+        changes = self.records.get(pid, {})
+        index = self.info_counts.get(pid, 0)
+        self.info_counts[pid] = index + 1
+        if isinstance(changes, list):
+            changes = changes[min(index, len(changes) - 1)]
+        record.update(changes)
+        data = struct.pack("=IIII16s8I", record["pid"], record["ppid"],
+                           record["pgid"], record["state"], b"owned-fixture",
+                           *([0] * 8))
+        ctypes.memmove(buffer, data, min(len(data), capacity))
+        if self.after_info is not None:
+            self.after_info()
+        return self.info_sizes.get(pid, len(data))
+
+
+def _owned_posix_interface():
+    """Model only observation/signalling syscalls; never consult a host PID."""
+    process = SimpleNamespace(pid=_LibprocFixture.anchor, returncode=None)
+    interface = SimpleNamespace(
+        P_PID=1, WEXITED=4, WNOHANG=1, WNOWAIT=0x01000000,
+        waitid=mock.Mock(return_value=SimpleNamespace(si_pid=process.pid)),
+        killpg=mock.Mock(),
+    )
+    return process, interface
+
+
+class ProcessOwnershipContractTests(unittest.TestCase):
+    """Guard evidence on protocol doubles, distinct from real platform tests."""
+
+    def _zombie_proof(self, library, *, process=None, interface=None, deadline=None):
+        if process is None:
+            process, interface = _owned_posix_interface()
+        if deadline is None:
+            deadline = time.monotonic() + 10
+        with mock.patch.object(process_control, "os", interface), \
+                mock.patch.object(ctypes, "CDLL", return_value=library):
+            return process_control._darwin_group_is_zombie_only(process, deadline=deadline)
+
+    def test_zombie_only_proof_accepts_complete_group_and_collected_member(self) -> None:
+        for second in ([4101, 4102], [4101]):
+            with self.subTest(second_snapshot=second):
+                library = _LibprocFixture(snapshots=[[4101, 4102], second])
+                self.assertTrue(self._zombie_proof(library))
+                self.assertGreater(library.proc_pidinfo.call_count, 0)
+
+    def test_zombie_proof_rejects_live_or_mismatched_member_records(self) -> None:
+        for change in ({"state": 2}, {"state": 0}, {"pid": 9999}, {"pgid": 9999}):
+            with self.subTest(change=change):
+                library = _LibprocFixture(records={4102: change})
+                self.assertFalse(self._zombie_proof(library))
+
+    def test_zombie_proof_rejects_incomplete_or_failed_group_inventory(self) -> None:
+        for size in (0, -1, 1, 5, "full", "oversized"):
+            with self.subTest(returned_byte_count=size):
+                library = _LibprocFixture(list_sizes=[size])
+                self.assertFalse(self._zombie_proof(library))
+
+    def test_zombie_proof_rejects_invalid_inventory_members(self) -> None:
+        for first in ([4102], [4101, 4101], [4101, 0], [4101, -1]):
+            with self.subTest(first_snapshot=first):
+                self.assertFalse(self._zombie_proof(_LibprocFixture(snapshots=[first])))
+
+    def test_zombie_proof_rejects_partial_or_failed_member_queries(self) -> None:
+        for size in (-1, 0, 32, 63, 65):
+            with self.subTest(returned_byte_count=size):
+                library = _LibprocFixture(info_sizes={4102: size})
+                self.assertFalse(self._zombie_proof(library))
+
+    def test_zombie_proof_rejects_changed_membership_and_lost_anchor(self) -> None:
+        for second in ([4101, 4102, 4103], [4102], [4101, 4101]):
+            with self.subTest(second_snapshot=second):
+                library = _LibprocFixture(snapshots=[[4101, 4102], second])
+                self.assertFalse(self._zombie_proof(library))
+        with self.subTest(same_pids="member is live at the final query"):
+            library = _LibprocFixture(records={4102: [{"state": 5}, {"state": 2}]})
+            self.assertFalse(self._zombie_proof(library))
+
+    def test_zombie_proof_rejects_unavailable_api_and_library(self) -> None:
+        process, interface = _owned_posix_interface()
+        with mock.patch.object(process_control, "os", interface), \
+                mock.patch.object(ctypes, "CDLL", side_effect=OSError("fixture library unavailable")):
+            self.assertFalse(process_control._darwin_group_is_zombie_only(
+                process, deadline=time.monotonic() + 10))
+        self.assertFalse(self._zombie_proof(SimpleNamespace()))
+        library = _LibprocFixture()
+        library.proc_pidinfo.side_effect = OSError("fixture query denied")
+        self.assertFalse(self._zombie_proof(library))
+
+    def test_zombie_proof_rejects_live_leader_and_expired_budget(self) -> None:
+        process, interface = _owned_posix_interface()
+        interface.waitid.return_value = None
+        library = _LibprocFixture()
+        self.assertFalse(self._zombie_proof(library, process=process, interface=interface))
+        library.proc_listpids.assert_not_called()
+        process, interface = _owned_posix_interface()
+        library = _LibprocFixture()
+        self.assertFalse(self._zombie_proof(library, process=process, interface=interface,
+                                           deadline=time.monotonic() - 1))
+        library.proc_listpids.assert_not_called()
+
+    def test_zombie_proof_stops_when_its_budget_expires_during_inspection(self) -> None:
+        expired = []
+        library = _LibprocFixture(after_info=lambda: expired.append(True))
+        clock = SimpleNamespace(monotonic=lambda: 20 if expired else 1)
+        with mock.patch.object(process_control, "time", clock):
+            self.assertFalse(self._zombie_proof(library, deadline=10))
+        self.assertTrue(expired)
+
+    def test_zombie_proof_does_not_hide_lost_ownership_during_inspection(self) -> None:
+        lost = []
+        process, interface = _owned_posix_interface()
+        interface.waitid.side_effect = lambda *args: SimpleNamespace(
+            si_pid=9999 if lost else process.pid)
+        library = _LibprocFixture(after_info=lambda: lost.append(True))
+        with self.assertRaises(ProcessControlError):
+            self._zombie_proof(library, process=process, interface=interface)
+        interface.killpg.assert_not_called()
+
+    def test_darwin_signal_denial_requires_complete_zombie_proof(self) -> None:
+        for case, states in (("zombies", {"state": 5}), ("live", {"state": 2}),
+                             ("became_live", [{"state": 5}, {"state": 2}])):
+            with self.subTest(member_state=case):
+                process, interface = _owned_posix_interface()
+                denial = PermissionError(errno.EPERM, "fixture group denial")
+                interface.killpg.side_effect = denial
+                library = _LibprocFixture(records={4102: states})
+                with mock.patch.object(process_control, "os", interface), \
+                        mock.patch.object(process_control, "sys", SimpleNamespace(platform="darwin")), \
+                        mock.patch.object(ctypes, "CDLL", return_value=library):
+                    if case == "zombies":
+                        process_control._signal_owned_group(process, signal.SIGTERM)
+                    else:
+                        with self.assertRaises(PermissionError) as caught:
+                            process_control._signal_owned_group(process, signal.SIGTERM)
+                        self.assertIs(caught.exception, denial)
+                interface.killpg.assert_called_once_with(process.pid, signal.SIGTERM)
+
+    def test_other_platform_and_non_eperm_denials_are_preserved(self) -> None:
+        for platform, code in (("linux", errno.EPERM), ("darwin", errno.EACCES)):
+            with self.subTest(platform=platform, errno=code):
+                process, interface = _owned_posix_interface()
+                denial = PermissionError(code, "fixture denial requiring propagation")
+                interface.killpg.side_effect = denial
+                with mock.patch.object(process_control, "os", interface), \
+                        mock.patch.object(process_control, "sys", SimpleNamespace(platform=platform)), \
+                        mock.patch.object(process_control, "_darwin_group_is_zombie_only") as proof:
+                    with self.assertRaises(PermissionError) as caught:
+                        process_control._signal_owned_group(process, signal.SIGTERM)
+                self.assertIs(caught.exception, denial)
+                proof.assert_not_called()
+
+    def test_invalid_posix_ownership_never_signals_a_group(self) -> None:
+        for case in ("previously_reaped", "wrong_pid", "no_child"):
+            with self.subTest(case=case):
+                process, interface = _owned_posix_interface()
+                if case == "previously_reaped":
+                    process.returncode = 0
+                elif case == "wrong_pid":
+                    interface.waitid.return_value = SimpleNamespace(si_pid=9999)
+                else:
+                    interface.waitid.side_effect = ChildProcessError(errno.ECHILD, "fixture child gone")
+                with mock.patch.object(process_control, "os", interface):
+                    with self.assertRaises(ProcessControlError):
+                        process_control._signal_owned_group(process, signal.SIGTERM)
+                interface.killpg.assert_not_called()
+                if case == "previously_reaped":
+                    interface.waitid.assert_not_called()
+
+    def test_valid_live_and_exited_anchor_observations_keep_nowait_ownership(self) -> None:
+        for exited in (False, True):
+            with self.subTest(exited=exited):
+                process, interface = _owned_posix_interface()
+                interface.waitid.return_value = SimpleNamespace(si_pid=process.pid) if exited else None
+                with mock.patch.object(process_control, "os", interface):
+                    self.assertEqual(process_control._posix_child_exited(process), exited)
+                    process_control._signal_owned_group(process, signal.SIGTERM)
+                for call in interface.waitid.call_args_list:
+                    self.assertEqual(call.args[:2], (interface.P_PID, process.pid))
+                    self.assertTrue(call.args[2] & interface.WNOWAIT,
+                                    "Identity observation must not reap the anchor")
+                interface.killpg.assert_called_once_with(process.pid, signal.SIGTERM)
 
 
 if __name__ == "__main__":

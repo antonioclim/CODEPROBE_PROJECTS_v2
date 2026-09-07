@@ -116,6 +116,7 @@ APPROVED_STDLIB_IMPORTS = {
     "socket",
     "stat",
     "statistics",
+    "struct",
     "subprocess",
     "sys",
     "tarfile",
