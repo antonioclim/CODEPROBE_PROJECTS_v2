@@ -13,11 +13,21 @@ import csv
 import json
 import re
 import stat
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.append(str(SRC))
+
+from codeprobe_engine.release import (  # noqa: E402
+    atomic_write_bytes,
+    validate_diagnostic_outputs,
+)
+
 RENAME_MAP = Path("release/file-rename-map.csv")
 TEXT_SUFFIXES = {".md", ".html", ".htm"}
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"}
@@ -262,16 +272,60 @@ def run_reference_audit(root: Path = ROOT) -> List[str]:
     return run_checks(root)
 
 
+def _diagnostic_inputs(root: Path) -> list[Path]:
+    """Include scanned members and named targets, even below ignored folders."""
+    paths = [path for path in root.rglob("*")
+             if path.is_file() and not (set(path.relative_to(root).parts) & IGNORED_PARTS)]
+    protected = list(paths)
+    if root != ROOT:
+        # --root may name another checkout; keep the running tool and its own
+        # source/metadata protected as well as the files being audited.
+        protected.extend(path for path in ROOT.rglob("*")
+                         if path.is_file() and not (set(path.relative_to(ROOT).parts) & IGNORED_PARTS))
+    for path in paths:
+        if path.suffix.lower() in TEXT_SUFFIXES:
+            for raw in markdown_and_html_references(path):
+                reference = _normalise_reference(raw)
+                if reference:
+                    protected.append(_resolve(root, path, reference))
+    manifest = root / "app" / "resource-integrity.json"
+    protected.extend((manifest, root / RENAME_MAP))
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("assets"), list):
+            for item in data["assets"]:
+                if isinstance(item, dict) and isinstance(item.get("path"), str):
+                    protected.append(root / "app" / item["path"])
+    except (OSError, UnicodeError, ValueError):
+        pass  # The ordinary audit retains responsibility for invalid metadata.
+    try:
+        protected.extend(root / row["current_path"] for row in load_rename_rows(root)
+                         if isinstance(row.get("current_path"), str) and row["current_path"])
+    except (OSError, UnicodeError, csv.Error):
+        pass
+    return protected
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check high-confidence CodeProbe path references and rename-map coverage.")
     parser.add_argument("--root", default=str(ROOT), help="CodeProbe checkout root. Defaults to this package root.")
     parser.add_argument("--json-out", help="Optional path for machine-readable audit results.")
     args = parser.parse_args(argv)
-    root = Path(args.root)
-    errors = run_checks(root)
-    payload = {"ok": not errors, "errors": errors}
-    if args.json_out:
-        Path(args.json_out).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    root = Path(args.root).resolve()
+    try:
+        output = None
+        if args.json_out:
+            protected = _diagnostic_inputs(root)
+            (output,) = validate_diagnostic_outputs((Path(args.json_out),), inputs=protected)
+        errors = run_checks(root)
+        payload = {"ok": not errors, "errors": errors}
+        if output is not None:
+            content = (json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+            validate_diagnostic_outputs((output,), inputs=_diagnostic_inputs(root))
+            atomic_write_bytes(output, content)
+    except (OSError, UnicodeError, ValueError) as exc:
+        print(f"[FAIL] reference report: {exc}")
+        return 1
     if errors:
         for error in errors:
             print(f"[FAIL] {error}")

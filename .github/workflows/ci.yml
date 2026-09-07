@@ -168,6 +168,15 @@ jobs:
           python -I -S -B tests/test_release_recovery.py BoundedRecoveryReaderTests -v
           python -I -S -B tests/test_local_server.py BoundedPublicResourceTests -v
 
+      - name: Verify diagnostic output and fixture regressions
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          python -I -S -B -m unittest discover -s tests -p test_pyodide_fixture.py -v
+          python -I -S -B -m unittest discover -s tests -p test_coverage_policy.py -v
+          python -I -S -B -m unittest discover -s tests -p test_reference_integrity.py -v
+          python -I -S -B -m unittest discover -s tests -p test_release_integrity.py -v
+
       - name: Run the canonical read-only gate
         shell: bash
         run: python -I -S -B tools/check_release.py --require-node
@@ -325,6 +334,7 @@ jobs:
           python -I -S -B tools/prepare_pyodide_fixture.py \
             --output-dir "$RUNNER_TEMP/pyodide-core" \
             --json-out "$RUNNER_TEMP/pyodide-core.json"
+          cat "$RUNNER_TEMP/pyodide-core.json"
 
       - name: Run real file and project analyses with verified runtime bytes
         shell: bash

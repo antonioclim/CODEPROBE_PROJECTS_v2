@@ -1,5 +1,6 @@
 import errno
 import hashlib
+import io
 import json
 import os
 import stat
@@ -22,11 +23,184 @@ for pth in (SRC, TOOLS):
 
 import build_release
 import codeprobe_runtime as engine
-from codeprobe_engine.release import build_release_manifest, write_manifest, zip_summary
+from codeprobe_engine.release import (
+    ReleaseSetError, build_release_manifest, validate_diagnostic_outputs,
+    write_manifest, write_zip_summary, zip_summary,
+)
 import compare_releases as release_compare
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
+    def _comparison_fixture(self, parent: Path):
+        old_zip, new_zip = parent / "old.zip", parent / "new.zip"
+        self._zip_with(old_zip, {"oldroot/a.txt": b"alpha"})
+        self._zip_with(new_zip, {"newroot/a.txt": b"omega", "newroot/b.txt": b"beta"})
+        root = parent / "kit"
+        (root / "tools").mkdir(parents=True)
+        (root / "release").mkdir()
+        source = root / "tools" / "compare_releases.py"
+        source.write_bytes(b"# inert source fixture\n")
+        metadata = root / "release" / "release-manifest.json"
+        metadata.write_bytes(b"{}\n")
+        return root, (old_zip, new_zip, source, metadata)
+
+    def _check_comparison_aliases(self, kind: str) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root, inputs = self._comparison_fixture(parent)
+            before = {path: path.read_bytes() for path in inputs}
+            for index, source in enumerate(inputs):
+                for flag in ("--json-out", "--md-out"):
+                    with self.subTest(input=source.name, kind=kind, flag=flag):
+                        output = parent / f"alias-{index}-{flag[2:]}.txt"
+                        if kind == "same":
+                            output = source
+                        elif kind == "resolved":
+                            (source.parent / "unused").mkdir(exist_ok=True)
+                            output = source.parent / "unused" / ".." / source.name
+                        elif kind == "symlink":
+                            self.symlink_or_skip(output, source)
+                        else:
+                            try:
+                                os.link(source, output)
+                            except OSError as exc:
+                                if exc.errno in {errno.EACCES, errno.EPERM, errno.ENOTSUP}:
+                                    self.skipTest(f"hard links are unavailable: {exc}")
+                                raise
+                        other = parent / "not-created" / "other.txt"
+                        other_flag = "--md-out" if flag == "--json-out" else "--json-out"
+                        with mock.patch.object(release_compare, "ROOT", root), \
+                                mock.patch.object(release_compare, "compare_zip_packages", wraps=release_compare.compare_zip_packages) as compare, \
+                                mock.patch.object(sys, "stdout", io.StringIO()):
+                            status = release_compare.main([str(inputs[0]), str(inputs[1]), flag, str(output), other_flag, str(other)])
+                        self.assertEqual(status, 1)
+                        compare.assert_not_called()
+                        self.assertFalse(other.parent.exists())
+                        self.assertEqual(before, {path: path.read_bytes() for path in inputs})
+
+    def test_comparison_rejects_same_and_resolved_input_paths_before_work(self) -> None:
+        self._check_comparison_aliases("same")
+        self._check_comparison_aliases("resolved")
+
+    def test_comparison_rejects_hardlink_input_aliases_before_either_report(self) -> None:
+        self._check_comparison_aliases("hardlink")
+
+    def test_comparison_rejects_symlink_input_aliases_before_either_report(self) -> None:
+        self._check_comparison_aliases("symlink")
+
+    def test_comparison_rejects_same_resolved_and_hardlinked_sibling_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root, inputs = self._comparison_fixture(parent)
+            for kind in ("same", "resolved", "hardlink"):
+                with self.subTest(kind=kind):
+                    first = parent / (kind + ".json")
+                    first.write_bytes(b"report sentinel\n")
+                    second = first
+                    if kind == "resolved":
+                        (parent / "unused").mkdir()
+                        second = parent / "unused" / ".." / first.name
+                    elif kind == "hardlink":
+                        second = parent / (kind + ".md")
+                        os.link(first, second)
+                    with mock.patch.object(release_compare, "ROOT", root), \
+                            mock.patch.object(sys, "stdout", io.StringIO()):
+                        self.assertEqual(release_compare.main([str(inputs[0]), str(inputs[1]), "--json-out", str(first), "--md-out", str(second)]), 1)
+                    self.assertEqual(first.read_bytes(), b"report sentinel\n")
+                    self.assertEqual(second.read_bytes(), b"report sentinel\n")
+
+    def test_comparison_rejects_symlinked_sibling_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root, inputs = self._comparison_fixture(parent)
+            first, second = parent / "report.json", parent / "report.md"
+            first.write_bytes(b"report sentinel\n")
+            self.symlink_or_skip(second, first)
+            with mock.patch.object(release_compare, "ROOT", root), mock.patch.object(sys, "stdout", io.StringIO()):
+                self.assertEqual(release_compare.main([str(inputs[0]), str(inputs[1]), "--json-out", str(first), "--md-out", str(second)]), 1)
+            self.assertEqual(first.read_bytes(), b"report sentinel\n")
+
+    def test_comparison_renders_both_reports_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root, inputs = self._comparison_fixture(parent)
+            before = {path: path.read_bytes() for path in inputs}
+            first, second = parent / "report.json", parent / "report.md"
+            with mock.patch.object(release_compare, "ROOT", root), mock.patch.object(sys, "stdout", io.StringIO()):
+                self.assertEqual(release_compare.main([str(inputs[0]), str(inputs[1]), "--json-out", str(first), "--md-out", str(second)]), 0)
+                report = json.loads(first.read_bytes())
+                self.assertEqual(report["added_paths"], ["b.txt"])
+                self.assertEqual([item["path"] for item in report["changed_paths"]], ["a.txt"])
+                self.assertIn("`b.txt`", second.read_text(encoding="utf-8"))
+                valid = {path: path.read_bytes() for path in (first, second)}
+                with mock.patch.object(release_compare, "render_markdown", return_value="\ud800"):
+                    self.assertEqual(release_compare.main([str(inputs[0]), str(inputs[1]), "--json-out", str(first), "--md-out", str(second)]), 1)
+            self.assertEqual(valid, {path: path.read_bytes() for path in (first, second)})
+            self.assertEqual(before, {path: path.read_bytes() for path in inputs})
+
+    def test_diagnostic_output_ancestor_collision_creates_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            first = parent / "new" / "report.json"
+            second = first / "report.md"
+            with self.assertRaises(ReleaseSetError):
+                validate_diagnostic_outputs((first, second), inputs=())
+            self.assertFalse((parent / "new").exists())
+
+    def test_comparison_reports_partial_publication_without_claiming_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root, inputs = self._comparison_fixture(parent)
+            first, second = parent / "report.json", parent / "report.md"
+            first.write_bytes(b"old JSON sentinel\n")
+            second.write_bytes(b"old Markdown sentinel\n")
+            publish = release_compare.atomic_write_bytes
+            output = io.StringIO()
+
+            def fail_second(path, content):
+                if path == second:
+                    raise OSError("controlled second-report failure")
+                return publish(path, content)
+
+            with mock.patch.object(release_compare, "ROOT", root), \
+                    mock.patch.object(release_compare, "atomic_write_bytes", side_effect=fail_second), \
+                    mock.patch.object(sys, "stdout", output):
+                self.assertEqual(release_compare.main([str(inputs[0]), str(inputs[1]), "--json-out", str(first), "--md-out", str(second)]), 1)
+            self.assertEqual(json.loads(first.read_bytes())["added_paths"], ["b.txt"])
+            self.assertEqual(second.read_bytes(), b"old Markdown sentinel\n")
+            self.assertIn("publication may be partial", output.getvalue())
+
+    def test_zip_summary_rejects_same_resolved_and_hardlinked_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            source = parent / "source.zip"
+            self._zip_with(source, {"root/a.txt": b"alpha"})
+            before = source.read_bytes()
+            (parent / "unused").mkdir()
+            alias = parent / "hardlink.json"
+            os.link(source, alias)
+            for output in (source, parent / "unused" / ".." / source.name, alias):
+                with self.subTest(output=output):
+                    with self.assertRaises(ReleaseSetError):
+                        write_zip_summary(source, output)
+                    self.assertEqual(source.read_bytes(), before)
+            output = parent / "reports" / "summary.json"
+            result = write_zip_summary(source, output)
+            self.assertEqual(json.loads(output.read_bytes()), result)
+            self.assertEqual(result["zip_sha256"], hashlib.sha256(before).hexdigest())
+            self.assertEqual(source.read_bytes(), before)
+
+    def test_zip_summary_rejects_symlink_to_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            source, output = parent / "source.zip", parent / "report.json"
+            self._zip_with(source, {"root/a.txt": b"alpha"})
+            before = source.read_bytes()
+            self.symlink_or_skip(output, source)
+            with self.assertRaises(ReleaseSetError):
+                write_zip_summary(source, output)
+            self.assertEqual(source.read_bytes(), before)
+
     def symlink_or_skip(
         self,
         link: Path,

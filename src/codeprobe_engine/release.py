@@ -72,6 +72,64 @@ def sha256_file(path: Path) -> str:
     return sha256_bytes(read_regular_file(path))
 
 
+def validate_diagnostic_outputs(
+    outputs: Sequence[Path], *, inputs: Iterable[Path]
+) -> tuple[Path, ...]:
+    """Admit distinct report files without creating directories or files.
+
+    Both resolved names and existing file identities are protected. Callers
+    supply their complete consumed input set and recheck before publication;
+    this admission check is not a transaction against concurrent path changes.
+    """
+    try:
+        protected_names: set[Path] = set()
+        protected_files: set[tuple[int, int]] = set()
+        for source in inputs:
+            source = Path(source)
+            protected_names.add(source.resolve())
+            try:
+                metadata = source.stat()
+            except FileNotFoundError:
+                continue
+            protected_files.add((metadata.st_dev, metadata.st_ino))
+
+        admitted: list[Path] = []
+        output_files: set[tuple[int, int]] = set()
+        for output in outputs:
+            output = Path(output)
+            str(output).encode("utf-8")
+            try:
+                metadata = output.lstat()
+            except FileNotFoundError:
+                metadata = None
+            if metadata is not None and not stat.S_ISREG(metadata.st_mode):
+                raise ReleaseSetError(f"diagnostic output is not a regular file: {_safe_text(output)}")
+            resolved = output.resolve()
+            if resolved in protected_names:
+                raise ReleaseSetError(f"diagnostic output aliases an input: {_safe_text(output)}")
+            if any(resolved == other or resolved in other.parents or other in resolved.parents
+                   for other in admitted):
+                raise ReleaseSetError(f"diagnostic outputs overlap: {_safe_text(output)}")
+            if metadata is not None:
+                identity = (metadata.st_dev, metadata.st_ino)
+                if identity in protected_files or identity in output_files:
+                    raise ReleaseSetError(f"diagnostic output aliases an input or another output: {_safe_text(output)}")
+                output_files.add(identity)
+            for parent in resolved.parents:
+                try:
+                    parent_metadata = parent.stat()
+                except FileNotFoundError:
+                    continue
+                if not stat.S_ISDIR(parent_metadata.st_mode):
+                    raise ReleaseSetError(f"diagnostic output ancestor is not a directory: {_safe_text(parent)}")
+            admitted.append(resolved)
+        return tuple(admitted)
+    except ReleaseSetError:
+        raise
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ReleaseSetError(f"cannot admit diagnostic output paths: {_safe_text(exc)}") from exc
+
+
 def atomic_write_bytes(
     path: Path,
     content: bytes,
@@ -301,6 +359,8 @@ def _validate_no_symlink_ancestry(path: Path, root: Path | None) -> os.stat_resu
 
 def _open_regular_for_read(path: Path, root: Path | None) -> int:
     file_flags = os.O_RDONLY
+    if hasattr(os, "O_NONBLOCK"):
+        file_flags |= os.O_NONBLOCK
     if hasattr(os, "O_BINARY"):
         file_flags |= os.O_BINARY
     if hasattr(os, "O_CLOEXEC"):
@@ -641,8 +701,11 @@ def zip_summary(zip_path: Path) -> Dict[str, Any]:
 
 def write_zip_summary(zip_path: Path, output: Path) -> Dict[str, Any]:
     """Write a JSON package audit sidecar for a release ZIP."""
+    (destination,) = validate_diagnostic_outputs([output], inputs=[zip_path])
     summary = zip_summary(zip_path)
-    output.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    content = (json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    validate_diagnostic_outputs([destination], inputs=[zip_path])
+    atomic_write_bytes(destination, content)
     return summary
 
 

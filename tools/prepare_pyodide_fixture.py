@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
-import shutil
+import re
+import sys
 import tempfile
 import urllib.parse
 import urllib.request
@@ -15,9 +17,22 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.append(str(ROOT / "src"))
+
+from codeprobe_engine.release import (  # noqa: E402
+    ReleaseSetError,
+    read_regular_file,
+    validate_diagnostic_outputs,
+)
+
 PROVENANCE = ROOT / "app" / "pyodide-provenance.json"
 READ_CHUNK_BYTES = 65_536
 TIMEOUT_SECONDS = 45
+CORE_NAMES = frozenset({
+    "pyodide.js", "pyodide-lock.json", "python_stdlib.zip",
+    "pyodide.asm.js", "pyodide.asm.wasm",
+})
 
 
 class FixtureError(RuntimeError):
@@ -28,39 +43,71 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
-            raise FixtureError(f"duplicate JSON key: {key}")
+            raise FixtureError(f"duplicate JSON key: {key!r}")
         result[key] = value
+    return result
+
+
+def _reject_constant(value: str) -> None:
+    raise FixtureError(f"non-finite JSON constant: {value}")
+
+
+def _finite_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise FixtureError("non-finite JSON number")
     return result
 
 
 def load_provenance(path: Path = PROVENANCE) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        data = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_object,
+            parse_constant=_reject_constant,
+            parse_float=_finite_float,
+        )
+    except (OSError, ValueError, RecursionError) as exc:
         raise FixtureError(f"cannot read Pyodide provenance: {type(exc).__name__}") from exc
     if not isinstance(data, dict) or data.get("schema") != "codeprobe-pyodide-provenance/v1":
         raise FixtureError("unsupported Pyodide provenance schema")
-    base = str(data.get("distribution_base_url") or "")
-    parsed = urllib.parse.urlparse(base)
-    if parsed.scheme != "https" or not parsed.netloc or not base.endswith("/"):
+    version = data.get("version")
+    if not isinstance(version, str) or re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version) is None:
+        raise FixtureError("version must be a numeric major.minor.patch string")
+    base = data.get("distribution_base_url")
+    if not isinstance(base, str) or any(ord(char) < 33 or ord(char) > 126 for char in base) or "\\" in base:
+        raise FixtureError("distribution_base_url must be an absolute HTTPS directory URL")
+    try:
+        parsed = urllib.parse.urlparse(base)
+        valid_url = (
+            parsed.scheme == "https" and parsed.hostname is not None
+            and parsed.username is None and parsed.password is None
+            and parsed.port != 0 and not parsed.query and not parsed.fragment
+            and base.endswith("/")
+        )
+    except ValueError:
+        valid_url = False
+    if not valid_url:
         raise FixtureError("distribution_base_url must be an absolute HTTPS directory URL")
     records = data.get("startup_artifacts")
-    if not isinstance(records, list) or not records:
-        raise FixtureError("startup_artifacts must be a non-empty array")
+    if not isinstance(records, list) or len(records) != len(CORE_NAMES):
+        raise FixtureError("startup_artifacts must contain exactly the five core artefacts")
     names: set[str] = set()
     for record in records:
         if not isinstance(record, dict):
             raise FixtureError("startup artefact records must be objects")
-        name = str(record.get("name") or "")
-        if not name or name in names or Path(name).name != name:
+        name = record.get("name")
+        if not isinstance(name, str) or name not in CORE_NAMES or name in names:
             raise FixtureError(f"invalid or duplicate startup artefact name: {name!r}")
         names.add(name)
         size = record.get("size_bytes")
-        digest = str(record.get("sha256_hex") or "")
+        digest = record.get("sha256_hex")
         if type(size) is not int or size <= 0:
             raise FixtureError(f"{name} has an invalid size")
-        if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        if not isinstance(digest, str) or len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
             raise FixtureError(f"{name} has an invalid SHA-256 value")
+    if names != CORE_NAMES:
+        raise FixtureError("startup_artifacts must contain exactly the five core artefacts")
     return data
 
 
@@ -108,16 +155,9 @@ def _download(url: str, *, expected_size: int) -> bytes:
 
 def _read_local(source: Path, *, expected_size: int) -> bytes:
     try:
-        metadata = source.lstat()
-    except OSError as exc:
-        raise FixtureError(f"fixture source is unavailable: {source.name}") from exc
-    if source.is_symlink() or not source.is_file() or metadata.st_size > expected_size:
-        raise FixtureError(f"fixture source is not a bounded regular file: {source.name}")
-    try:
-        content = source.read_bytes()
-    except OSError as exc:
-        raise FixtureError(f"fixture source could not be read: {source.name}") from exc
-    return content
+        return read_regular_file(source, max_bytes=expected_size)
+    except (ReleaseSetError, OSError, ValueError) as exc:
+        raise FixtureError(f"fixture source is not a bounded regular file or changed: {source.name!r}: {exc}") from exc
 
 
 def _write_atomic(path: Path, content: bytes) -> None:
@@ -139,48 +179,82 @@ def _write_atomic(path: Path, content: bytes) -> None:
             pass
 
 
+def _preflight_outputs(destinations: list[Path], inputs: list[Path]) -> list[Path]:
+    try:
+        return list(validate_diagnostic_outputs(destinations, inputs=inputs))
+    except ReleaseSetError as exc:
+        raise FixtureError(f"unsafe fixture output: {exc}") from exc
+
+
 def prepare_fixture(
     output_dir: Path,
     *,
     source_dir: Path | None = None,
     provenance_path: Path = PROVENANCE,
+    json_out: Path | None = None,
 ) -> dict[str, Any]:
     provenance = load_provenance(provenance_path)
-    if output_dir.is_symlink():
-        raise FixtureError("fixture output directory must not be a symbolic link")
-    output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    if not output_dir.is_dir():
-        raise FixtureError("fixture output path is not a directory")
-    if source_dir is not None and source_dir.is_symlink():
-        raise FixtureError("fixture source directory must not be a symbolic link")
-    source_root = source_dir.resolve() if source_dir is not None else None
-    if source_root is not None and not source_root.is_dir():
-        raise FixtureError("fixture source path is not a directory")
-    base = str(provenance["distribution_base_url"])
-    prepared = []
-    for record in provenance["startup_artifacts"]:
-        name = str(record["name"])
-        if source_root is None:
-            content = _download(urllib.parse.urljoin(base, name), expected_size=int(record["size_bytes"]))
-            source = "network"
-        else:
-            content = _read_local(source_root / name, expected_size=int(record["size_bytes"]))
-            source = "local"
-        _verify_bytes(name, content, record)
-        _write_atomic(output_dir / name, content)
-        prepared.append({
-            "name": name,
-            "size_bytes": len(content),
-            "sha256_hex": hashlib.sha256(content).hexdigest(),
-            "source": source,
-        })
-    return {
+    try:
+        if output_dir.is_symlink():
+            raise FixtureError("fixture output directory must not be a symbolic link")
+        output_dir = output_dir.resolve()
+        if output_dir.exists() and not output_dir.is_dir():
+            raise FixtureError("fixture output path is not a directory")
+        if source_dir is not None and source_dir.is_symlink():
+            raise FixtureError("fixture source directory must not be a symbolic link")
+        source_root = source_dir.resolve() if source_dir is not None else None
+        if source_root is not None and not source_root.is_dir():
+            raise FixtureError("fixture source path is not a directory")
+    except FixtureError:
+        raise
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise FixtureError(f"fixture directory cannot be inspected: {type(exc).__name__}") from exc
+    records = provenance["startup_artifacts"]
+    destinations = [output_dir / record["name"] for record in records]
+    if json_out is not None:
+        destinations.append(json_out)
+    inputs = [provenance_path]
+    if source_root is not None:
+        inputs.extend(source_root / record["name"] for record in records)
+    for directory in (ROOT / "src", ROOT / "tools"):
+        inputs.extend(directory.rglob("*.py"))
+    destinations = _preflight_outputs(destinations, inputs)
+    source = "local" if source_root is not None else "network"
+    summary = {
         "schema": "codeprobe-pyodide-functional-fixture/v1",
         "version": provenance["version"],
-        "source": "local" if source_root is not None else "network",
-        "artifacts": prepared,
+        "source": source,
+        "artifacts": [{
+            "name": record["name"],
+            "size_bytes": record["size_bytes"],
+            "sha256_hex": record["sha256_hex"],
+            "source": source,
+        } for record in records],
     }
+    try:
+        summary_bytes = (json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    except (ValueError, UnicodeError) as exc:
+        raise FixtureError("fixture summary cannot be encoded") from exc
+    base = provenance["distribution_base_url"]
+    for record, destination in zip(records, destinations):
+        name = record["name"]
+        if source_root is None:
+            content = _download(urllib.parse.urljoin(base, name), expected_size=record["size_bytes"])
+        else:
+            content = _read_local(source_root / name, expected_size=record["size_bytes"])
+        _verify_bytes(name, content, record)
+        _preflight_outputs(destinations, inputs)
+        try:
+            _write_atomic(destination, content)
+        except OSError as exc:
+            raise FixtureError(f"cannot publish fixture artefact: {name}: {type(exc).__name__}") from exc
+    if json_out is not None:
+        _preflight_outputs(destinations, inputs)
+        try:
+            _write_atomic(destinations[-1], summary_bytes)
+        except OSError as exc:
+            raise FixtureError(f"cannot publish fixture summary: {type(exc).__name__}") from exc
+    return summary
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -199,12 +273,8 @@ def main(argv: list[str] | None = None) -> int:
             args.output_dir,
             source_dir=args.source_dir,
             provenance_path=args.provenance,
+            json_out=args.json_out,
         )
-        if args.json_out:
-            _write_atomic(
-                args.json_out.resolve(),
-                (json.dumps(summary, indent=2, ensure_ascii=False) + "\n").encode("utf-8"),
-            )
     except FixtureError as exc:
         print(f"[FAIL] pyodide-fixture: {exc}")
         return 1

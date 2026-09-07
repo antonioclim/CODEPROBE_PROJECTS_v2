@@ -19,7 +19,22 @@ python3 -I -S -B tools/prepare_pyodide_fixture.py \
   --output-dir /path/outside/the/repository/pyodide-core
 ```
 
-The command refuses redirects, enforces the recorded byte count while reading and checks every SHA-256 before publishing a fixture file.
+The command verifies the complete provenance schema, a numeric `major.minor.patch` version, an absolute HTTPS distribution URL and the exact five unique core names before creating an output directory. Size fields must be positive integers and SHA-256 fields must contain 64 lower-case hexadecimal digits. Duplicate JSON keys, non-finite numbers and malformed required fields are rejected. The shipped provenance and its recorded values remain authoritative.
+
+To verify local source files and produce a separate JSON report, use distinct source and output directories:
+
+```bash
+python3 -I -S -B tools/prepare_pyodide_fixture.py \
+  --source-dir /path/to/verified-upstream/full \
+  --output-dir /path/to/pyodide-core \
+  --json-out /path/to/fixture-summary.json
+```
+
+Before the first write, the command checks the complete output set against the provenance, local source artefacts and Python tool/engine source files. A report or fixture destination cannot replace a consumed input or another output through the same path, a resolved alias or an existing hardlink. Conflicting file/directory destinations and symbolic-link output files are also refused. Distinct existing fixture files can be refreshed; using the source directory as the output directory is rejected.
+
+Local artefacts are read through a regular-file descriptor with identity and stability checks before and after reading. Each read is explicitly bounded; growth is detected after at most the recorded size plus one byte has been read, and excess data is rejected before it is accumulated. Symbolic-link and non-regular source files are refused. Network reads retain their recorded-size ceiling and reject an unexpected final URL. Every file must match its exact size and SHA-256 before publication.
+
+The complete JSON report is encoded before publication starts, and output conflicts are checked again before each write. Publication is atomic per file, not a transaction over all five artefacts and the report: a later read or write failure can leave earlier verified artefacts in place. A failure does not publish a success report, but an older report may remain. Re-run the command successfully before using the complete fixture. These checks do not provide a guarantee against every concurrent filesystem replacement or power loss.
 
 ## 2. Verify the core startup bytes
 

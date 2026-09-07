@@ -25,6 +25,15 @@ from pathlib import Path
 from types import CodeType
 from typing import Any, Iterable, Mapping, Sequence
 
+SRC = Path(__file__).resolve().parents[1] / "src"
+if str(SRC) not in sys.path:
+    sys.path.append(str(SRC))
+
+from codeprobe_engine.release import (  # noqa: E402
+    atomic_write_bytes,
+    validate_diagnostic_outputs,
+)
+
 
 POLICY_SCHEMA = "codeprobe-supported-coverage/v1"
 DEFAULT_POLICY = "tools/coverage-policy.json"
@@ -516,7 +525,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     root = Path(__file__).resolve().parents[1]
     try:
-        policy = load_policy(root / args.policy)
+        policy_path = root / args.policy
+        output = Path(args.json_out) if args.json_out else None
+        if output is not None:
+            try:
+                output.resolve(strict=False).relative_to(root.resolve(strict=True))
+            except ValueError:
+                pass
+            else:
+                raise CoveragePolicyError("--json-out must be outside the repository checkout")
+            # Tests may read fixtures outside the measured Python set. Protect
+            # the complete checkout, as well as a separately supplied policy.
+            protected = [policy_path, *(path for path in root.rglob("*") if path.is_file())]
+            (output,) = validate_diagnostic_outputs((output,), inputs=protected)
+        policy = load_policy(policy_path)
         expected_python = str(policy.get("python_runtime", ""))
         actual_python = platform.python_version()
         if actual_python != expected_python and not args.allow_version_drift:
@@ -531,16 +553,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             tests_run=tests_run,
             floor_failures=failures,
         )
-        if args.json_out:
-            output = Path(args.json_out)
-            try:
-                output.resolve(strict=False).relative_to(root.resolve(strict=True))
-            except ValueError:
-                pass
-            else:
-                raise CoveragePolicyError("--json-out must be outside the repository checkout")
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if output is not None:
+            content = (json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+            # Recheck the complete set after collection, before creating output.
+            protected = [policy_path, *(path for path in root.rglob("*") if path.is_file())]
+            validate_diagnostic_outputs((output,), inputs=protected)
+            atomic_write_bytes(output, content)
     except (CoveragePolicyError, OSError, UnicodeError, ValueError) as exc:
         print(f"[FAIL] supported-coverage: {exc}")
         return 1

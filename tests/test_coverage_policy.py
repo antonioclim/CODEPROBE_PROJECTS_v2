@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import errno
+import os
 import sys
 import tempfile
 import unittest
@@ -18,6 +20,83 @@ import check_coverage as coverage  # noqa: E402
 
 
 class CoveragePolicyTests(unittest.TestCase):
+    def _output_fixture(self, parent: Path):
+        root = parent / "kit"
+        (root / "tools").mkdir(parents=True)
+        (root / "src").mkdir()
+        (root / "tests").mkdir()
+        source = root / "src" / "sample.py"
+        source.write_bytes(b"value = 1\n")
+        test = root / "tests" / "test_sample.py"
+        test.write_bytes(b"# inert fixture; collection is replaced\n")
+        fixture = root / "tests" / "sample.json"
+        fixture.write_bytes(b'{"answer": 42}\n')
+        policy = json.loads((ROOT / "tools" / "coverage-policy.json").read_text(encoding="utf-8"))
+        policy_path = parent / "policy.json"
+        policy_path.write_text(json.dumps(policy), encoding="utf-8")
+        rows = [coverage.FileCoverage(path, 1, 1) for path in policy["floors"]["files"]]
+        return root, (policy_path, source, test, fixture), rows
+
+    def _check_output_aliases(self, kind: str) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root, inputs, rows = self._output_fixture(parent)
+            before = {path: path.read_bytes() for path in inputs}
+            for index, source in enumerate(inputs):
+                with self.subTest(input=source.name, kind=kind):
+                    output = parent / f"alias-{index}.json"
+                    if kind == "same":
+                        output = source
+                    elif kind == "resolved":
+                        (source.parent / "unused").mkdir(exist_ok=True)
+                        output = source.parent / "unused" / ".." / source.name
+                    else:
+                        try:
+                            if kind == "hardlink":
+                                os.link(source, output)
+                            else:
+                                output.symlink_to(source)
+                        except OSError as exc:
+                            if exc.errno in {errno.EACCES, errno.EPERM, errno.ENOTSUP}:
+                                self.skipTest(f"{kind} unavailable: {exc}")
+                            raise
+                    with mock.patch.object(coverage, "__file__", str(root / "tools" / "check_coverage.py")), \
+                            mock.patch.object(coverage, "collect_coverage", return_value=(rows, 1, "")) as collect, \
+                            mock.patch.object(sys, "stdout", io.StringIO()):
+                        status = coverage.main(["--policy", str(inputs[0]), "--allow-version-drift", "--json-out", str(output)])
+                    self.assertEqual(status, 1)
+                    collect.assert_not_called()
+                    self.assertEqual(before, {path: path.read_bytes() for path in inputs})
+                    if kind == "resolved":
+                        self.assertEqual(list((source.parent / "unused").iterdir()), [])
+
+    def test_output_rejects_same_and_resolved_input_paths_before_collection(self) -> None:
+        self._check_output_aliases("same")
+        self._check_output_aliases("resolved")
+
+    def test_output_rejects_hardlinks_to_policy_source_tests_and_fixtures(self) -> None:
+        self._check_output_aliases("hardlink")
+
+    def test_output_rejects_symlinks_to_policy_source_tests_and_fixtures(self) -> None:
+        self._check_output_aliases("symlink")
+
+    def test_distinct_output_is_complete_and_encoding_failure_preserves_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root, inputs, rows = self._output_fixture(parent)
+            before = {path: path.read_bytes() for path in inputs}
+            output = parent / "reports" / "coverage.json"
+            with mock.patch.object(coverage, "__file__", str(root / "tools" / "check_coverage.py")), \
+                    mock.patch.object(coverage, "collect_coverage", return_value=(rows, 1, "")), \
+                    mock.patch.object(sys, "stdout", io.StringIO()):
+                self.assertEqual(coverage.main(["--policy", str(inputs[0]), "--allow-version-drift", "--json-out", str(output)]), 0)
+                valid = output.read_bytes()
+                self.assertEqual(json.loads(valid)["overall"]["percentage"], 100.0)
+                with mock.patch.object(coverage, "result_payload", return_value={"text": "\ud800"}):
+                    self.assertEqual(coverage.main(["--policy", str(inputs[0]), "--allow-version-drift", "--json-out", str(output)]), 1)
+            self.assertEqual(output.read_bytes(), valid)
+            self.assertEqual(before, {path: path.read_bytes() for path in inputs})
+
     def test_repository_policy_is_well_formed_and_measures_production_code(self) -> None:
         policy = coverage.load_policy(ROOT / "tools" / "coverage-policy.json")
         files = coverage.discover_source_files(ROOT, policy)
