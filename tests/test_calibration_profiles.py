@@ -761,7 +761,7 @@ class CalibrationPublicationTests(unittest.TestCase):
     def test_destination_metadata_doubles_fail_closed(self):
         for case in ("reparse", "missing-identity"):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
-                destination = Path(tmp) / "output.json"
+                destination = Path(tmp).resolve() / "output.json"
                 destination.write_bytes(b"previous complete output")
                 real_lstat = Path.lstat
                 actual = destination.lstat()
@@ -1007,7 +1007,7 @@ class CalibrationPublicationTests(unittest.TestCase):
     def test_failure_between_replacements_reports_complete_partial_publication(self):
         for wrapper in (False, True):
             with self.subTest(wrapper=wrapper), tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
+                root = Path(tmp).resolve()
                 args, inputs, outputs, _ = self._fixture(root, wrapper=wrapper)
                 before = self._bytes([*inputs, *outputs.values()])
                 real_replace = os.replace

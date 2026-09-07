@@ -154,6 +154,11 @@ jobs:
         shell: bash
         run: python -I -S -B -m unittest discover -s tests -p test_process_control.py -v
 
+      - name: Verify calibration publication regressions
+        timeout-minutes: 2
+        shell: bash
+        run: python -I -S -B -m unittest discover -s tests -p test_calibration_profiles.py -v
+
       - name: Run the canonical read-only gate
         shell: bash
         run: python -I -S -B tools/check_release.py --require-node
