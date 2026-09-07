@@ -147,6 +147,7 @@ class CdpConnection {
     this.socket = null;
     this.nextId = 1;
     this.pending = new Map();
+    this.attachedTargets = new Map();
   }
 
   async connect() {
@@ -161,8 +162,26 @@ class CdpConnection {
       let payload;
       try { payload = JSON.parse(await messageText(event.data)); }
       catch (_) { return; }
+      if (payload.method === "Target.attachedToTarget") {
+        this.attachedTargets.set(payload.params.sessionId, {
+          parentSessionId: payload.sessionId,
+          targetInfo: payload.params.targetInfo,
+        });
+        return;
+      }
+      if (payload.method === "Target.detachedFromTarget") {
+        this.attachedTargets.delete(payload.params.sessionId);
+        for (const [id, pending] of this.pending) {
+          if (pending.sessionId !== payload.params.sessionId) continue;
+          this.pending.delete(id);
+          clearTimeout(pending.timer);
+          pending.reject(new Error(`${pending.method}: CDP target detached`));
+        }
+        return;
+      }
       if (!payload.id || !this.pending.has(payload.id)) return;
       const pending = this.pending.get(payload.id);
+      if (payload.sessionId !== pending.sessionId) return;
       this.pending.delete(payload.id);
       clearTimeout(pending.timer);
       if (payload.error) pending.reject(new Error(`${pending.method}: ${payload.error.message}`));
@@ -180,7 +199,7 @@ class CdpConnection {
         this.pending.delete(id);
         reject(new Error(`${method} timed out`));
       }, TIMEOUT_MS);
-      this.pending.set(id, { resolve, reject, timer, method });
+      this.pending.set(id, { resolve, reject, timer, method, sessionId });
       this.socket.send(JSON.stringify(message));
     });
   }
@@ -874,19 +893,31 @@ async function testStrictJsonContracts(cdp, baseUrl, fixtureState, engineDigest)
   try {
     await bounded(() => waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()"));
     assertSingleVerifiedRequests(fixtureState);
-    let targets = [], workers = [];
+    // Dedicated-worker renderer channels are reported through the owning page.
+    // Discovery alone can expose a browser-side target without a usable channel.
+    await bounded(() => cdp.send("Target.setAutoAttach", {
+      autoAttach:true, waitForDebuggerOnStart:false, flatten:true,
+      filter:[{type:"worker"}, {exclude:true}],
+    }, session.sessionId));
+    let targets = [], workers = [], attachments = [];
     const discoveryDeadline = Math.min(deadline, Date.now() + 5000);
     do {
       targets = (await bounded(() => cdp.send("Target.getTargets"))).targetInfos;
       workers = targets.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.parentId === session.targetId);
-      if (workers.length) break;
+      attachments = [...cdp.attachedTargets.entries()].filter(([, item]) =>
+        item.parentSessionId === session.sessionId && workers.some(worker => worker.targetId === item.targetInfo.targetId));
+      if (workers.length && attachments.length) break;
       await bounded(() => delay(100));
     } while (Date.now() < discoveryDeadline);
     console.log("[INFO] browser-strict-json-targets: " + JSON.stringify({page_target_id:session.targetId, targets:targets.map(item => ({id:item.targetId, type:item.type, url:item.url, parent:item.parentId, opener:item.openerId, existed:previous.has(item.targetId)}))}));
     assert(workers.length === 1, "the owned page did not expose exactly one new child worker after bounded discovery");
     const worker = workers[0];
     if (worker.openerId) assert(worker.openerId === session.targetId, "worker opener differs from the owned page");
-    workerSession = (await bounded(() => cdp.send("Target.attachToTarget", {targetId:worker.targetId, flatten:true}))).sessionId;
+    assert(attachments.length === 1, "the owned worker did not expose exactly one page-attached CDP session");
+    const [attachedSessionId, attachment] = attachments[0];
+    assert(attachment.targetInfo.type === "worker" && attachment.targetInfo.parentId === session.targetId,
+      "worker attachment differs from the owned child target");
+    workerSession = attachedSessionId;
     await bounded(() => cdp.send("Runtime.enable", {}, workerSession));
     const workerBase = await bounded(() => evaluate(cdp, workerSession, "self.CODEPROBE_BASE_URL"));
     assert(workerBase === pageUrl, "attached worker does not carry the owned page's bootstrap URL");
@@ -974,7 +1005,7 @@ _codeprobe_strict_json_fixture()
     console.log("[PASS] browser-strict-json-worker: " + JSON.stringify({positive_cases:valid.length, observations, qualification:"Raw roots, duplicate keys, numeric NaN and metadata were tested directly in the authenticated interpreter; the worker transports serialised objects."}));
   } finally {
     if (workerSession) {
-      try { await cdp.send("Target.detachFromTarget", {sessionId:workerSession}); }
+      try { await cdp.send("Target.detachFromTarget", {sessionId:workerSession}, session.sessionId); }
       catch (_) { /* the worker is deliberately terminated after a refusal */ }
     }
     await closeSession(cdp, session);
