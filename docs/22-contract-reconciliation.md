@@ -218,3 +218,43 @@ profile before creating output directories/files. This guard does not promise
 unbounded precision or prohibit ordinary finite underflow. Successfully written
 non-operational diagnostic profiles retain the documented generation exit-code
 policy; non-finite configuration is a different, rejected condition.
+
+## Calibration input protection and individual file publication
+
+The manifest CLI and folder wrapper share a preparation stage. The wrapper
+builds its generated manifest in memory with an explicit corpus base; it does
+not publish that manifest before validating the complete request. Preparation
+applies configuration overrides before scoring and retains the existing bound
+engine/configuration replay contract and shared JSON/CSV sample identifiers.
+
+All destinations are checked together: profile JSON, observation CSV,
+sensitivity CSV, Markdown summary and, for the wrapper, generated manifest.
+Canonical names use Unicode NFC and case folding. Existing physical file
+identities are compared across destinations and against the input manifest,
+explicit configuration, file/ZIP samples and every project file actually read,
+including `.codeprobeignore`. The bounded reader collects these identities
+during its verified reads; it does not export them in reports or perform a
+second project traversal. A required physical identity that is unavailable
+causes rejection. Outputs inside a project sample tree are also refused.
+
+Existing destination leaves must be ordinary files, with symlinks, reparse
+points and special files refused. Parent aliases, including system directory
+aliases, remain usable after canonicalisation. The existing bounded, no-follow
+input rules remain in force.
+
+Every output is fully serialised and encoded as UTF-8 before output directories
+or temporary files are created. Invalid Unicode scalars are rejected with an
+output-specific diagnostic. Complete bytes are staged in exclusively created,
+private sibling files on each destination's filesystem, flushed and synced.
+Consumed input identities and the complete destination set are checked again
+before individual replacements. Preflight, encoding or staging failure
+publishes no files; owned temporary files are cleaned up, and cleanup failures
+are reported explicitly. Directories created for staging may remain.
+
+Each successful replacement installs one complete file. Failure between
+replacements is reported as partial publication with the completed paths; it
+can leave an incomplete set of updated outputs. This is not a transaction
+across paths, a global rollback, a power-loss durability guarantee or protection
+against every concurrent change by a hostile directory writer. Use quiescent
+input and destination trees. Generation success and technical replay eligibility
+do not establish label validity, independent sampling or empirical accuracy.

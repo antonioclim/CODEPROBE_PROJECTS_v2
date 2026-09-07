@@ -26,10 +26,8 @@ if __name__ == "__main__" and not (
     )
 
 import argparse
-import json
 import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -191,45 +189,19 @@ def main(argv: Optional[List[str]] = None) -> int:
             max_entries=args.max_entries,
         )
         out_dir = Path(args.out_dir or corpus_root / "codeprobe_calibration_output").absolute()
-        out_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = Path(args.manifest_out).absolute() if args.manifest_out else out_dir / "generated_manifest.json"
-        calibrate_profile._validate_output_destination(
-            "generated calibration manifest", manifest_path
+        # The logical base is explicit: no temporary or published manifest is
+        # needed to score relative corpus paths. All five files share preflight.
+        args.root = str(corpus_root)
+        args.out_dir = str(out_dir)
+        prepared = calibrate_profile.prepare_calibration(
+            args, manifest=manifest, manifest_path=manifest_path,
+            generated_manifest_path=manifest_path,
         )
-        for record in manifest["samples"]:
-            sample_path = calibrate_profile.resolve_sample_path(
-                corpus_root, str(record["path"])
-            )
-            if calibrate_profile._output_path_key(manifest_path) == calibrate_profile._output_path_key(sample_path):
-                raise ValueError(
-                    "generated calibration manifest must not overwrite a corpus sample"
-                )
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-
-        forwarded = [
-            "--manifest", str(manifest_path),
-            "--root", str(corpus_root),
-            "--profile", args.profile,
-            "--profile-id", profile_id,
-            "--label", label,
-            "--target-fpr", str(args.target_fpr),
-            "--out-dir", str(out_dir),
-        ]
-        if args.config:
-            forwarded.extend(["--config", args.config])
-        if args.profile_out:
-            forwarded.extend(["--profile-out", args.profile_out])
-        if args.summary_out:
-            forwarded.extend(["--summary-out", args.summary_out])
-        if args.csv_out:
-            forwarded.extend(["--csv-out", args.csv_out])
-        if args.sensitivity_out:
-            forwarded.extend(["--sensitivity-out", args.sensitivity_out])
-        return calibrate_profile.main(forwarded)
+        result = calibrate_profile.publish_calibration(prepared)
+        calibrate_profile.print_calibration_outputs(result)
+        print(f"Wrote generated manifest: {result['manifest_path']}")
+        return 0
     except Exception as exc:
         print(f"Calibration failed: {exc}")
         return 2

@@ -16,6 +16,7 @@ import json
 import os
 import stat
 import statistics
+import tempfile
 import time
 import uuid
 import unicodedata
@@ -78,10 +79,13 @@ class SampleResult:
     decision_score: Optional[float] = None
 
 
-def load_manifest(path: Path) -> Dict[str, Any]:
+def load_manifest(
+    path: Path, *, consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None
+) -> Dict[str, Any]:
     path = Path(os.path.abspath(os.fspath(path)))
     data = read_bounded_regular_file(
-        path, root=path.parent, max_bytes=DEFAULT_MAX_MANIFEST_BYTES
+        path, root=path.parent, max_bytes=DEFAULT_MAX_MANIFEST_BYTES,
+        consumed_files=consumed_files,
     )
     try:
         text = data.decode("utf-8-sig")
@@ -105,10 +109,14 @@ def load_manifest(path: Path) -> Dict[str, Any]:
     return parsed
 
 
-def _load_json_object_file(path: Path, label: str) -> Dict[str, Any]:
+def _load_json_object_file(
+    path: Path, label: str, *,
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
+) -> Dict[str, Any]:
     absolute = Path(os.path.abspath(os.fspath(path)))
     data = read_bounded_regular_file(
-        absolute, root=absolute.parent, max_bytes=DEFAULT_MAX_MANIFEST_BYTES
+        absolute, root=absolute.parent, max_bytes=DEFAULT_MAX_MANIFEST_BYTES,
+        consumed_files=consumed_files,
     )
     try:
         text = data.decode("utf-8-sig")
@@ -209,8 +217,14 @@ def _group_token(value: object, fallback: str) -> str:
     return "group-" + hashlib.sha256(raw.encode("utf-8", errors="backslashreplace")).hexdigest()[:16]
 
 
-def _read_text_file(path: Path, root: Path) -> str:
-    data = read_bounded_regular_file(path, root=root, max_bytes=engine.PROJECT_MAX_FILE_BYTES_DEFAULT)
+def _read_text_file(
+    path: Path, root: Path, *,
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
+) -> str:
+    data = read_bounded_regular_file(
+        path, root=root, max_bytes=engine.PROJECT_MAX_FILE_BYTES_DEFAULT,
+        consumed_files=consumed_files,
+    )
     text, warning = engine.decode_text_bytes(data)
     if text is None:
         raise ValueError(warning or "file is not readable text")
@@ -227,6 +241,7 @@ def analyse_sample(
     sample_id: str = "",
     split: str = "",
     group_id: str = "",
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
 ) -> SampleResult:
     label = _normalise_label(record.get("label") or record.get("class"))
     if label not in SUPPORTED_LABELS:
@@ -246,6 +261,7 @@ def analyse_sample(
                 max_entries=DEFAULT_MAX_ENTRIES,
                 max_ignore_bytes=DEFAULT_MAX_IGNORE_BYTES,
                 max_ignore_rules=DEFAULT_MAX_IGNORE_RULES,
+                consumed_files=consumed_files,
             )
             payload["profile"] = profile
             payload["config_override"] = metric_overrides
@@ -254,7 +270,7 @@ def analyse_sample(
             report = result["project_report"]
         else:
             payload = {
-                "code": _read_text_file(path, root),
+                "code": _read_text_file(path, root, consumed_files=consumed_files),
                 "require_python_ast": True,
                 "filename": path.name,
                 "profile": profile,
@@ -590,7 +606,7 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
     }
 
 
-def write_summary(path: Path, profile: Dict[str, Any]) -> None:
+def render_summary(profile: Dict[str, Any]) -> str:
     validation = profile.get("validation", {})
     design = validation.get("evaluation_design", {})
     evaluation = validation.get("evaluation_at_selected_trigger", {})
@@ -632,43 +648,42 @@ def write_summary(path: Path, profile: Dict[str, Any]) -> None:
             lines.append(f"| {row['threshold']:.2f} | {row['false_positive_rate']:.3f} | {row.get('ai_generated_review_rate', 0.0):.3f} | {row.get('hybrid_review_rate', 0.0):.3f} | {row['true_positive_rate']:.3f} |")
     lines.extend(["", "## Caveats", ""])
     lines.extend(f"- {note}" for note in profile.get("notes", []))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
 
 
-def write_observations_csv(path: Path, results: Sequence[SampleResult]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def render_observations_csv(results: Sequence[SampleResult]) -> str:
     fields = ["sample_id", "group_id", "split", "path", "label", "kind", "language", "applicable", "score", "score_percent", "decision_score", "sloc", "verdict_class", "warning"]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        for index, item in enumerate(_normalise_results(results)):
-            writer.writerow({
-                "sample_id": item.sample_id,
-                "group_id": item.group_id,
-                "split": item.split,
-                "path": item.sample_id,
-                "label": item.label,
-                "kind": item.kind,
-                "language": item.language,
-                "applicable": item.applicable,
-                "score": "" if item.score is None else f"{item.score:.6f}",
-                "score_percent": "" if item.score is None else f"{item.score * 100:.2f}",
-                "decision_score": "" if item.decision_score is None else repr(item.decision_score),
-                "sloc": item.sloc,
-                "verdict_class": item.verdict_class,
-                "warning": item.warning,
-            })
+    handle = io.StringIO(newline="")
+    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer.writeheader()
+    for index, item in enumerate(_normalise_results(results)):
+        writer.writerow({
+            "sample_id": item.sample_id,
+            "group_id": item.group_id,
+            "split": item.split,
+            "path": item.sample_id,
+            "label": item.label,
+            "kind": item.kind,
+            "language": item.language,
+            "applicable": item.applicable,
+            "score": "" if item.score is None else f"{item.score:.6f}",
+            "score_percent": "" if item.score is None else f"{item.score * 100:.2f}",
+            "decision_score": "" if item.decision_score is None else repr(item.decision_score),
+            "sloc": item.sloc,
+            "verdict_class": item.verdict_class,
+            "warning": item.warning,
+        })
+    return handle.getvalue()
 
 
-def write_sensitivity_csv(path: Path, profile: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def render_sensitivity_csv(profile: Dict[str, Any]) -> str:
     fields = ["threshold", "false_positive_rate", "ai_generated_review_rate", "hybrid_review_rate", "true_positive_rate"]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        for row in profile.get("validation", {}).get("sensitivity", []):
-            writer.writerow({field: row.get(field, "") for field in fields})
+    handle = io.StringIO(newline="")
+    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer.writeheader()
+    for row in profile.get("validation", {}).get("sensitivity", []):
+        writer.writerow({field: row.get(field, "") for field in fields})
+    return handle.getvalue()
 
 
 def _manifest_records(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -698,7 +713,7 @@ def _output_paths(args: Any, manifest_path: Path) -> dict[str, Path]:
 
 
 def _output_path_key(path: Path) -> str:
-    return os.path.normcase(os.path.realpath(os.fspath(path))).casefold()
+    return unicodedata.normalize("NFC", os.path.normcase(os.path.realpath(os.fspath(path)))).casefold()
 
 
 def _validate_output_destination(name: str, path: Path) -> Path:
@@ -752,54 +767,258 @@ def _validate_output_destination(name: str, path: Path) -> Path:
     return canonical
 
 
+def _file_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
+    # Match the bounded reader, including Windows' creation-time semantics.
+    return (
+        int(metadata.st_dev), int(metadata.st_ino), int(metadata.st_size),
+        int(metadata.st_mtime_ns), 0 if os.name == "nt" else int(metadata.st_ctime_ns),
+    )
+
+
+def _output_state(path: Path) -> tuple[int, int, int, int, int] | None:
+    try:
+        return _file_identity(path.lstat())
+    except FileNotFoundError:
+        return None
+
+
 def _validate_output_paths(
     outputs: Dict[str, Path],
     *,
-    manifest_path: Path,
+    manifest_path: Path | None,
     sample_paths: Sequence[tuple[Path, str]],
-) -> None:
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
+) -> dict[str, tuple[int, int, int, int, int] | None]:
+    """Validate the complete output set against names and consumed identities."""
+    protected = [(path, "a calibration sample") for path, _kind in sample_paths]
+    if manifest_path is not None:
+        protected.append((manifest_path, "the calibration manifest"))
+    protected.extend((path, "a consumed calibration input") for path in consumed_files or {})
+    input_keys = {_output_path_key(path): label for path, label in protected}
+    input_identities = {
+        identity[:2] for identity in (consumed_files or {}).values() if identity[1]
+    }
+    # Keep the historical helper safe for callers without a reader collector.
+    for path, _label in protected:
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            continue
+        if metadata.st_ino:
+            input_identities.add((int(metadata.st_dev), int(metadata.st_ino)))
     portable: dict[str, str] = {}
-    manifest_key = _output_path_key(manifest_path)
-    sample_keys = [
-        (_output_path_key(path), path, kind)
-        for path, kind in sample_paths
-    ]
+    physical: dict[tuple[int, int], str] = {}
+    states: dict[str, tuple[int, int, int, int, int] | None] = {}
     for name, path in list(outputs.items()):
         absolute = _validate_output_destination(name, path)
         outputs[name] = absolute
         key = _output_path_key(absolute)
         if key in portable:
-            raise ValueError(
-                f"calibration output paths collide: {portable[key]} and {name}"
-            )
+            raise ValueError(f"calibration output paths collide: {portable[key]} and {name}")
         portable[key] = name
-        if key == manifest_key:
-            raise ValueError(f"{name} must not overwrite the calibration manifest")
-        for sample_key, sample_path, kind in sample_keys:
-            if kind == "project":
+        if key in input_keys:
+            raise ValueError(f"{name} must not overwrite {input_keys[key]}")
+        state = _output_state(absolute)
+        states[name] = state
+        if state is not None and not state[1]:
+            raise ValueError(f"cannot verify the physical identity of {name}")
+        if state is not None:
+            identity = state[:2]
+            if identity in input_identities:
+                raise ValueError(f"{name} must not overwrite a physical calibration input")
+            if identity in physical:
+                raise ValueError(f"calibration output physical identities collide: {physical[identity]} and {name}")
+            physical[identity] = name
+        for sample_path, kind in sample_paths:
+            if kind != "project":
+                continue
+            try:
+                metadata = sample_path.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(metadata.st_mode):
+                sample_key = _output_path_key(sample_path).rstrip(os.sep)
+                if key == sample_key or key.startswith(sample_key + os.sep):
+                    raise ValueError(f"{name} must not be written inside a project calibration sample")
+    return states
+
+
+@dataclass
+class PreparedCalibration:
+    """Private publication state; local identities never enter exported reports."""
+    result: Dict[str, Any]
+    outputs: dict[str, Path]
+    contents: dict[str, bytes]
+    consumed_files: dict[Path, tuple[int, int, int, int, int]]
+    manifest_path: Path | None
+    sample_paths: list[tuple[Path, str]]
+    output_states: dict[str, tuple[int, int, int, int, int] | None]
+
+
+class CalibrationPublicationError(RuntimeError):
+    """A failed publication, with the individually completed paths recorded."""
+    def __init__(self, message: str, published_paths: Sequence[Path] = ()) -> None:
+        self.published_paths = tuple(str(path) for path in published_paths)
+        super().__init__(message)
+
+
+def _encode_output(name: str, text: str) -> bytes:
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{name} contains an invalid Unicode scalar and cannot be encoded as UTF-8") from exc
+
+
+def _revalidate_publication(prepared: PreparedCalibration) -> None:
+    for path, expected in prepared.consumed_files.items():
+        _validate_output_destination("consumed calibration input", path)
+        if _output_state(path) != expected:
+            raise ValueError("a consumed calibration input changed before publication")
+    outputs = dict(prepared.outputs)
+    states = _validate_output_paths(
+        outputs, manifest_path=prepared.manifest_path,
+        sample_paths=prepared.sample_paths, consumed_files=prepared.consumed_files,
+    )
+    if outputs != prepared.outputs or states != prepared.output_states:
+        raise ValueError("calibration output destinations changed before publication")
+
+
+def _remove_staged(staged: dict[str, tuple[Path, tuple[int, int]]]) -> None:
+    failures: list[str] = []
+    for path, identity in staged.values():
+        try:
+            metadata = path.lstat()
+            if (int(metadata.st_dev), int(metadata.st_ino)) != identity:
+                raise OSError("staging identity changed; entry left untouched")
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            failures.append(str(exc))
+    if failures:
+        raise OSError("cannot remove owned calibration staging: " + "; ".join(failures))
+
+
+def publish_calibration(prepared: PreparedCalibration) -> Dict[str, Any]:
+    """Stage every complete file, then replace revalidated names individually.
+
+    Preflight, encoding and staging failures publish no files. A later failure
+    may leave a partially published set. This is not a multi-path transaction,
+    a power-loss durability guarantee or a lock against hostile directory edits.
+    """
+    staged: dict[str, tuple[Path, tuple[int, int]]] = {}
+    staged_states: dict[str, tuple[int, int, int, int, int]] = {}
+    published: list[Path] = []
+    try:
+        _revalidate_publication(prepared)
+        for name, destination in prepared.outputs.items():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=".codeprobe-calibration-", dir=destination.parent
+            )
+            temporary_path = Path(temporary)
+            try:
+                metadata = os.fstat(descriptor)
+                if not metadata.st_ino:
+                    raise ValueError("cannot verify the physical identity of calibration staging")
+            except BaseException:
+                # Acquisition has not entered the registered staging set yet.
+                # Close the descriptor and remove only this just-created name.
                 try:
-                    sample_metadata = sample_path.lstat()
-                except OSError:
-                    continue
-                if stat.S_ISDIR(sample_metadata.st_mode):
-                    sample_real = Path(os.path.realpath(os.fspath(sample_path)))
-                    output_real = Path(os.path.realpath(os.fspath(absolute)))
-                    try:
-                        output_real.relative_to(sample_real)
-                    except ValueError:
-                        pass
-                    else:
-                        raise ValueError(
-                            f"{name} must not be written inside a project calibration sample"
-                        )
-                    continue
-            if key == sample_key:
-                raise ValueError(f"{name} must not overwrite a calibration sample")
+                    os.close(descriptor)
+                finally:
+                    temporary_path.unlink(missing_ok=True)
+                raise
+            staged[name] = (temporary_path, (int(metadata.st_dev), int(metadata.st_ino)))
+            try:
+                handle = os.fdopen(descriptor, "wb")
+            except BaseException:
+                os.close(descriptor)
+                raise
+            with handle:
+                content = prepared.contents[name]
+                if handle.write(content) != len(content):
+                    raise OSError("incomplete calibration staging write")
+                handle.flush()
+                os.fsync(handle.fileno())
+            # Windows may finalise the write timestamp only when the writer
+            # closes. Retain that final state, bound to the acquisition identity.
+            _validate_output_destination("calibration staging", temporary_path)
+            state = _output_state(temporary_path)
+            if state is None or state[:2] != staged[name][1]:
+                raise ValueError("calibration staging changed after writing")
+            staged_states[name] = state
+        # Inspect the whole set after all staging, before the first replacement,
+        # and again before each subsequent replacement.
+        for name, destination in prepared.outputs.items():
+            _revalidate_publication(prepared)
+            temporary_path, _identity = staged[name]
+            _validate_output_destination("calibration staging", temporary_path)
+            if _output_state(temporary_path) != staged_states[name]:
+                raise ValueError("calibration staging changed before publication")
+            os.replace(temporary_path, destination)
+            published.append(destination)
+            del staged[name]
+            prepared.output_states[name] = _output_state(destination)
+    except BaseException as exc:
+        try:
+            _remove_staged(staged)
+        except OSError as cleanup_error:
+            if not isinstance(exc, Exception):
+                raise exc from cleanup_error
+            raise CalibrationPublicationError(
+                f"Calibration publication failed; {len(published)} complete files published, "
+                f"with partial publication possible. Staging cleanup also failed: {cleanup_error}",
+                published,
+            ) from exc
+        if not isinstance(exc, Exception):
+            raise
+        state = "partial publication" if published else "no files published"
+        raise CalibrationPublicationError(
+            f"Calibration publication failed ({state}; {len(published)} complete files published): {exc}",
+            published,
+        ) from exc
+    return prepared.result
 
 
-def run_calibration(args: Any) -> Dict[str, Any]:
-    manifest_path = Path(args.manifest).absolute()
-    manifest = load_manifest(manifest_path)
+def _write_rendered_output(path: Path, name: str, text: str) -> None:
+    """Keep the public single-file writers without bypassing byte preparation."""
+    contents = {name: _encode_output(name, text)}
+    outputs = {name: path}
+    states = _validate_output_paths(outputs, manifest_path=None, sample_paths=[])
+    publish_calibration(PreparedCalibration({}, outputs, contents, {}, None, [], states))
+
+
+def write_summary(path: Path, profile: Dict[str, Any]) -> None:
+    _write_rendered_output(path, "summary_path", render_summary(profile))
+
+
+def write_observations_csv(path: Path, results: Sequence[SampleResult]) -> None:
+    _write_rendered_output(path, "observations_path", render_observations_csv(results))
+
+
+def write_sensitivity_csv(path: Path, profile: Dict[str, Any]) -> None:
+    _write_rendered_output(path, "sensitivity_path", render_sensitivity_csv(profile))
+
+
+def prepare_calibration(
+    args: Any, *, manifest: Dict[str, Any] | None = None,
+    manifest_path: Path | None = None, generated_manifest_path: Path | None = None,
+) -> PreparedCalibration:
+    """Analyse and encode a complete calibration without publishing any path."""
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] = {}
+    manifest_path = Path(manifest_path or args.manifest).absolute()
+    if manifest is None:
+        if generated_manifest_path is not None:
+            raise ValueError("a generated manifest must be supplied in memory")
+        manifest = load_manifest(manifest_path, consumed_files=consumed_files)
+        protected_manifest: Path | None = manifest_path
+    else:
+        if generated_manifest_path is None:
+            raise ValueError("an in-memory manifest requires its publication path")
+        manifest = dict(manifest)
+        protected_manifest = None
+    generated_manifest = dict(manifest) if generated_manifest_path is not None else None
     if getattr(args, "profile_id", None):
         manifest["profile_id"] = args.profile_id
     if getattr(args, "label", None):
@@ -808,7 +1027,7 @@ def run_calibration(args: Any) -> Dict[str, Any]:
         manifest["profile_version"] = args.profile_version
     if getattr(args, "config", None):
         manifest["metric_overrides"] = _load_json_object_file(
-            Path(args.config), "metric override configuration"
+            Path(args.config), "metric override configuration", consumed_files=consumed_files
         )
     if getattr(args, "evaluation_fraction", None) is not None:
         manifest["evaluation_fraction"] = float(args.evaluation_fraction)
@@ -883,7 +1102,7 @@ def run_calibration(args: Any) -> Dict[str, Any]:
                 )
             seen_physical_sources[physical_key] = sample_id
         sample_paths.append((path, kind))
-        results.append(analyse_sample(path, record, profile_name, base_dir=base_dir, metric_overrides=manifest["metric_overrides"], sample_id=sample_id, split=split, group_id=group_id))
+        results.append(analyse_sample(path, record, profile_name, base_dir=base_dir, metric_overrides=manifest["metric_overrides"], sample_id=sample_id, split=split, group_id=group_id, consumed_files=consumed_files))
     failures = [item for item in results if item.verdict_class in {"error", "missing"}]
     if failures:
         detail = "; ".join(f"{item.sample_id}: {item.warning}" for item in failures[:5])
@@ -891,27 +1110,47 @@ def run_calibration(args: Any) -> Dict[str, Any]:
     profile = build_profile(manifest, results, target_fpr)
     assigned = [SampleResult(**item) for item in profile["validation"]["sample_results"]]
     outputs = _output_paths(args, manifest_path)
-    _validate_output_paths(
-        outputs,
-        manifest_path=manifest_path,
-        sample_paths=sample_paths,
+    if generated_manifest_path is not None:
+        outputs["manifest_path"] = Path(generated_manifest_path).absolute()
+    states = _validate_output_paths(
+        outputs, manifest_path=protected_manifest, sample_paths=sample_paths,
+        consumed_files=consumed_files,
     )
-    # Serialise before creating any output: diagnostics must also be valid JSON.
-    profile_json = json.dumps(profile, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
-    for output in outputs.values():
-        output.parent.mkdir(parents=True, exist_ok=True)
-    outputs["profile_path"].write_text(
-        profile_json,
-        encoding="utf-8",
-    )
-    write_observations_csv(outputs["observations_path"], assigned)
-    write_sensitivity_csv(outputs["sensitivity_path"], profile)
-    write_summary(outputs["summary_path"], profile)
-    return {
+    texts = {
+        "profile_path": json.dumps(profile, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        "summary_path": render_summary(profile),
+        "observations_path": render_observations_csv(assigned),
+        "sensitivity_path": render_sensitivity_csv(profile),
+    }
+    if generated_manifest is not None:
+        texts["manifest_path"] = json.dumps(
+            generated_manifest, indent=2, ensure_ascii=False, allow_nan=False
+        ) + "\n"
+    contents = {name: _encode_output(name, text) for name, text in texts.items()}
+    result = {
         "profile": profile,
         "results": [item.__dict__ for item in assigned],
         **{name: str(path) for name, path in outputs.items()},
     }
+    return PreparedCalibration(
+        result, outputs, contents, consumed_files, protected_manifest,
+        sample_paths, states,
+    )
+
+
+def run_calibration(args: Any) -> Dict[str, Any]:
+    return publish_calibration(prepare_calibration(args))
+
+
+def print_calibration_outputs(result: Dict[str, Any]) -> None:
+    written_profile = result["profile_path"]
+    written_summary = result["summary_path"]
+    written_observations = result["observations_path"]
+    written_sensitivity = result["sensitivity_path"]
+    print(f"Wrote calibration profile: {written_profile}")
+    print(f"Wrote validation summary: {written_summary}")
+    print(f"Wrote observations CSV: {written_observations}")
+    print(f"Wrote threshold sensitivity CSV: {written_sensitivity}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -940,14 +1179,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.out_dir and not profile_out:
         parser.error("provide --out-dir or --profile-out/--json-out")
     result = run_calibration(args)
-    written_profile = result["profile_path"]
-    written_summary = result["summary_path"]
-    written_observations = result["observations_path"]
-    written_sensitivity = result["sensitivity_path"]
-    print(f"Wrote calibration profile: {written_profile}")
-    print(f"Wrote validation summary: {written_summary}")
-    print(f"Wrote observations CSV: {written_observations}")
-    print(f"Wrote threshold sensitivity CSV: {written_sensitivity}")
+    print_calibration_outputs(result)
     return 0
 
 

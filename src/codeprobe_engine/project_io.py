@@ -135,7 +135,13 @@ def _open_regular(path: Path) -> int:
     return os.open(path, flags)
 
 
-def read_bounded_regular_file(path: Path, *, root: Path, max_bytes: int) -> bytes:
+def read_bounded_regular_file(
+    path: Path,
+    *,
+    root: Path,
+    max_bytes: int,
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
+) -> bytes:
     """Read one stable regular file without following links and with a hard cap."""
     if isinstance(max_bytes, bool):
         raise ProjectInputError("max_bytes must be a non-negative integer")
@@ -190,6 +196,14 @@ def read_bounded_regular_file(path: Path, *, root: Path, max_bytes: int) -> byte
         os.close(descriptor)
     if _identity(before) != _identity(after) or _identity(before_path) != _identity(after_path) or not same_file:
         raise ProjectInputError(f"project file changed during read: {_safe_text(path)}")
+    if consumed_files is not None:
+        identity = _identity(after_path)
+        if not identity[1]:
+            raise ProjectInputError(f"physical input identity is unavailable: {_safe_text(path)}")
+        previous = consumed_files.get(path)
+        if previous is not None and previous != identity:
+            raise ProjectInputError(f"project file changed between reads: {_safe_text(path)}")
+        consumed_files[path] = identity
     return b"".join(chunks)
 
 
@@ -300,6 +314,7 @@ def read_folder_files(
     *,
     include_binary_placeholders: bool = True,
     warning_sink: WarningSink = None,
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
     max_file_bytes: int = engine.PROJECT_MAX_FILE_BYTES_DEFAULT,
     max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
     max_entries: int = DEFAULT_MAX_ENTRIES,
@@ -328,6 +343,7 @@ def read_folder_files(
     )
     root = _absolute(root)
     metadata_entries = _walk_metadata(root, max_entries=max_entries)
+    reader_options = {"consumed_files": consumed_files} if consumed_files is not None else {}
     built_in_text = engine.default_project_ignore_text()
     embedded_text = ""
     ignore_entry = next(
@@ -338,7 +354,10 @@ def read_folder_files(
         ignore_path, ignore_metadata = ignore_entry
         if ignore_metadata.st_size > max_ignore_bytes:
             raise ProjectInputError(f".codeprobeignore exceeds the {max_ignore_bytes}-byte limit")
-        embedded_bytes = read_bounded_regular_file(ignore_path, root=root, max_bytes=max_ignore_bytes)
+        embedded_bytes = read_bounded_regular_file(
+            ignore_path, root=root, max_bytes=max_ignore_bytes,
+            **reader_options,
+        )
         embedded_text, warning = engine.decode_text_bytes(embedded_bytes)
         if embedded_text is None:
             raise ProjectInputError(f".codeprobeignore is not readable text: {warning}")
@@ -382,6 +401,7 @@ def read_folder_files(
             path,
             root=root,
             max_bytes=min(max_file_bytes, remaining),
+            **reader_options,
         )
         total_read += len(data)
         analysable_seen += 1
@@ -402,6 +422,7 @@ def project_payload_from_path(
     path: Path,
     *,
     include_binary_placeholders: bool = True,
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
     max_file_bytes: int = engine.PROJECT_MAX_FILE_BYTES_DEFAULT,
     max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
     max_entries: int = DEFAULT_MAX_ENTRIES,
@@ -454,6 +475,7 @@ def project_payload_from_path(
             "files": read_folder_files(
                 path,
                 include_binary_placeholders=include_binary_placeholders,
+                consumed_files=consumed_files,
                 max_file_bytes=max_file_bytes,
                 max_total_bytes=max_total_bytes,
                 max_entries=max_entries,
@@ -464,7 +486,10 @@ def project_payload_from_path(
             **common,
         }
     if stat.S_ISREG(metadata.st_mode) and path.suffix.lower() == ".zip":
-        archive = read_bounded_regular_file(path, root=path.parent, max_bytes=max_archive_bytes)
+        archive = read_bounded_regular_file(
+            path, root=path.parent, max_bytes=max_archive_bytes,
+            consumed_files=consumed_files,
+        )
         return {
             "project_name": path.stem,
             "zip_base64": base64.b64encode(archive).decode("ascii"),

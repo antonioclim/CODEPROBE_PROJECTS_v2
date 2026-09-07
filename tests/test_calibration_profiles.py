@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import argparse
+import contextlib
+import csv
+import errno
+import io
 import json
 import os
+import stat
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -14,6 +22,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import calibrate_corpus  # noqa: E402
 import calibrate_profile  # noqa: E402
 import codeprobe_runtime as engine  # noqa: E402
+from codeprobe_engine import project_io  # noqa: E402
 
 
 SAMPLE_CODE = """
@@ -489,6 +498,550 @@ class IndependentCalibrationBoundaryTests(unittest.TestCase):
             for name in names:
                 self.assertNotIn(name, serialised)
             self.assertRegex(serialised, r"sample-[0-9a-f]{32}")
+
+
+class CalibrationPublicationTests(unittest.TestCase):
+    """Owned filesystem fixtures; source text is analysed, never executed."""
+
+    def _fixture(self, root, *, kind="file", wrapper=False):
+        corpus = root / "corpus"
+        corpus.mkdir()
+        inputs, records = [], []
+        for index, (label, split) in enumerate((
+            ("human", "fit"), ("ai", "fit"),
+            ("human", "evaluation"), ("ai", "evaluation"),
+        )):
+            parent = corpus / label if wrapper else corpus
+            parent.mkdir(exist_ok=True)
+            if kind == "project":
+                sample = parent / f"project-{index}"
+                sample.mkdir()
+                source = sample / "main.py"
+                source.write_text(SAMPLE_CODE, encoding="utf-8")
+                ignore = sample / ".codeprobeignore"
+                ignore.write_text("# owned calibration fixture\n", encoding="utf-8")
+                inputs.extend((source, ignore))
+            elif kind == "zip":
+                sample = parent / f"project-{index}.zip"
+                with zipfile.ZipFile(sample, "w") as archive:
+                    archive.writestr("main.py", SAMPLE_CODE)
+                inputs.append(sample)
+            else:
+                sample = parent / f"sample-{index}.py"
+                sample.write_text(SAMPLE_CODE, encoding="utf-8")
+                inputs.append(sample)
+            records.append({"path": sample.relative_to(corpus).as_posix(),
+                            "kind": "project" if kind in {"project", "zip"} else "file",
+                            "label": label, "split": split, "group": f"group-{index}"})
+        manifest = {"profile_id": "publication-fixture", "label": "Publication fixture",
+                    "samples": records,
+                    "metric_overrides": {"line_length_uniformity": {"weight": .1}}}
+        manifest_path = root / "manifest.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        config = root / "config.json"
+        config.write_text(json.dumps({"line_length_uniformity": {"weight": 1.0}}), encoding="utf-8")
+        inputs.extend((manifest_path, config))
+        out = root / "output"
+        out.mkdir()
+        outputs = {"profile_path": out / "calibration_profile.json",
+                   "summary_path": out / "validation_summary.md",
+                   "observations_path": out / "calibration_observations.csv",
+                   "sensitivity_path": out / "threshold_sensitivity.csv"}
+        if wrapper:
+            outputs["generated_manifest_path"] = out / "generated_manifest.json"
+        for name, path in outputs.items():
+            path.write_bytes(f"previous complete {name}\n".encode("ascii"))
+        args = argparse.Namespace(manifest=str(manifest_path), root=str(corpus),
+                                  profile="default", target_fpr=1.0,
+                                  config=str(config), out_dir=str(out))
+        return args, inputs, outputs, manifest
+
+    @staticmethod
+    def _bytes(paths):
+        return {path: path.read_bytes() for path in paths}
+
+    def _no_staging(self, root):
+        self.assertEqual(list(root.rglob(".codeprobe-calibration-*")), [])
+
+    def _hardlink(self, target, destination):
+        destination.unlink(missing_ok=True)
+        try:
+            os.link(target, destination)
+        except OSError as exc:
+            self.skipTest(f"hard-link creation unavailable: {exc}")
+
+    def _wrapper(self, args, outputs, **overrides):
+        options = ["--corpus-root", args.root, "--out-dir", args.out_dir,
+                   "--config", args.config, "--profile-id", "publication-fixture",
+                   "--label", getattr(args, "label", "Publication fixture"), "--target-fpr", "1"]
+        flags = {"profile_path": "--profile-out", "summary_path": "--summary-out",
+                 "observations_path": "--csv-out", "sensitivity_path": "--sensitivity-out",
+                 "generated_manifest_path": "--manifest-out"}
+        for name, path in {**outputs, **overrides}.items():
+            options.extend((flags[name], str(path)))
+        messages = io.StringIO()
+        with contextlib.redirect_stdout(messages):
+            result = calibrate_corpus.main(options)
+        return result, messages.getvalue()
+
+    def _assert_coherent(self, outputs, *, generated=False, project=False):
+        profile = json.loads(outputs["profile_path"].read_text(encoding="utf-8"))
+        with outputs["observations_path"].open(encoding="utf-8", newline="") as handle:
+            observations = list(csv.DictReader(handle))
+        with outputs["sensitivity_path"].open(encoding="utf-8", newline="") as handle:
+            sensitivity = list(csv.DictReader(handle))
+        rows = profile["validation"]["sample_results"]
+        self.assertEqual(len(rows), 4)
+        self.assertTrue(all(row["applicable"] for row in rows))
+        self.assertEqual([row["sample_id"] for row in rows],
+                         [row["sample_id"] for row in observations])
+        self.assertEqual([row["group_id"] for row in rows],
+                         [row["group_id"] for row in observations])
+        for actual, exported in zip(rows, observations):
+            self.assertEqual(float(exported["score"]), actual["score"])
+            self.assertEqual(float(exported["decision_score"]), actual["decision_score"])
+            self.assertEqual(actual["scoring_contract"], profile["scoring_contract"])
+            self.assertRegex(actual["sample_id"], r"^sample-[0-9a-f]{12}4[0-9a-f]{19}$")
+        self.assertEqual([float(row["threshold"]) for row in sensitivity],
+                         [row["threshold"] for row in profile["validation"]["sensitivity"]])
+        summary = outputs["summary_path"].read_text(encoding="utf-8")
+        self.assertIn(profile["label"], summary)
+        trigger = profile["review_policy"][profile["calibrated_policy_kind"]]["review_trigger"]
+        self.assertIn(f"{trigger * 100:.1f}%", summary)
+        payload = {"calibration_profile": profile}
+        if project:
+            payload["files"] = [{"path": "main.py", "content": SAMPLE_CODE}]
+            report = json.loads(engine.codeprobe_analyze_project(json.dumps(payload)))["project_report"]
+        else:
+            payload.update(filename="sample.py", code=SAMPLE_CODE)
+            report = json.loads(engine.codeprobe_analyze(json.dumps(payload)))["report"]
+        self.assertTrue(profile["operational"])
+        self.assertEqual(profile["metric_overrides"]["line_length_uniformity"]["weight"], 1.0)
+        self.assertEqual(report["metric_config_digest"], profile["scoring_contract"]["metric_config_digest"])
+        self.assertEqual(report["overall_score"], rows[0]["score"])
+        self.assertNotIn(str(outputs["profile_path"].parent.parent), json.dumps(profile))
+        if generated:
+            manifest = json.loads(outputs["generated_manifest_path"].read_text(encoding="utf-8"))
+            self.assertEqual(len(manifest["samples"]), 4)
+            corpus = outputs["profile_path"].parent.parent / "corpus"
+            self.assertTrue(all((corpus / row["path"]).is_file() for row in manifest["samples"]))
+
+    def test_direct_hardlinked_inputs_and_outputs_preserve_all_bytes(self):
+        for case in ("sample", "manifest", "config", "output", "zip"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root, kind="zip" if case == "zip" else "file")
+                target = {"sample": inputs[0], "zip": inputs[0], "manifest": Path(args.manifest),
+                          "config": Path(args.config), "output": outputs["summary_path"]}[case]
+                self._hardlink(target, outputs["profile_path"])
+                before = self._bytes([*inputs, *outputs.values()])
+                with self.assertRaisesRegex(ValueError, "overwrite|collide|inside"):
+                    calibrate_profile.run_calibration(args)
+                self.assertEqual(self._bytes(before), before)
+                self._no_staging(root)
+
+    def test_configuration_and_portable_output_names_are_refused(self):
+        for case in ("config", "casefold", "unicode-nfc"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root)
+                if case == "config":
+                    args.profile_out = args.config
+                else:
+                    first, second = (("Report.json", "report.json") if case == "casefold"
+                                     else ("r\u00e9port.json", "re\u0301port.json"))
+                    args.profile_out = str(root / "output" / first)
+                    args.summary_out = str(root / "output" / second)
+                before = self._bytes([*inputs, *outputs.values()])
+                with self.assertRaisesRegex(ValueError, "overwrite|collide|inside"):
+                    calibrate_profile.run_calibration(args)
+                self.assertEqual(self._bytes(before), before)
+                self.assertFalse(Path(getattr(args, "summary_out", root / "absent")).exists())
+                self._no_staging(root)
+
+    def test_wrapper_manifest_collisions_preserve_all_bytes(self):
+        for case in ("config", "output", "output-hardlink", "sample-hardlink"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root, wrapper=True)
+                if case == "config":
+                    outputs["generated_manifest_path"] = Path(args.config)
+                elif case == "output":
+                    outputs["generated_manifest_path"] = outputs["profile_path"]
+                else:
+                    target = outputs["profile_path"] if case == "output-hardlink" else inputs[0]
+                    self._hardlink(target, outputs["generated_manifest_path"])
+                before = self._bytes([*inputs, *outputs.values()])
+                result, message = self._wrapper(args, outputs)
+                self.assertEqual(result, 2, message)
+                self.assertEqual(self._bytes(before), before)
+                self._no_staging(root)
+
+    def test_external_project_child_and_ignore_aliases_are_protected(self):
+        # Qualify both project forms with real applicable analysis before relying
+        # on an identity rejection in either folder or ZIP negative fixtures.
+        for kind in ("project", "zip"):
+            with self.subTest(positive_kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root, kind=kind)
+                before = self._bytes(inputs)
+                calibrate_profile.run_calibration(args)
+                self._assert_coherent(outputs, project=True)
+                self.assertEqual(self._bytes(inputs), before)
+                self._no_staging(root)
+        for child in ("main.py", ".codeprobeignore"):
+            for generated in (False, True):
+                with self.subTest(child=child, generated=generated), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    args, inputs, outputs, manifest = self._fixture(root, kind="project")
+                    target = root / "corpus" / "project-0" / child
+                    destination = (root / "external-manifest.json" if generated else outputs["profile_path"])
+                    self._hardlink(target, destination)
+                    before = self._bytes([*inputs, *outputs.values(), destination])
+                    with self.assertRaisesRegex(ValueError, "physical calibration input"):
+                        if generated:
+                            calibrate_profile.prepare_calibration(
+                                args, manifest=manifest, manifest_path=destination,
+                                generated_manifest_path=destination,
+                            )
+                        else:
+                            calibrate_profile.run_calibration(args)
+                    self.assertEqual(self._bytes(before), before)
+                    self._no_staging(root)
+
+    def test_project_tree_outputs_are_refused_without_creating_a_leaf(self):
+        for leaf in ("main.py", "new-result.json"):
+            with self.subTest(leaf=leaf), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root, kind="project")
+                args.profile_out = str(root / "corpus" / "project-0" / leaf)
+                before = self._bytes([*inputs, *outputs.values()])
+                with self.assertRaisesRegex(ValueError, "overwrite|collide|inside"):
+                    calibrate_profile.run_calibration(args)
+                self.assertEqual(self._bytes(before), before)
+                if leaf == "new-result.json":
+                    self.assertFalse(Path(args.profile_out).exists())
+                self._no_staging(root)
+
+    def test_output_symlink_preserves_target_and_other_destinations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args, inputs, outputs, _ = self._fixture(root)
+            destination = outputs["profile_path"]
+            destination.unlink()
+            try:
+                destination.symlink_to(inputs[0])
+            except OSError as exc:
+                self.skipTest(f"symbolic-link creation unavailable: {exc}")
+            before = self._bytes([*inputs, *outputs.values()])
+            with self.assertRaisesRegex(ValueError, "link|reparse"):
+                calibrate_profile.run_calibration(args)
+            self.assertEqual(self._bytes(before), before)
+            self.assertTrue(destination.is_symlink())
+            self._no_staging(root)
+
+    def test_special_output_is_refused_before_opening_it(self):
+        for case in ("directory", "fifo"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                if case == "fifo" and not hasattr(os, "mkfifo"):
+                    self.skipTest("FIFO creation is unavailable on this platform")
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root)
+                destination = outputs.pop("profile_path")
+                destination.unlink()
+                destination.mkdir() if case == "directory" else os.mkfifo(destination)
+                before = self._bytes([*inputs, *outputs.values()])
+                with mock.patch.object(calibrate_profile, "publish_calibration") as publish:
+                    with self.assertRaisesRegex(ValueError, "regular file"):
+                        calibrate_profile.run_calibration(args)
+                publish.assert_not_called()
+                self.assertEqual(self._bytes(before), before)
+                self._no_staging(root)
+
+    def test_destination_metadata_doubles_fail_closed(self):
+        for case in ("reparse", "missing-identity"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                destination = Path(tmp) / "output.json"
+                destination.write_bytes(b"previous complete output")
+                real_lstat = Path.lstat
+                actual = destination.lstat()
+                def metadata(path, *args, **kwargs):
+                    if path == destination:
+                        return argparse.Namespace(
+                            st_mode=stat.S_IFREG | 0o600,
+                            st_file_attributes=0x400 if case == "reparse" else 0,
+                            st_dev=actual.st_dev, st_ino=0, st_size=actual.st_size,
+                            st_mtime_ns=actual.st_mtime_ns, st_ctime_ns=actual.st_ctime_ns,
+                        )
+                    return real_lstat(path, *args, **kwargs)
+                with mock.patch.object(Path, "lstat", metadata):
+                    with self.assertRaisesRegex(ValueError, "reparse|identity"):
+                        calibrate_profile._validate_output_paths(
+                            {"profile_path": destination}, manifest_path=None, sample_paths=[],
+                        )
+                self.assertEqual(destination.read_bytes(), b"previous complete output")
+
+    def test_detectable_destination_substitution_prevents_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args, inputs, outputs, _ = self._fixture(root)
+            prepared = calibrate_profile.prepare_calibration(args)
+            self._hardlink(inputs[0], outputs["profile_path"])
+            # The fixture deliberately changes this name; publication must preserve
+            # the substituted bytes and every other pre-existing destination.
+            before = self._bytes([*inputs, *outputs.values()])
+            with self.assertRaises(calibrate_profile.CalibrationPublicationError) as raised:
+                calibrate_profile.publish_calibration(prepared)
+            self.assertEqual(raised.exception.published_paths, ())
+            self.assertIsInstance(raised.exception.__cause__, ValueError)
+            self.assertEqual(self._bytes(before), before)
+            self._no_staging(root)
+
+    def test_detectable_consumed_input_change_prevents_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args, inputs, outputs, _ = self._fixture(root, kind="project")
+            prepared = calibrate_profile.prepare_calibration(args)
+            inputs[1].write_text("# changed owned ignore policy\n", encoding="utf-8")
+            before = self._bytes([*inputs, *outputs.values()])
+            with self.assertRaises(calibrate_profile.CalibrationPublicationError) as raised:
+                calibrate_profile.publish_calibration(prepared)
+            self.assertEqual(raised.exception.published_paths, ())
+            self.assertIsInstance(raised.exception.__cause__, ValueError)
+            self.assertEqual(self._bytes(before), before)
+            self._no_staging(root)
+
+    def test_ordinary_direct_and_wrapper_outputs_are_coherent(self):
+        for wrapper in (False, True):
+            with self.subTest(wrapper=wrapper), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root, wrapper=wrapper)
+                before = self._bytes(inputs)
+                if wrapper:
+                    result, message = self._wrapper(args, outputs)
+                    self.assertEqual(result, 0, message)
+                else:
+                    calibrate_profile.run_calibration(args)
+                self.assertEqual(self._bytes(inputs), before)
+                self._assert_coherent(outputs, generated=wrapper)
+                self._no_staging(root)
+
+    def test_canonical_parent_alias_allows_distinct_regular_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args, inputs, outputs, _ = self._fixture(root)
+            alias = root / "output-alias"
+            try:
+                alias.symlink_to(root / "output", target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"directory symbolic-link creation unavailable: {exc}")
+            args.out_dir = str(alias)
+            before = self._bytes(inputs)
+            calibrate_profile.run_calibration(args)
+            self._assert_coherent(outputs)
+            self.assertEqual(self._bytes(inputs), before)
+            self._no_staging(root)
+
+    def test_real_surrogate_metadata_preserves_every_destination(self):
+        for wrapper in (False, True):
+            with self.subTest(wrapper=wrapper), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, manifest = self._fixture(root, wrapper=wrapper)
+                manifest["label"] = "invalid scalar \ud800"
+                Path(args.manifest).write_text(json.dumps(manifest, ensure_ascii=True), encoding="utf-8")
+                before = self._bytes([*inputs, *outputs.values()])
+                if wrapper:
+                    # The wrapper receives metadata as an argument, while the direct
+                    # CLI reads the same invalid scalar from escaped valid JSON.
+                    args.label = manifest["label"]
+                    result, message = self._wrapper(args, outputs)
+                    self.assertEqual(result, 2, message)
+                    self.assertRegex(message, "UTF-8|Unicode")
+                else:
+                    with self.assertRaisesRegex(ValueError, "UTF-8|Unicode"):
+                        calibrate_profile.run_calibration(args)
+                self.assertEqual(self._bytes(before), before)
+                self._no_staging(root)
+
+    def test_each_non_json_renderer_encodes_before_any_publication(self):
+        for renderer in ("render_summary", "render_observations_csv", "render_sensitivity_csv"):
+            with self.subTest(renderer=renderer), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root, wrapper=True)
+                before = self._bytes([*inputs, *outputs.values()])
+                with mock.patch.object(calibrate_profile, renderer, return_value="invalid \ud800") as render:
+                    result, message = self._wrapper(args, outputs)
+                self.assertEqual(result, 2, message)
+                self.assertRegex(message, "UTF-8|Unicode")
+                render.assert_called_once()
+                self.assertEqual(self._bytes(before), before)
+                self._no_staging(root)
+
+        # An otherwise ignored manifest field reaches the fifth encoding slot
+        # without first invalidating profile JSON or the three rendered reports.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args, inputs, outputs, manifest = self._fixture(root, wrapper=True)
+            manifest["opaque_fixture_metadata"] = "invalid scalar \ud800"
+            before = self._bytes([*inputs, *outputs.values()])
+            with self.assertRaisesRegex(ValueError, "manifest_path.*invalid Unicode"):
+                calibrate_profile.prepare_calibration(
+                    args, manifest=manifest, manifest_path=outputs["generated_manifest_path"],
+                    generated_manifest_path=outputs["generated_manifest_path"],
+                )
+            self.assertEqual(self._bytes(before), before)
+            self._no_staging(root)
+
+    def test_staging_creation_failure_preserves_direct_and_wrapper_outputs(self):
+        for wrapper in (False, True):
+            with self.subTest(wrapper=wrapper), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root, wrapper=wrapper)
+                before = self._bytes([*inputs, *outputs.values()])
+                original = calibrate_profile.tempfile.mkstemp
+                calls = []
+                def creation(*call_args, **kwargs):
+                    calls.append(kwargs)
+                    if len(calls) == 2:
+                        raise OSError("owned second-stage creation failure")
+                    return original(*call_args, **kwargs)
+                with mock.patch.object(calibrate_profile.tempfile, "mkstemp", side_effect=creation):
+                    if wrapper:
+                        result, message = self._wrapper(args, outputs)
+                        self.assertEqual(result, 2, message)
+                    else:
+                        with self.assertRaises(calibrate_profile.CalibrationPublicationError) as raised:
+                            calibrate_profile.run_calibration(args)
+                        self.assertEqual(raised.exception.published_paths, ())
+                        self.assertIsInstance(raised.exception.__cause__, OSError)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(self._bytes(before), before)
+                self._no_staging(root)
+
+    def test_staging_identity_acquisition_failure_closes_its_descriptor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args, inputs, outputs, _ = self._fixture(root)
+            before = self._bytes([*inputs, *outputs.values()])
+            real_mkstemp, real_fstat = tempfile.mkstemp, os.fstat
+            acquired = []
+            fault = OSError("owned staging identity acquisition failure")
+            def acquire(*call_args, **kwargs):
+                descriptor, path = real_mkstemp(*call_args, **kwargs)
+                acquired.append(descriptor)
+                return descriptor, path
+            def inspect(descriptor):
+                if acquired and descriptor == acquired[0]:
+                    raise fault
+                return real_fstat(descriptor)
+            with mock.patch.object(calibrate_profile.tempfile, "mkstemp", side_effect=acquire):
+                with mock.patch.object(calibrate_profile.os, "fstat", side_effect=inspect):
+                    with self.assertRaises(calibrate_profile.CalibrationPublicationError) as raised:
+                        calibrate_profile.run_calibration(args)
+            self.assertIs(raised.exception.__cause__, fault)
+            self.assertEqual(raised.exception.published_paths, ())
+            self.assertEqual(len(acquired), 1)
+            with self.assertRaises(OSError) as closed:
+                real_fstat(acquired[0])
+            self.assertEqual(closed.exception.errno, errno.EBADF)
+            self.assertEqual(self._bytes(before), before)
+            self._no_staging(root)
+
+    def test_consumed_file_collector_rejects_changed_repeat_reads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.py"
+            source.write_bytes(b"first owned input")
+            consumed = {}
+            self.assertEqual(project_io.read_bounded_regular_file(
+                source, root=root, max_bytes=100, consumed_files=consumed,
+            ), b"first owned input")
+            recorded = dict(consumed)
+            source.write_bytes(b"different owned input")
+            with self.assertRaisesRegex(ValueError, "changed"):
+                project_io.read_bounded_regular_file(
+                    source, root=root, max_bytes=100, consumed_files=consumed,
+                )
+            self.assertEqual(consumed, recorded)
+            self.assertEqual(source.read_bytes(), b"different owned input")
+
+    def test_staging_write_and_flush_failures_preserve_all_outputs(self):
+        for stage in ("write", "flush"):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root, wrapper=True)
+                before = self._bytes([*inputs, *outputs.values()])
+                real_fdopen = os.fdopen
+                opened, faults = [], []
+                class FaultedFile:
+                    def __init__(self, handle):
+                        self.handle = handle
+                    def __enter__(self):
+                        return self
+                    def __exit__(self, *exc):
+                        self.handle.close()
+                    def write(self, data):
+                        if stage == "write":
+                            faults.append(stage)
+                            raise OSError("owned staging write failure")
+                        return self.handle.write(data)
+                    def flush(self):
+                        if stage == "flush":
+                            faults.append(stage)
+                            raise OSError("owned staging flush failure")
+                        return self.handle.flush()
+                    def fileno(self):
+                        return self.handle.fileno()
+                def faulted_open(*call_args, **kwargs):
+                    handle = real_fdopen(*call_args, **kwargs)
+                    opened.append(handle)
+                    return FaultedFile(handle) if len(opened) == 2 else handle
+                with mock.patch.object(calibrate_profile.os, "fdopen", side_effect=faulted_open):
+                    result, message = self._wrapper(args, outputs)
+                self.assertEqual(result, 2, message)
+                self.assertEqual(faults, [stage])
+                self.assertTrue(all(handle.closed for handle in opened))
+                self.assertEqual(self._bytes(before), before)
+                self._no_staging(root)
+
+    def test_failure_between_replacements_reports_complete_partial_publication(self):
+        for wrapper in (False, True):
+            with self.subTest(wrapper=wrapper), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, _ = self._fixture(root, wrapper=wrapper)
+                before = self._bytes([*inputs, *outputs.values()])
+                real_replace = os.replace
+                installed, attempted = {}, []
+                def replace(source, destination, *call_args, **kwargs):
+                    destination = Path(destination)
+                    attempted.append(destination)
+                    if len(attempted) == 2:
+                        raise OSError("owned second replacement failure")
+                    complete = Path(source).read_bytes()
+                    real_replace(source, destination, *call_args, **kwargs)
+                    installed[destination] = complete
+                with mock.patch.object(calibrate_profile.os, "replace", side_effect=replace):
+                    if wrapper:
+                        result, message = self._wrapper(args, outputs)
+                        self.assertEqual(result, 2, message)
+                        self.assertIn("partial", message.lower())
+                    else:
+                        with self.assertRaisesRegex(calibrate_profile.CalibrationPublicationError, "partial") as raised:
+                            calibrate_profile.run_calibration(args)
+                        self.assertEqual(raised.exception.published_paths, tuple(str(path) for path in installed))
+                        self.assertIsInstance(raised.exception.__cause__, OSError)
+                self.assertEqual(len(attempted), 2)
+                self.assertEqual(len(installed), 1)
+                for path, old in before.items():
+                    self.assertEqual(path.read_bytes(), installed.get(path, old))
+                for path, content in installed.items():
+                    if path.suffix == ".json":
+                        self.assertIsInstance(json.loads(content.decode("utf-8")), dict)
+                    elif path.suffix == ".csv":
+                        self.assertTrue(list(csv.DictReader(io.StringIO(content.decode("utf-8")))))
+                    else:
+                        self.assertIn("CodeProbe calibration summary", content.decode("utf-8"))
+                self._no_staging(root)
 
 
 if __name__ == "__main__":
