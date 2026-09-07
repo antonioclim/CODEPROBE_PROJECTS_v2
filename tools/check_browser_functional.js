@@ -865,6 +865,7 @@ async function testStrictJsonContracts(cdp, baseUrl, fixtureState, engineDigest)
       ]);
     } finally { clearTimeout(timer); }
   }
+  await bounded(() => cdp.send("Target.setDiscoverTargets", {discover:true}));
   const previous = new Set((await bounded(() => cdp.send("Target.getTargets"))).targetInfos.map(item => item.targetId));
   fixtureState.reset();
   const pageUrl = `${baseUrl}/app/index.html?strict-json-contract=1`;
@@ -873,9 +874,16 @@ async function testStrictJsonContracts(cdp, baseUrl, fixtureState, engineDigest)
   try {
     await bounded(() => waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()"));
     assertSingleVerifiedRequests(fixtureState);
-    const targets = (await bounded(() => cdp.send("Target.getTargets"))).targetInfos;
-    const workers = targets.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.url.startsWith(`blob:${baseUrl}/`));
-    assert(workers.length === 1, "the owned page did not expose exactly one new same-origin worker");
+    let targets = [], workers = [];
+    const discoveryDeadline = Math.min(deadline, Date.now() + 5000);
+    do {
+      targets = (await bounded(() => cdp.send("Target.getTargets"))).targetInfos;
+      workers = targets.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.url.startsWith(`blob:${baseUrl}/`));
+      if (workers.length) break;
+      await bounded(() => delay(100));
+    } while (Date.now() < discoveryDeadline);
+    console.log("[INFO] browser-strict-json-targets: " + JSON.stringify({page_target_id:session.targetId, targets:targets.map(item => ({id:item.targetId, type:item.type, url:item.url, parent:item.parentId, opener:item.openerId, existed:previous.has(item.targetId)}))}));
+    assert(workers.length === 1, "the owned page did not expose exactly one new same-origin worker after bounded discovery");
     const worker = workers[0];
     if (worker.openerId) assert(worker.openerId === session.targetId, "worker opener differs from the owned page");
     workerSession = (await bounded(() => cdp.send("Target.attachToTarget", {targetId:worker.targetId, flatten:true}))).sessionId;
@@ -970,6 +978,7 @@ _codeprobe_strict_json_fixture()
       catch (_) { /* the worker is deliberately terminated after a refusal */ }
     }
     await closeSession(cdp, session);
+    await cdp.send("Target.setDiscoverTargets", {discover:false});
   }
 }
 

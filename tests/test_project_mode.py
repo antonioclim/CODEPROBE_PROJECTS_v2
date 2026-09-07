@@ -440,10 +440,13 @@ class BoundedProjectControlTests(unittest.TestCase):
             with mock.patch.object(project_io.os, "open", side_effect=open_owned):
                 self.assertEqual(project_io.read_bounded_regular_file(path, root=root, max_bytes=5), b"owned")
             self.assertEqual(len(flags_seen), 2)
+            available_flags = (
+                getattr(os, "O_NONBLOCK", 0), getattr(os, "O_NOFOLLOW", 0),
+                getattr(os, "O_CLOEXEC", 0), getattr(os, "O_BINARY", 0),
+            )
             for flags in flags_seen:
-                for name in ("O_NONBLOCK", "O_NOFOLLOW", "O_CLOEXEC", "O_BINARY"):
-                    if hasattr(os, name):
-                        self.assertEqual(flags & getattr(os, name), getattr(os, name))
+                for expected in available_flags:
+                    self.assertEqual(flags & expected, expected)
 
     def test_each_open_rejects_a_simulated_special_descriptor_before_use(self):
         for selected_open in (1, 2):

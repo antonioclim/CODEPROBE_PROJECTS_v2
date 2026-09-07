@@ -137,7 +137,7 @@ def _linux_state(record: dict[str, object]) -> tuple[bool, str]:
         ns = next(line for line in status if line.startswith("NSpid:"))
         actual = (fields[19], [int(p) for p in ns.split()[1:]],
                   os.readlink(directory / "ns/pid"))
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return False, "absent"
     expected = (record["start"], record["nspid"], record["namespace"])
     return actual == expected, fields[0]

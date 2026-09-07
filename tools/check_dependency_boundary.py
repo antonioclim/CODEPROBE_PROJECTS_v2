@@ -52,6 +52,7 @@ APPROVED_ACTIONS = {
 }
 
 APPROVED_LOCAL_IMPORTS = {
+    "analyze_project",
     "audit_institutional_pack",
     "build_release",
     "calibrate_corpus",
