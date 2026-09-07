@@ -12,6 +12,7 @@ if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site):
 
 import argparse
 import dis
+import hashlib
 import io
 import json
 import os
@@ -28,6 +29,7 @@ from typing import Any, Iterable, Mapping, Sequence
 POLICY_SCHEMA = "codeprobe-supported-coverage/v1"
 DEFAULT_POLICY = "tools/coverage-policy.json"
 PYTHON_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+_BROKER_DIAGNOSTIC_PATH = "src/codeprobe_engine/process_control.py"
 
 
 class CoveragePolicyError(ValueError):
@@ -39,6 +41,9 @@ class FileCoverage:
     path: str
     executed: int
     executable: int
+    executed_line_numbers: tuple[int, ...] | None = None
+    executable_line_numbers: tuple[int, ...] | None = None
+    source_sha256: str | None = None
 
     @property
     def percentage(self) -> float:
@@ -363,11 +368,17 @@ def collect_coverage(root: Path, policy: Mapping[str, Any]) -> tuple[list[FileCo
         absolute = str(path.resolve(strict=True))
         executable = executable_lines(path)
         executed = executable.intersection(monitor.executed.get(absolute, set()))
+        relative = path.relative_to(root).as_posix()
+        # Retain the exact counted sets only after monitoring has stopped.
+        detailed = relative == _BROKER_DIAGNOSTIC_PATH
         rows.append(
             FileCoverage(
-                path=path.relative_to(root).as_posix(),
+                path=relative,
                 executed=len(executed),
                 executable=len(executable),
+                executed_line_numbers=tuple(sorted(executed)) if detailed else None,
+                executable_line_numbers=tuple(sorted(executable)) if detailed else None,
+                source_sha256=hashlib.sha256(path.read_bytes()).hexdigest() if detailed else None,
             )
         )
     return rows, result.testsRun, output.getvalue()
@@ -451,6 +462,43 @@ def result_payload(
         ],
         "floor_failures": list(floor_failures),
         "limitations": list(policy.get("limitations") or []),
+        "line_diagnostics": {
+            "schema": "codeprobe-supported-coverage-line-diagnostics/v1",
+            "python": platform.python_version(),
+            "python_full": sys.version,
+            "implementation": platform.python_implementation(),
+            "platform": sys.platform,
+            "machine": platform.machine(),
+            "runtime_flags": {
+                "isolated": sys.flags.isolated,
+                "no_site": sys.flags.no_site,
+                "dont_write_bytecode": sys.flags.dont_write_bytecode,
+                "ignore_environment": sys.flags.ignore_environment,
+                "optimize": sys.flags.optimize,
+                "hash_randomization": sys.flags.hash_randomization,
+            },
+            "tests_run": tests_run,
+            "qualification": (
+                "Exact counted line sets from the same in-process discovered-suite measurement; "
+                "tests_run includes unittest methods reported as skipped. Source hashes are read "
+                "after monitoring; checkout identity and cleanliness remain separate checks."
+            ),
+            "files": [
+                {
+                    "path": row.path,
+                    "source_sha256": row.source_sha256,
+                    "executed": row.executed,
+                    "executable": row.executable,
+                    "executed_line_numbers": list(row.executed_line_numbers),
+                    "executable_line_numbers": list(row.executable_line_numbers),
+                }
+                for row in rows
+                if row.path == _BROKER_DIAGNOSTIC_PATH
+                and row.executed_line_numbers is not None
+                and row.executable_line_numbers is not None
+                and row.source_sha256 is not None
+            ],
+        },
     }
 
 
@@ -514,6 +562,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"[INFO] supported-coverage: {path} {row['percentage']:.2f}% "
             f"({row['executed']}/{row['executable']})"
         )
+    print("SUPPORTED_COVERAGE_LINE_DIAGNOSTIC=" + json.dumps(
+        payload["line_diagnostics"], sort_keys=True, separators=(",", ":")
+    ))
     if failures:
         for failure in failures:
             print(f"[FAIL] supported-coverage-floor: {failure}")

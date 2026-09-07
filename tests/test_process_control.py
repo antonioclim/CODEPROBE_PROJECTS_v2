@@ -117,7 +117,7 @@ if role == "leader":
     (root / "ready").touch()
 if not wait_for("release"):
     sys.exit(3)
-if options.get("close_pipes") or options.get("detached"):
+if options.get("close_pipes") or (options.get("detached") and not options.get("retain_pipes")):
     os.close(1)
     os.close(2)
 if role == "leader" and options.get("leader_exit"):
@@ -620,6 +620,68 @@ class ProcessControlTests(unittest.TestCase):
             (fixture.root / "stop").touch()
             fixture.assert_stopped()
 
+    def test_cancellation_chains_cleanup_failure_after_owned_child_stops(self) -> None:
+        with _OwnedFixture(tree=True) as fixture:
+            cancellation = KeyboardInterrupt("owned cancellation with cleanup failure")
+            close_failure = OSError("injected failure after the owned job was closed")
+            cancelled = []
+            closed = []
+            original_close = process_control._WindowsJob.close
+
+            class Clock:
+                monotonic = staticmethod(time.monotonic)
+
+                @staticmethod
+                def sleep(seconds):
+                    if fixture.armed.is_set() and not cancelled:
+                        cancelled.append(True)
+                        raise cancellation
+                    time.sleep(seconds)
+
+            def fail_after_close(job):
+                original_close(job)
+                closed.append(True)
+                raise close_failure
+
+            with mock.patch.object(process_control, "time", Clock), \
+                    mock.patch.object(process_control._WindowsJob, "close", fail_after_close):
+                with self.assertRaises(KeyboardInterrupt) as caught:
+                    fixture.run(timeout=6)
+            self.assertIs(caught.exception, cancellation)
+            self.assertIsInstance(caught.exception.__cause__, ProcessControlError)
+            self.assertIs(caught.exception.__cause__.__cause__, close_failure)
+            self.assertEqual(cancelled, [True])
+            self.assertEqual(closed, [True])
+            fixture.assert_stopped()
+
+    @unittest.skipUnless(os.name == "posix", "Actual POSIX detached pipe-writer scope")
+    def test_detached_pipe_writer_fails_within_cleanup_budget(self) -> None:
+        # The ordinary writer is the positive control for the same handshake
+        # and inherited pipes. Neither case waits for the fixture's 30s expiry.
+        for detached in (False, True):
+            with self.subTest(detached=detached), _OwnedFixture(
+                tree=True, leader_exit=True, detached=detached, retain_pipes=True,
+            ) as fixture:
+                started = time.monotonic()
+                if detached:
+                    with self.assertRaises(ProcessControlError) as caught:
+                        fixture.run(timeout=2)
+                    self.assertIsInstance(caught.exception.__cause__, ProcessControlError)
+                    self.assertIn("cleanup budget", str(caught.exception.__cause__))
+                    self.assertFalse(fixture.observers[0].alive())
+                    self.assertTrue(fixture.observers[1].alive(),
+                                    "Detached writer must still own its pipe at the failed deadline")
+                    fixture.print_identities()
+                    (fixture.root / "stop").touch()
+                else:
+                    result = fixture.run(timeout=2)
+                    self.assertTrue(result.timed_out)
+                    self.assertFalse(result.output_limit_exceeded)
+                    self.assertEqual((result.stdout, result.stderr), (b"", b""))
+                self.assertLess(time.monotonic() - started, 9,
+                                "Cleanup exceeded the 2s execution + 5s cleanup budget and margin")
+                fixture.assert_stopped()
+
 
 class _LibprocFixture:
     """Finite public-ABI responses; this double never loads a native library."""
@@ -842,6 +904,117 @@ class ProcessOwnershipContractTests(unittest.TestCase):
                     self.assertTrue(call.args[2] & interface.WNOWAIT,
                                     "Identity observation must not reap the anchor")
                 interface.killpg.assert_called_once_with(process.pid, signal.SIGTERM)
+
+
+class _CleanupDouble:
+    """Finite lifecycle responses with no host PID, descriptor or job handle."""
+
+    stages = ("terminate", "wait", "drain", "stdout_close", "stderr_close", "job_close")
+
+    def __init__(self, failures=None) -> None:
+        self.failures = failures or {}
+        self.events = []
+
+        def operation(stage, result=None):
+            def call(*args, **kwargs):
+                self.events.append(stage)
+                if len(self.events) > 20:
+                    raise AssertionError("Cleanup double exceeded its finite operation budget")
+                if stage in self.failures:
+                    raise self.failures[stage]
+                return result
+            return mock.Mock(side_effect=call)
+
+        self.process = SimpleNamespace(
+            stdout=SimpleNamespace(close=operation("stdout_close")),
+            stderr=SimpleNamespace(close=operation("stderr_close")),
+            wait=operation("wait", 0), kill=operation("kill"),
+        )
+        self.job = SimpleNamespace(
+            active=False, assigned=False, close=operation("job_close"),
+            terminate=operation("terminate"), active_process_count=operation("job_count", 0),
+        )
+        self.pipes = [SimpleNamespace(finished=True), SimpleNamespace(finished=True)]
+        self.terminate = operation("terminate")
+        self.drain = operation("drain", False)
+        self.clock = SimpleNamespace(monotonic=mock.Mock(side_effect=[10.0, 10.0]))
+
+
+class ProcessCleanupContractTests(unittest.TestCase):
+    """Error precedence and release attempts; doubles do not prove native cleanup."""
+
+    def _finish(self, fixture):
+        with mock.patch.object(process_control, "os", SimpleNamespace(name="posix")), \
+                mock.patch.object(process_control, "time", fixture.clock), \
+                mock.patch.object(process_control, "_terminate_tree", fixture.terminate), \
+                mock.patch.object(process_control, "_pump_outputs", fixture.drain):
+            return process_control._finish_process(
+                fixture.process, fixture.job, fixture.pipes, graceful=False)
+
+    def test_cleanup_preserves_first_failure_and_attempts_remaining_release(self) -> None:
+        for index, first in enumerate(_CleanupDouble.stages):
+            with self.subTest(first_failure=first):
+                failures = {stage: OSError("owned " + stage + " failure")
+                            for stage in _CleanupDouble.stages[index:]}
+                fixture = _CleanupDouble(failures)
+                with self.assertRaises(ProcessControlError) as caught:
+                    self._finish(fixture)
+                self.assertIs(caught.exception.__cause__, failures[first])
+                self.assertEqual(fixture.events, list(_CleanupDouble.stages))
+                fixture.terminate.assert_called_once_with(
+                    fixture.process, fixture.job, graceful=False, cleanup_deadline=15.0)
+                fixture.process.wait.assert_called_once_with(timeout=5.0)
+                fixture.drain.assert_called_once_with(fixture.pipes)
+
+    def test_complete_cleanup_returns_without_error_and_closes_each_resource(self) -> None:
+        fixture = _CleanupDouble()
+        self.assertIsNone(self._finish(fixture))
+        self.assertEqual(fixture.events, list(_CleanupDouble.stages))
+        fixture.process.wait.assert_called_once_with(timeout=5.0)
+        fixture.process.stdout.close.assert_called_once_with()
+        fixture.process.stderr.close.assert_called_once_with()
+        fixture.job.close.assert_called_once_with()
+        fixture.process.kill.assert_not_called()
+
+    def test_windows_termination_failure_still_kills_unassigned_child_and_closes_job(self) -> None:
+        failure = OSError("owned job termination failure")
+        fixture = _CleanupDouble({"terminate": failure,
+                                  "job_close": OSError("owned fallback close failure")})
+        fixture.job.active = True
+        with mock.patch.object(process_control, "os", SimpleNamespace(name="nt")), \
+                mock.patch.object(process_control, "time", fixture.clock), \
+                mock.patch.object(process_control, "_pump_outputs", fixture.drain):
+            with self.assertRaises(ProcessControlError) as caught:
+                process_control._finish_process(
+                    fixture.process, fixture.job, fixture.pipes, graceful=True)
+        self.assertIs(caught.exception.__cause__, failure)
+        self.assertEqual(fixture.events, [
+            "terminate", "kill", "job_close", "wait", "drain", "job_count",
+            "stdout_close", "stderr_close", "job_close",
+        ])
+        fixture.process.kill.assert_called_once_with()
+        fixture.process.wait.assert_called_once_with(timeout=5.0)
+        self.assertEqual(fixture.job.close.call_count, 2)
+
+    def test_launch_cancellation_closes_job_and_preserves_cleanup_cause(self) -> None:
+        for fail_close in (False, True):
+            with self.subTest(cleanup_failure=fail_close):
+                cancellation = KeyboardInterrupt("owned launch cancellation before a child exists")
+                close_failure = OSError("owned job close failure")
+                job = SimpleNamespace(close=mock.Mock(
+                    side_effect=close_failure if fail_close else None))
+                with mock.patch.object(process_control, "_WindowsJob", return_value=job), \
+                        mock.patch.object(process_control, "_require_posix_ownership"), \
+                        mock.patch.object(process_control.subprocess, "Popen",
+                                          side_effect=cancellation) as launch, \
+                        mock.patch.object(process_control, "_finish_process") as finish:
+                    with self.assertRaises(KeyboardInterrupt) as caught:
+                        run_bounded_process(["owned-fixture-never-launched"], cwd=ROOT, timeout=2)
+                self.assertIs(caught.exception, cancellation)
+                self.assertIs(caught.exception.__cause__, close_failure if fail_close else None)
+                launch.assert_called_once()
+                job.close.assert_called_once_with()
+                finish.assert_not_called()
 
 
 if __name__ == "__main__":
