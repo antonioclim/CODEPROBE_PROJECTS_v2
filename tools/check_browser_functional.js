@@ -878,12 +878,12 @@ async function testStrictJsonContracts(cdp, baseUrl, fixtureState, engineDigest)
     const discoveryDeadline = Math.min(deadline, Date.now() + 5000);
     do {
       targets = (await bounded(() => cdp.send("Target.getTargets"))).targetInfos;
-      workers = targets.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.url.startsWith(`blob:${baseUrl}/`));
+      workers = targets.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.parentId === session.targetId);
       if (workers.length) break;
       await bounded(() => delay(100));
     } while (Date.now() < discoveryDeadline);
     console.log("[INFO] browser-strict-json-targets: " + JSON.stringify({page_target_id:session.targetId, targets:targets.map(item => ({id:item.targetId, type:item.type, url:item.url, parent:item.parentId, opener:item.openerId, existed:previous.has(item.targetId)}))}));
-    assert(workers.length === 1, "the owned page did not expose exactly one new same-origin worker after bounded discovery");
+    assert(workers.length === 1, "the owned page did not expose exactly one new child worker after bounded discovery");
     const worker = workers[0];
     if (worker.openerId) assert(worker.openerId === session.targetId, "worker opener differs from the owned page");
     workerSession = (await bounded(() => cdp.send("Target.attachToTarget", {targetId:worker.targetId, flatten:true}))).sessionId;
@@ -933,7 +933,7 @@ _codeprobe_strict_json_fixture()
     assert(direct.measured_sha256 === engineDigest, "raw JSON checks used a different engine source");
     assert(direct.positives.length === 3 && direct.invalid.length === 15, "raw JSON matrix is incomplete");
     assertSingleVerifiedRequests(fixtureState);
-    console.log("[PASS] browser-strict-json-direct: " + JSON.stringify({ownership:{page_target_id:session.targetId, worker_target_id:worker.targetId, worker_url:worker.url, bootstrap_url:workerBase}, ...direct}));
+    console.log("[PASS] browser-strict-json-direct: " + JSON.stringify({ownership:{page_target_id:session.targetId, worker_target_id:worker.targetId, worker_parent_id:worker.parentId, worker_url:worker.url, bootstrap_url:workerBase}, ...direct}));
 
     const code = "def add(left, right):\n    return left + right\n";
     const valid = [
