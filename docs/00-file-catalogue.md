@@ -4,6 +4,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 
 ## Summary
 
+- `added_I04`: 1
 - `added_audit_phase4`: 7
 - `added_audit_phase4b`: 1
 - `added_audit_phase4c`: 7
@@ -112,6 +113,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `src/codeprobe_engine/README.md` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
 | `src/codeprobe_engine/__init__.py` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
 | `src/codeprobe_engine/api.py` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
+| `src/codeprobe_engine/diagnostic_outputs.py` | `—` | `src` | diagnostic destination admission | `added_I04` | I04 | `high` |
 | `src/codeprobe_engine/metrics.py` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
 | `src/codeprobe_engine/paths.py` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
 | `src/codeprobe_engine/process_control.py` | `—` | `src` | maintainer engine support module | `added_audit_phase4c` | audit-4c | `high` |
