@@ -149,7 +149,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
 
     def test_comparison_reports_partial_publication_without_claiming_rollback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            parent = Path(tmp)
+            parent = Path(tmp).resolve()
             root, inputs = self._comparison_fixture(parent)
             first, second = parent / "report.json", parent / "report.md"
             first.write_bytes(b"old JSON sentinel\n")

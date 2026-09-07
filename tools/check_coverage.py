@@ -29,10 +29,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.append(str(SRC))
 
-from codeprobe_engine.release import (  # noqa: E402
-    atomic_write_bytes,
-    validate_diagnostic_outputs,
-)
+from codeprobe_engine.diagnostic_outputs import validate_diagnostic_outputs  # noqa: E402
 
 
 POLICY_SCHEMA = "codeprobe-supported-coverage/v1"
@@ -558,6 +555,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Recheck the complete set after collection, before creating output.
             protected = [policy_path, *(path for path in root.rglob("*") if path.is_file())]
             validate_diagnostic_outputs((output,), inputs=protected)
+            from codeprobe_engine.release import atomic_write_bytes
+
             atomic_write_bytes(output, content)
     except (CoveragePolicyError, OSError, UnicodeError, ValueError) as exc:
         print(f"[FAIL] supported-coverage: {exc}")
