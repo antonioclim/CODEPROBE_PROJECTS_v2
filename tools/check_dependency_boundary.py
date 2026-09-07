@@ -103,6 +103,7 @@ APPROVED_STDLIB_IMPORTS = {
     "keyword",
     "math",
     "mimetypes",
+    "msvcrt",
     "os",
     "pathlib",
     "platform",

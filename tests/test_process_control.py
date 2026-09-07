@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import ctypes
+import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -20,84 +23,536 @@ from codeprobe_engine.process_control import (  # noqa: E402
 )
 
 
+# These programmes are test-owned fixtures, never submitted source. Every
+# running process exits after thirty seconds even if broker and test both fail.
+# Files provide readiness and cooperative cleanup without signalling a reused PID.
+_FIXTURE_SOURCE = r'''
+import ctypes
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+root = Path(sys.argv[1])
+options = json.loads(sys.argv[2])
+role = sys.argv[3]
+expires = time.monotonic() + 30
+
+def identity():
+    result = {"pid": os.getpid(), "platform": sys.platform}
+    if sys.platform.startswith("linux"):
+        proc_pid = int(os.readlink("/proc/self"))
+        stat = Path("/proc/self/stat").read_text().rsplit(") ", 1)[1].split()
+        status = Path("/proc/self/status").read_text().splitlines()
+        ns = next(line for line in status if line.startswith("NSpid:"))
+        result.update(proc_pid=proc_pid, start=stat[19],
+                      nspid=[int(p) for p in ns.split()[1:]],
+                      namespace=os.readlink("/proc/self/ns/pid"))
+    elif os.name == "nt":
+        from ctypes import wintypes
+        api = ctypes.WinDLL("kernel32", use_last_error=True)
+        api.GetCurrentProcess.restype = wintypes.HANDLE
+        api.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+        api.GetProcessTimes.restype = wintypes.BOOL
+        values = [wintypes.FILETIME() for _ in range(4)]
+        if not api.GetProcessTimes(api.GetCurrentProcess(), *map(ctypes.byref, values)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        result["created"] = values[0].dwLowDateTime | (values[0].dwHighDateTime << 32)
+    elif sys.platform == "darwin":
+        class Info(ctypes.Structure):
+            _fields_ = [("prefix", ctypes.c_uint32 * 12),
+                        ("comm", ctypes.c_char * 16), ("name", ctypes.c_char * 32),
+                        ("suffix", ctypes.c_uint32 * 5), ("nice", ctypes.c_int32),
+                        ("start_sec", ctypes.c_uint64), ("start_usec", ctypes.c_uint64)]
+        api = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        api.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                                    ctypes.c_void_p, ctypes.c_int]
+        api.proc_pidinfo.restype = ctypes.c_int
+        info = Info()
+        if ctypes.sizeof(info) != 136 or api.proc_pidinfo(os.getpid(), 3, 0, ctypes.byref(info), ctypes.sizeof(info)) != ctypes.sizeof(info):
+            raise OSError(ctypes.get_errno(), "proc_pidinfo failed")
+        if info.prefix[3] != os.getpid() or info.start_sec <= 0:
+            raise RuntimeError("Darwin identity ABI was not verified")
+        result.update(start_sec=info.start_sec, start_usec=info.start_usec)
+    else:
+        raise RuntimeError("This platform has no qualified process-identity oracle")
+    return result
+
+def publish():
+    target = root / (role + ".json")
+    pending = target.with_suffix(".pending")
+    pending.write_text(json.dumps(identity()), encoding="utf-8")
+    os.replace(pending, target)
+
+def wait_for(name):
+    while time.monotonic() < expires and not (root / "stop").exists():
+        if (root / name).exists():
+            return True
+        time.sleep(0.01)
+    return False
+
+def idle():
+    while time.monotonic() < expires and not (root / "stop").exists():
+        time.sleep(0.02)
+
+if options.get("ignore_term") and role == "leaf" and os.name != "nt":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+publish()
+if role == "leader" and options.get("tree"):
+    child = subprocess.Popen(
+        [sys.executable, "-I", "-S", "-B", __file__, str(root), sys.argv[2], "leaf"],
+        stdin=subprocess.DEVNULL,
+        start_new_session=bool(options.get("detached")),
+    )
+    if not wait_for("leaf.json"):
+        sys.exit(2)
+if role == "leader":
+    (root / "ready").touch()
+if not wait_for("release"):
+    sys.exit(3)
+if options.get("close_pipes") or options.get("detached"):
+    os.close(1)
+    os.close(2)
+if role == "leader" and options.get("leader_exit"):
+    sys.exit(0)
+if role == "leader" and options.get("stream"):
+    os.write(options["stream"], bytes.fromhex(options["output_hex"]))
+idle()
+'''
+
+
+def _linux_state(record: dict[str, object]) -> tuple[bool, str]:
+    """Read the recorded procfs identity, without polling/reaping any Popen."""
+    directory = Path("/proc") / str(record["proc_pid"])
+    try:
+        fields = (directory / "stat").read_text().rsplit(") ", 1)[1].split()
+        status = (directory / "status").read_text().splitlines()
+        ns = next(line for line in status if line.startswith("NSpid:"))
+        actual = (fields[19], [int(p) for p in ns.split()[1:]],
+                  os.readlink(directory / "ns/pid"))
+    except FileNotFoundError:
+        return False, "absent"
+    expected = (record["start"], record["nspid"], record["namespace"])
+    return actual == expected, fields[0]
+
+
+class _DarwinInfo(ctypes.Structure):
+    # struct proc_bsdinfo: the fixed-size BSD process identity record.
+    _fields_ = [
+        ("prefix", ctypes.c_uint32 * 12),
+        ("comm", ctypes.c_char * 16), ("name", ctypes.c_char * 32),
+        ("suffix", ctypes.c_uint32 * 5), ("nice", ctypes.c_int32),
+        ("start_sec", ctypes.c_uint64), ("start_usec", ctypes.c_uint64),
+    ]
+
+
+class _ObservedProcess:
+    """A process first proved live, then observed by its kernel identity."""
+
+    def __init__(self, record: dict[str, object], *, allow_terminate: bool = False) -> None:
+        self.record = record
+        self.handle = None
+        self.verified = False
+        if os.name == "nt":
+            from ctypes import wintypes
+            self.api = ctypes.WinDLL("kernel32", use_last_error=True)
+            self.api.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            self.api.OpenProcess.restype = wintypes.HANDLE
+            self.api.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+            self.api.GetProcessTimes.restype = wintypes.BOOL
+            self.api.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            self.api.WaitForSingleObject.restype = wintypes.DWORD
+            self.api.CloseHandle.argtypes = [wintypes.HANDLE]
+            self.api.CloseHandle.restype = wintypes.BOOL
+            self.api.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+            self.api.TerminateProcess.restype = wintypes.BOOL
+            # Only the suspended assignment-failure fixture needs terminate
+            # access: it cannot observe a cooperative stop file before resume.
+            access = 0x1000 | 0x100000 | (1 if allow_terminate else 0)
+            self.handle = self.api.OpenProcess(access, False, int(record["pid"]))
+            if not self.handle:
+                raise ctypes.WinError(ctypes.get_last_error())
+            values = [wintypes.FILETIME() for _ in range(4)]
+            if not self.api.GetProcessTimes(self.handle, *map(ctypes.byref, values)):
+                self.close()
+                raise ctypes.WinError(ctypes.get_last_error())
+            actual = values[0].dwLowDateTime | (values[0].dwHighDateTime << 32)
+            if actual != record["created"]:
+                self.close()
+                raise AssertionError("Windows creation identity does not match")
+        elif sys.platform == "darwin":
+            self.api = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+            self.api.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                                             ctypes.c_void_p, ctypes.c_int]
+            self.api.proc_pidinfo.restype = ctypes.c_int
+        try:
+            if not self.alive():
+                raise AssertionError("Fixture identity was not verified while alive")
+        except BaseException:
+            self.close()
+            raise
+        self.verified = True
+
+    def alive(self) -> bool:
+        if sys.platform.startswith("linux"):
+            if (int(self.record["nspid"][-1]) != self.record["pid"] or
+                    int(self.record["nspid"][0]) != self.record["proc_pid"]):
+                raise AssertionError("Caller and procfs IDs do not match the recorded namespace mapping")
+            matches, state = _linux_state(self.record)
+            if not self.verified and not matches:
+                raise AssertionError("Recorded PID/procfs/NSpid/start-time identity does not match")
+            return matches and state not in {"Z", "X"}
+        if os.name == "nt":
+            status = self.api.WaitForSingleObject(self.handle, 0)
+            if status == 0:
+                return False
+            if status == 0x102:
+                return True
+            raise OSError("WaitForSingleObject failed: " + str(status))
+        if sys.platform == "darwin":
+            info = _DarwinInfo()
+            if ctypes.sizeof(info) != 136:
+                raise AssertionError("Darwin process-identity ABI is unavailable")
+            ctypes.set_errno(0)
+            size = self.api.proc_pidinfo(int(self.record["pid"]), 3, 0,
+                                         ctypes.byref(info), ctypes.sizeof(info))
+            if size == 0 and ctypes.get_errno() == 3:  # ESRCH
+                if not self.verified:
+                    raise AssertionError("Darwin process was not observed alive")
+                return False
+            if size != ctypes.sizeof(info):
+                raise OSError(ctypes.get_errno(), "proc_pidinfo identity unavailable")
+            matches = (info.prefix[3] == self.record["pid"] and
+                       info.start_sec == self.record["start_sec"] and
+                       info.start_usec == self.record["start_usec"])
+            if not self.verified and not matches:
+                raise AssertionError("Darwin start-time identity does not match")
+            return matches and info.prefix[1] != 5  # SZOMB
+        raise unittest.SkipTest("No qualified process-identity oracle for this platform")
+
+    def close(self) -> None:
+        if self.handle is not None:
+            self.api.CloseHandle(self.handle)
+            self.handle = None
+
+    def terminate_suspended_fixture(self) -> None:
+        if os.name != "nt" or not self.verified:
+            raise AssertionError("Suspended fixture cleanup requires a verified Windows handle")
+        if self.alive():
+            if not self.api.TerminateProcess(self.handle, 97):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if self.api.WaitForSingleObject(self.handle, 5000) != 0:
+                raise AssertionError("Verified suspended fixture did not terminate")
+
+
+class _OwnedFixture:
+    """External observer and finite fallback cleanup for one broker invocation."""
+
+    def __init__(self, **options: object) -> None:
+        self.options = options
+        self.temporary = tempfile.TemporaryDirectory(prefix="codeprobe-process-test-")
+        self.root = Path(self.temporary.name)
+        self.script = self.root / "fixture.py"
+        self.script.write_text(_FIXTURE_SOURCE, encoding="utf-8")
+        self.observers: list[_ObservedProcess] = []
+        self.armed = threading.Event()
+        self.done = threading.Event()
+        self.outcome: list[object] = []
+        self.thread: threading.Thread | None = None
+
+    def __enter__(self) -> "_OwnedFixture":
+        return self
+
+    def run(self, *, timeout: float = 3, **kwargs: object):
+        def execute() -> None:
+            try:
+                self.outcome.append(run_bounded_process(
+                    [sys.executable, "-I", "-S", "-B", str(self.script),
+                     str(self.root), json.dumps(self.options), "leader"],
+                    cwd=ROOT, timeout=timeout, **kwargs,
+                ))
+            except BaseException as exc:
+                self.outcome.append(exc)
+            finally:
+                self.done.set()
+        self.thread = threading.Thread(target=execute, name="broker-test-call", daemon=True)
+        self.thread.start()
+        deadline = time.monotonic() + 5
+        while not (self.root / "ready").exists():
+            if self.done.is_set():
+                self._result()
+                raise AssertionError("Broker returned before fixture readiness")
+            if time.monotonic() >= deadline:
+                raise AssertionError("Fixture did not complete its bounded readiness handshake")
+            time.sleep(0.01)
+        roles = ["leader", "leaf"] if self.options.get("tree") else ["leader"]
+        for role in roles:
+            record = json.loads((self.root / (role + ".json")).read_text(encoding="utf-8"))
+            self.observers.append(_ObservedProcess(record))
+        (self.root / "release").touch()
+        self.armed.set()
+        if not self.done.wait(timeout + 6):
+            raise AssertionError("Broker exceeded deadline plus bounded cleanup allowance")
+        return self._result()
+
+    def _result(self):
+        result = self.outcome[0]
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    def assert_stopped(self) -> None:
+        deadline = time.monotonic() + 2
+        while any(observer.alive() for observer in self.observers):
+            if time.monotonic() >= deadline:
+                self.print_identities()
+                raise AssertionError("An independently identified fixture process remains live")
+            time.sleep(0.01)
+        self.print_identities()
+
+    def print_identities(self) -> None:
+        print("PROCESS_FIXTURE_IDENTITY=" + json.dumps({
+            "platform": sys.platform,
+            "detached_characterisation": bool(self.options.get("detached")),
+            "processes": [{"identity": observer.record,
+                           "observed_live_before_release": observer.verified,
+                           "live_now": observer.alive()}
+                          for observer in self.observers],
+        }, sort_keys=True))
+
+    def __exit__(self, kind, error, traceback) -> None:
+        (self.root / "stop").touch()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            live = any(observer.alive() for observer in self.observers)
+            if not live and (self.thread is None or self.done.is_set()):
+                break
+            time.sleep(0.01)
+        else:
+            message = "Independent fixture cleanup did not finish; preserve external supervisor evidence"
+            if error is None:
+                raise AssertionError(message)
+            if hasattr(error, "add_note"):
+                error.add_note(message)
+            else:
+                print("FIXTURE_CLEANUP_ERROR=" + message, file=sys.stderr)
+        for observer in self.observers:
+            observer.close()
+        self.temporary.cleanup()
+
+
+@unittest.skipUnless(sys.platform.startswith("linux") or sys.platform == "darwin" or os.name == "nt",
+                     "Requires a qualified native process-identity oracle")
 class ProcessControlTests(unittest.TestCase):
-    def test_success_captures_both_streams(self) -> None:
-        result = run_bounded_process(
-            [
-                sys.executable,
-                "-I",
-                "-S",
-                "-B",
-                "-c",
-                "import sys; print('out'); print('err', file=sys.stderr)",
-            ],
-            cwd=ROOT,
-            timeout=10,
-            stdout_limit=1024,
-            stderr_limit=1024,
-        )
-        self.assertEqual(result.returncode, 0)
-        self.assertFalse(result.timed_out)
-        self.assertFalse(result.output_limit_exceeded)
-        self.assertEqual(result.stdout_text.strip(), "out")
-        self.assertEqual(result.stderr_text.strip(), "err")
+    def test_success_and_nonzero_capture_exact_bytes(self) -> None:
+        for returncode in (0, 7):
+            with self.subTest(returncode=returncode):
+                result = run_bounded_process(
+                    [sys.executable, "-I", "-S", "-B", "-c",
+                     "import os; os.write(1, b'out\\x00\\xff\\r\\n'); "
+                     "os.write(2, b'err\\xfe\\n'); raise SystemExit(" + str(returncode) + ")"],
+                    cwd=ROOT, timeout=10, stdout_limit=1024, stderr_limit=1024,
+                )
+                self.assertEqual(result.returncode, returncode)
+                self.assertFalse(result.timed_out)
+                self.assertFalse(result.output_limit_exceeded)
+                self.assertEqual(result.stdout, b"out\x00\xff\r\n")
+                self.assertEqual(result.stderr, b"err\xfe\n")
+                self.assertEqual(result.stdout_text, "out\x00\\xff\r\n")
+                self.assertEqual(result.stderr_text, "err\\xfe\n")
 
-    def test_shell_string_is_rejected(self) -> None:
-        with self.assertRaisesRegex(TypeError, "shell string"):
-            run_bounded_process("echo unsafe", cwd=ROOT)  # type: ignore[arg-type]
+    def test_shell_string_is_rejected_without_launch(self) -> None:
+        with mock.patch.object(process_control.subprocess, "Popen",
+                               side_effect=AssertionError("invalid input reached Popen")) as launch:
+            with self.assertRaisesRegex(TypeError, "shell string"):
+                run_bounded_process("echo unsafe", cwd=ROOT)  # type: ignore[arg-type]
+        launch.assert_not_called()
 
-    def test_output_limit_terminates_noisy_child_and_keeps_prefix(self) -> None:
-        result = run_bounded_process(
-            [sys.executable, "-I", "-S", "-B", "-c", "print('x' * 200000)"],
-            cwd=ROOT,
-            timeout=10,
-            stdout_limit=1024,
-            stderr_limit=1024,
-        )
-        self.assertTrue(result.output_limit_exceeded)
-        self.assertFalse(result.timed_out)
-        self.assertEqual(len(result.stdout), 1024)
-        self.assertTrue(result.stdout.startswith(b"x" * 100))
+    def test_invalid_deadlines_and_byte_limits_never_launch(self) -> None:
+        cases = [("timeout", value) for value in (float("nan"), float("inf"),
+                 -float("inf"), 0, -1, True)]
+        cases += [(name, value) for name in ("stdout_limit", "stderr_limit")
+                  for value in (0, -1, 1.5, True)]
+        for keyword, value in cases:
+            with self.subTest(keyword=keyword, value=value):
+                with mock.patch.object(process_control.subprocess, "Popen",
+                                       side_effect=AssertionError("invalid input reached Popen")) as launch:
+                    with self.assertRaises(ValueError):
+                        run_bounded_process([sys.executable, "-I", "-S", "-B", "-c", "pass"],
+                                            cwd=ROOT, **{keyword: value})
+                launch.assert_not_called()
 
-    def test_timeout_returns_a_bounded_failure(self) -> None:
-        started = time.monotonic()
-        result = run_bounded_process(
-            [sys.executable, "-I", "-S", "-B", "-c", "import time; time.sleep(30)"],
-            cwd=ROOT,
-            timeout=0.25,
-            stdout_limit=1024,
-            stderr_limit=1024,
-        )
-        self.assertTrue(result.timed_out)
-        self.assertLess(time.monotonic() - started, 5)
+    def test_short_and_exact_cap_outputs_are_not_overflows(self) -> None:
+        for count in (1, 16):
+            with self.subTest(count=count):
+                result = run_bounded_process(
+                    [sys.executable, "-I", "-S", "-B", "-c",
+                     "import os; os.write(1, b'a'*" + str(count) + "); "
+                     "os.write(2, b'b'*" + str(count) + ")"],
+                    cwd=ROOT, timeout=10, stdout_limit=16, stderr_limit=16,
+                )
+                self.assertEqual((result.stdout, result.stderr), (b"a" * count, b"b" * count))
+                self.assertEqual(result.returncode, 0)
+                self.assertFalse(result.output_limit_exceeded)
+                self.assertFalse(result.timed_out)
 
-    def test_replace_environment_does_not_leak_ambient_values(self) -> None:
-        with mock.patch.dict(os.environ, {"CODEPROBE_AMBIENT_SECRET": "present"}):
-            result = run_bounded_process(
-                [
-                    sys.executable,
-                    "-I",
-                    "-S",
-                    "-B",
-                    "-c",
-                    (
-                        "import os; "
-                        "print(os.environ.get('CODEPROBE_AMBIENT_SECRET', 'absent')); "
-                        "print(os.environ['CODEPROBE_EXPLICIT'])"
-                    ),
-                ],
-                cwd=ROOT,
-                environment={"CODEPROBE_EXPLICIT": "retained"},
-                replace_environment=True,
-                timeout=10,
-            )
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout_text.splitlines(), ["absent", "retained"])
+    def test_cap_plus_one_on_each_stream_is_detected_before_deadline(self) -> None:
+        for stream in (1, 2):
+            with self.subTest(stream=stream), _OwnedFixture(stream=stream, output_hex=(b"x" * 17).hex()) as fixture:
+                started = time.monotonic()
+                result = fixture.run(timeout=6, stdout_limit=16, stderr_limit=16)
+                elapsed = time.monotonic() - started
+                self.assertTrue(result.output_limit_exceeded)
+                self.assertFalse(result.timed_out)
+                self.assertLess(elapsed, 4, "Overflow waited towards the later six-second deadline")
+                expected = (b"x" * 16, b"") if stream == 1 else (b"", b"x" * 16)
+                self.assertEqual((result.stdout, result.stderr), expected)
+                fixture.assert_stopped()
+
+    def test_replace_and_extend_environment(self) -> None:
+        for replace in (False, True):
+            with self.subTest(replace=replace), mock.patch.dict(os.environ, {"CODEPROBE_AMBIENT_SECRET": "present"}):
+                result = run_bounded_process(
+                    [sys.executable, "-I", "-S", "-B", "-c",
+                     "import os; print(os.environ.get('CODEPROBE_AMBIENT_SECRET', 'absent')); "
+                     "print(os.environ['CODEPROBE_EXPLICIT'])"],
+                    cwd=ROOT, environment={"CODEPROBE_EXPLICIT": "retained"},
+                    replace_environment=replace, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stdout_text.splitlines(),
+                                 ["absent" if replace else "present", "retained"])
+
+    def test_timeout_terminates_ordinary_child_and_descendant(self) -> None:
+        with _OwnedFixture(tree=True) as fixture:
+            result = fixture.run()
+            self.assertTrue(result.timed_out)
+            self.assertFalse(result.output_limit_exceeded)
+            fixture.assert_stopped()
+
+    @unittest.skipUnless(os.name == "posix", "POSIX signal disposition")
+    def test_term_ignoring_descendant_is_killed_after_leader_termination(self) -> None:
+        with _OwnedFixture(tree=True, ignore_term=True, close_pipes=True) as fixture:
+            result = fixture.run()
+            self.assertTrue(result.timed_out)
+            fixture.assert_stopped()
+
+    def test_deadline_survives_normal_leader_exit_with_inherited_pipes(self) -> None:
+        with _OwnedFixture(tree=True, leader_exit=True, ignore_term=True) as fixture:
+            result = fixture.run()
+            self.assertTrue(result.timed_out, "Leader exit must not cancel the open-pipe deadline")
+            self.assertFalse(result.output_limit_exceeded)
+            fixture.assert_stopped()
+
+    def test_oracle_observes_live_then_completed_identity(self) -> None:
+        with _OwnedFixture() as fixture:
+            result = fixture.run()
+            self.assertTrue(result.timed_out)
+            self.assertEqual(len(fixture.observers), 1)
+            record = fixture.observers[0].record
+            fixture.assert_stopped()
+            if sys.platform.startswith("linux"):
+                layout = "same-namespace" if record["pid"] == record["proc_pid"] else "outer-mounted"
+                print("PROCESS_IDENTITY_LAYOUT=" + layout)
+            else:
+                print("PROCESS_IDENTITY_PLATFORM=" + sys.platform)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux procfs identity oracle")
+    def test_procfs_oracle_rejects_unverified_missing_and_wrong_start_identities(self) -> None:
+        # The fixture thread is paused at the release handshake while this
+        # injection inspects an independently published live identity.
+        with _OwnedFixture() as fixture:
+            original = _ObservedProcess.__init__
+            checked = []
+            def inspect(observer, record):
+                original(observer, record)
+                if checked:
+                    return
+                checked.append(True)
+                wrong_start = dict(record, start=str(int(record["start"]) + 1))
+                with self.assertRaises(AssertionError):
+                    candidate = object.__new__(_ObservedProcess)
+                    original(candidate, wrong_start)
+                missing = dict(record, proc_pid=2147483647, pid=2147483647,
+                               nspid=[2147483647])
+                with self.assertRaises(AssertionError):
+                    candidate = object.__new__(_ObservedProcess)
+                    original(candidate, missing)
+            with mock.patch.object(_ObservedProcess, "__init__", inspect):
+                fixture.run()
+            self.assertEqual(checked, [True])
+            fixture.assert_stopped()
+
+    def test_cancellation_preserves_original_exception_after_cleanup(self) -> None:
+        for leader_exit in (False, True):
+            with self.subTest(leader_exit=leader_exit), _OwnedFixture(tree=True, leader_exit=leader_exit) as fixture:
+                cancellation = KeyboardInterrupt("owned cancellation fixture")
+                fired = []
+                class Clock:
+                    monotonic = staticmethod(time.monotonic)
+                    @staticmethod
+                    def sleep(seconds):
+                        if fixture.armed.is_set() and not fired:
+                            if not leader_exit or not fixture.observers[0].alive():
+                                fired.append(True)
+                                raise cancellation
+                        time.sleep(seconds)
+                with mock.patch.object(process_control, "time", Clock):
+                    started = time.monotonic()
+                    with self.assertRaises(KeyboardInterrupt) as caught:
+                        fixture.run(timeout=6)
+                self.assertLess(time.monotonic() - started, 5,
+                                "Cancellation waited towards the fixture's natural exit")
+                self.assertIs(caught.exception, cancellation)
+                self.assertEqual(fired, [True])
+                fixture.assert_stopped()
+
+    @unittest.skipUnless(os.name == "posix", "POSIX nonblocking pipe setup")
+    def test_partial_pipe_setup_failure_preserves_error_and_cleans_child(self) -> None:
+        original = os.set_blocking
+        for successful_setups in (0, 1):
+            with self.subTest(successful_setups=successful_setups), _OwnedFixture() as fixture:
+                failure = RuntimeError("owned pipe-setup failure")
+                calls = []
+                def fail_setup(fd, blocking):
+                    if len(calls) == successful_setups:
+                        if not fixture.armed.wait(5):
+                            raise AssertionError("No independently observed child before setup injection")
+                        calls.append("failed")
+                        raise failure
+                    calls.append("configured")
+                    return original(fd, blocking)
+                with mock.patch.object(process_control.os, "set_blocking", fail_setup):
+                    with self.assertRaises(RuntimeError) as caught:
+                        fixture.run(timeout=6)
+                self.assertIs(caught.exception, failure)
+                self.assertIn("failed", calls)
+                fixture.assert_stopped()
+
+    @unittest.skipUnless(os.name == "posix", "POSIX pipe read fault")
+    def test_pipe_read_failure_is_not_reported_as_success(self) -> None:
+        with _OwnedFixture(stream=1, output_hex="61") as fixture:
+            original = os.read
+            failure = OSError("owned pipe-read failure")
+            fired = []
+            def fail_read(fd, size):
+                if fixture.armed.is_set() and not fired:
+                    fired.append(True)
+                    raise failure
+                return original(fd, size)
+            with mock.patch.object(process_control.os, "read", fail_read):
+                with self.assertRaises((OSError, ProcessControlError)) as caught:
+                    fixture.run(timeout=6)
+            self.assertTrue(caught.exception is failure or caught.exception.__cause__ is failure)
+            self.assertEqual(fired, [True])
+            fixture.assert_stopped()
 
     def test_windows_containment_failure_kills_the_child_and_fails_closed(self) -> None:
+        # A contract mock; only the actual Windows fixtures qualify Job behaviour.
         process = mock.Mock()
-        process.kill = mock.Mock()
-        process.wait = mock.Mock()
         job = mock.Mock(active=False, error=OSError("job unavailable"))
         with mock.patch.object(process_control.os, "name", "nt"):
             with self.assertRaisesRegex(ProcessControlError, "Windows Job Object"):
@@ -105,49 +560,61 @@ class ProcessControlTests(unittest.TestCase):
         process.kill.assert_called_once_with()
         process.wait.assert_called_once_with(timeout=5)
 
-    def test_invalid_limits_fail_before_launch(self) -> None:
-        for keyword, value in (
-            ("timeout", 0),
-            ("stdout_limit", 0),
-            ("stderr_limit", -1),
-        ):
-            with self.subTest(keyword=keyword):
-                with self.assertRaises(ValueError):
-                    run_bounded_process(
-                        [sys.executable, "-c", "pass"],
-                        cwd=ROOT,
-                        **{keyword: value},
-                    )
+    @unittest.skipUnless(os.name == "nt", "Actual Windows suspended-process and Job assignment boundary")
+    def test_windows_assignment_failure_terminates_verified_suspended_process(self) -> None:
+        from ctypes import wintypes
+        observed: list[_ObservedProcess] = []
+        failure = OSError("injected Job assignment failure")
+        with tempfile.TemporaryDirectory(prefix="codeprobe-suspended-test-") as tmp:
+            marker = Path(tmp) / "resumed"
+            def fail_assignment(job, process):
+                api = ctypes.WinDLL("kernel32", use_last_error=True)
+                api.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+                api.GetProcessTimes.restype = wintypes.BOOL
+                values = [wintypes.FILETIME() for _ in range(4)]
+                if not api.GetProcessTimes(int(process._handle), *map(ctypes.byref, values)):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                record = {"pid": process.pid, "platform": sys.platform,
+                          "created": values[0].dwLowDateTime | (values[0].dwHighDateTime << 32)}
+                observed.append(_ObservedProcess(record, allow_terminate=True))
+                raise failure
+            try:
+                with mock.patch.object(process_control._WindowsJob, "assign", fail_assignment):
+                    with self.assertRaises(OSError) as caught:
+                        run_bounded_process(
+                            [sys.executable, "-I", "-S", "-B", "-c",
+                             "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"],
+                            cwd=ROOT, timeout=6,
+                        )
+                self.assertIs(caught.exception, failure)
+                self.assertEqual(len(observed), 1)
+                self.assertFalse(observed[0].alive())
+                self.assertFalse(marker.exists(), "The unassigned child executed before failure")
+                print("WINDOWS_SUSPENDED_IDENTITY=" + json.dumps({
+                    "identity": observed[0].record, "verified_live_before_failure": True,
+                    "live_after_failure": observed[0].alive(), "resumed_marker": marker.exists(),
+                    "failure_kind": "injected assignment error on a real suspended process",
+                }, sort_keys=True))
+            finally:
+                for observer in observed:
+                    try:
+                        observer.terminate_suspended_fixture()
+                    finally:
+                        observer.close()
 
-    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux /proc assertion")
-    def test_timeout_terminates_descendant_process(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            pid_path = Path(tmp) / "child.pid"
-            source = (
-                "import pathlib, subprocess, sys, time\n"
-                "child = subprocess.Popen([sys.executable, '-I', '-S', '-B', '-c', "
-                "'import time; time.sleep(30)'])\n"
-                f"pathlib.Path({str(pid_path)!r}).write_text(str(child.pid), encoding='ascii')\n"
-                "time.sleep(30)\n"
-            )
-            result = run_bounded_process(
-                [sys.executable, "-I", "-S", "-B", "-c", source],
-                cwd=ROOT,
-                timeout=0.5,
-            )
+    @unittest.skipUnless(os.name == "posix", "POSIX detached-session scope characterisation")
+    def test_detached_session_is_an_explicit_group_scope_characterisation(self) -> None:
+        with _OwnedFixture(tree=True, detached=True) as fixture:
+            result = fixture.run()
             self.assertTrue(result.timed_out)
-            child_pid = int(pid_path.read_text(encoding="ascii"))
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                status = Path(f"/proc/{child_pid}/stat")
-                if not status.exists():
-                    break
-                fields = status.read_text(encoding="ascii", errors="replace").split()
-                if len(fields) > 2 and fields[2] == "Z":
-                    break
-                time.sleep(0.05)
-            else:
-                self.fail(f"descendant process {child_pid} survived the process-group timeout")
+            self.assertFalse(fixture.observers[0].alive())
+            self.assertTrue(fixture.observers[1].alive(),
+                            "Detached fixture changed; review the scope characterisation")
+            fixture.print_identities()
+            print("CHARACTERISATION_ONLY: detached session survives outside POSIX group containment; "
+                  "A01-F003 universal containment remains OPEN")
+            (fixture.root / "stop").touch()
+            fixture.assert_stopped()
 
 
 if __name__ == "__main__":
