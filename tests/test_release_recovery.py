@@ -19,11 +19,142 @@ for path in (SRC, TOOLS):
 
 import build_release
 import codeprobe_runtime as engine
+from codeprobe_engine import release
 from codeprobe_engine.release import write_manifest
 
 
 DRIVER = ROOT / "tests" / "test_release_crash_driver.py"
 VERSION = engine.APP_VERSION
+
+
+class BoundedRecoveryReaderTests(unittest.TestCase):
+    def test_zero_exact_ceiling_and_unrestricted_reads_preserve_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            path = root / "control.json"
+            for content, ceiling in ((b"", 0), (b"x" * 32, 32), (b"x" * 64, None)):
+                with self.subTest(size=len(content), ceiling=ceiling):
+                    path.write_bytes(content)
+                    actual, metadata = release.read_regular_file_with_metadata(
+                        path, root=root, max_bytes=ceiling,
+                    )
+                    self.assertEqual(actual, content)
+                    self.assertEqual(metadata.st_size, len(content))
+                    self.assertEqual(metadata.st_mtime_ns, path.stat().st_mtime_ns)
+                    self.assertEqual(
+                        release.read_regular_file(path, root=root, max_bytes=ceiling),
+                        content,
+                    )
+                    self.assertEqual(path.read_bytes(), content)
+
+    def test_invalid_ceiling_is_rejected_before_filesystem_access(self):
+        for ceiling in (-1, True, 1.9, "32", float("nan"), float("inf")):
+            with self.subTest(ceiling=ceiling):
+                with unittest.mock.patch.object(release, "_validate_no_symlink_ancestry") as inspect:
+                    with self.assertRaisesRegex(ValueError, "non-negative integer"):
+                        release.read_regular_file(Path("unused"), max_bytes=ceiling)
+                inspect.assert_not_called()
+
+    def test_control_ceiling_is_applied_before_any_body_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "control.json"
+            content = b"x" * (build_release.CONTROL_FILE_LIMIT_BYTES + 1)
+            path.write_bytes(content)
+            real_open = release._open_regular_for_read
+            descriptors = []
+
+            def track_open(*args, **kwargs):
+                descriptor = real_open(*args, **kwargs)
+                descriptors.append(descriptor)
+                return descriptor
+
+            with unittest.mock.patch.object(release, "_open_regular_for_read", side_effect=track_open):
+                with unittest.mock.patch.object(release.os, "read") as body_read:
+                    with self.assertRaisesRegex(build_release.PublicationError, "size ceiling"):
+                        build_release._read_control_json(path)
+            body_read.assert_not_called()
+            self.assertTrue(descriptors)
+            for descriptor in descriptors:
+                with self.assertRaises(OSError):
+                    os.fstat(descriptor)
+            self.assertEqual(path.read_bytes(), content)
+
+    def test_growth_is_limited_to_one_sentinel_with_short_reads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "control.json"
+            path.write_bytes(b"x" * 32)
+            real_read = os.read
+            observed = []
+
+            def grow_then_read(descriptor, requested):
+                if not observed:
+                    with path.open("ab") as handle:
+                        handle.write(b"y" * 32)
+                chunk = real_read(descriptor, min(requested, 7))
+                observed.append((descriptor, requested, len(chunk)))
+                return chunk
+
+            with unittest.mock.patch.object(release.os, "read", side_effect=grow_then_read):
+                with unittest.mock.patch.object(build_release, "CONTROL_FILE_LIMIT_BYTES", 32):
+                    with self.assertRaisesRegex(build_release.PublicationError, "size ceiling"):
+                        build_release._read_control_json(path)
+            self.assertEqual(sum(size for _fd, _request, size in observed), 33)
+            consumed = 0
+            for descriptor, requested, size in observed:
+                self.assertLessEqual(requested, 33 - consumed)
+                consumed += size
+                with self.assertRaises(OSError):
+                    os.fstat(descriptor)
+            self.assertEqual(path.read_bytes(), b"x" * 32 + b"y" * 32)
+
+    def test_control_json_boundaries_and_rejections_preserve_owned_files(self):
+        cases = (
+            (b"{}", {}),
+            (b"{}" + b" " * 30, {}),
+            (b'{"value":"text"}', {"value": "text"}),
+            (b'{"value":1,"value":2}', None),
+            (b"[]", None), (b"null", None), (b"1", None),
+            (b"{", None), (b"\xff", None), (b"", None),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            path = root / "control.json"
+            sentinel = root / "release.zip"
+            sentinel.write_bytes(b"prior packet")
+            for content, expected in cases:
+                with self.subTest(content=content):
+                    path.write_bytes(content)
+                    with unittest.mock.patch.object(build_release, "CONTROL_FILE_LIMIT_BYTES", 32):
+                        if expected is None:
+                            with self.assertRaises(build_release.PublicationError):
+                                build_release._read_control_json(path)
+                        else:
+                            self.assertEqual(build_release._read_control_json(path), expected)
+                    self.assertEqual(path.read_bytes(), content)
+                    self.assertEqual(sentinel.read_bytes(), b"prior packet")
+                    self.assertEqual(set(root.iterdir()), {path, sentinel})
+
+    def test_bounded_reader_retains_final_descriptor_identity_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "control.json"
+            path.write_bytes(b"{}")
+            descriptors = []
+            real_read = os.read
+
+            def track_read(descriptor, requested):
+                descriptors.append(descriptor)
+                return real_read(descriptor, requested)
+
+            with unittest.mock.patch.object(release, "_path_opens_same_file", side_effect=(True, False)) as identity:
+                with unittest.mock.patch.object(release.os, "read", side_effect=track_read):
+                    with self.assertRaisesRegex(release.ReleaseSetError, "changed during read"):
+                        release.read_regular_file(path, max_bytes=2)
+            self.assertEqual(identity.call_count, 2)
+            self.assertTrue(descriptors)
+            for descriptor in descriptors:
+                with self.assertRaises(OSError):
+                    os.fstat(descriptor)
+            self.assertEqual(path.read_bytes(), b"{}")
 
 
 class ReleaseRecoveryTests(unittest.TestCase):

@@ -17,8 +17,8 @@
     {
       "path": "pyodide-loader.js",
       "size_bytes": 32903,
-      "sha256_hex": "91d2aa9c0842189ddb13722d3bfa00e5c2073f79ce0fda05c70b3d9bd45502c3",
-      "sri_sha256": "sha256-kdKqnAhCGJ3bE3ItO/oA5cIHP3nOD9oFxws9m9RVAsM="
+      "sha256_hex": "bea412ded61c199ba15d8630644c573ba521b102a7b69933c37116ab9f1d5448",
+      "sri_sha256": "sha256-vqQS3tYcGZuhXYYwZExXO6UhsQKntpkzw3EWq58dVEg="
     },
     {
       "path": "codeprobe-ui.js",
@@ -46,9 +46,9 @@
     },
     {
       "path": "../src/codeprobe_runtime.py",
-      "size_bytes": 272542,
-      "sha256_hex": "4567b2ce76ef95880d004b2e95a18799fcbd02acb4821fb57fa743870746a942",
-      "sri_sha256": "sha256-RWeyznbvlYgNAEsulaGHmfy9Aqy0gh+1f6dDhwdGqUI="
+      "size_bytes": 279645,
+      "sha256_hex": "66fa59752b749da496bdf7d8c217b04040c722938c0cc80c3621e1efe4445bf2",
+      "sri_sha256": "sha256-ZvpZdSt0naSWvffYwhewQEDHIpOMDMgMNiHh7+REW/I="
     },
     {
       "path": "analysis-worker.js",

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import argparse
+import contextlib
 import io
 import json
 import os
@@ -10,6 +12,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +21,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import codeprobe_runtime as engine  # noqa: E402
 from codeprobe_engine import project_io  # noqa: E402
+import analyze_project  # noqa: E402
 
 
 def zip_payload(entries, *, compression=zipfile.ZIP_DEFLATED):
@@ -376,6 +380,282 @@ class HostileProjectInputTests(unittest.TestCase):
                 with self.subTest(kwargs=kwargs):
                     with self.assertRaises(project_io.ProjectInputError):
                         project_io.read_folder_files(root, **kwargs)
+
+
+class BoundedProjectControlTests(unittest.TestCase):
+    @staticmethod
+    def _args(root, **changes):
+        values = dict(
+            folder=str(root / "project"), zip=None, project_name="owned fixture",
+            profile=None, include_documentation=False, config=None,
+            calibration_profile=None, ignore_file=None, max_file_bytes=1000,
+            max_total_bytes=10000, max_entries=20, max_files=10,
+            max_archive_bytes=10000, max_ignore_bytes=1000, max_ignore_rules=100,
+            max_compression_ratio=100.0, json_out=str(root / "report.json"),
+            text_out=str(root / "report.txt"),
+        )
+        values.update(changes)
+        return argparse.Namespace(**values)
+
+    def test_integer_forms_and_zero_exact_read_limits_are_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "input"
+            for content, limits in ((b"", (0, 0.0, "0")), (b"x", (1, 1.0, " +1 "))):
+                path.write_bytes(content)
+                for limit in limits:
+                    with self.subTest(content=content, limit=limit):
+                        self.assertEqual(project_io.read_bounded_regular_file(
+                            path, root=root, max_bytes=limit,
+                        ), content)
+            for value in (1, 1.0, "1", " +1 ", "1_0", "\u0661"):
+                with self.subTest(value=value):
+                    native = project_io._bounded_positive_int("max_entries", value, maximum=20)
+                    runtime = engine._project_limit({"max_entries": value}, "max_entries", 2, minimum=1, maximum=20)
+                    self.assertEqual(native, runtime)
+                    self.assertEqual(native, int(value))
+
+    def test_invalid_integer_forms_are_refused_before_filesystem_access(self):
+        for value in (True, False, 1.9, "1.9", float("nan"), float("inf"), -float("inf"), "NaN", "Infinity", b"1", None, []):
+            with self.subTest(value=repr(value)):
+                with mock.patch.object(project_io, "_inspect_no_redirects") as inspect:
+                    with self.assertRaises(project_io.ProjectInputError):
+                        project_io.read_bounded_regular_file(Path("unused"), root=Path("."), max_bytes=value)
+                    inspect.assert_not_called()
+                with mock.patch.object(project_io, "_walk_metadata") as walk:
+                    with self.assertRaises(project_io.ProjectInputError):
+                        project_io.read_folder_files(Path("unused"), max_entries=value)
+                    walk.assert_not_called()
+
+    def test_both_opens_request_available_nonblocking_and_nofollow_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "input"
+            path.write_bytes(b"owned")
+            real_open = os.open
+            flags_seen = []
+            def open_owned(path, flags):
+                flags_seen.append(flags)
+                return real_open(path, flags)
+            with mock.patch.object(project_io.os, "open", side_effect=open_owned):
+                self.assertEqual(project_io.read_bounded_regular_file(path, root=root, max_bytes=5), b"owned")
+            self.assertEqual(len(flags_seen), 2)
+            for flags in flags_seen:
+                for name in ("O_NONBLOCK", "O_NOFOLLOW", "O_CLOEXEC", "O_BINARY"):
+                    if hasattr(os, name):
+                        self.assertEqual(flags & getattr(os, name), getattr(os, name))
+
+    def test_each_open_rejects_a_simulated_special_descriptor_before_use(self):
+        for selected_open in (1, 2):
+            with self.subTest(selected_open=selected_open), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                path = root / "input"
+                path.write_bytes(b"owned")
+                real_open, real_fstat, real_read = os.open, os.fstat, os.read
+                opened, events = [], []
+                def open_owned(path, flags):
+                    if hasattr(os, "O_NONBLOCK"):
+                        self.assertTrue(flags & os.O_NONBLOCK)
+                    descriptor = real_open(path, flags)
+                    opened.append(descriptor)
+                    events.append(("open", len(opened)))
+                    return descriptor
+                def inspect(descriptor):
+                    metadata = real_fstat(descriptor)
+                    if len(opened) == selected_open and descriptor == opened[-1]:
+                        events.append(("special", selected_open))
+                        return SimpleNamespace(st_mode=stat.S_IFIFO | 0o600)
+                    return metadata
+                def read(descriptor, count):
+                    events.append(("read", count))
+                    return real_read(descriptor, count)
+                with mock.patch.object(project_io.os, "open", side_effect=open_owned), mock.patch.object(project_io.os, "fstat", side_effect=inspect), mock.patch.object(project_io.os, "read", side_effect=read), mock.patch.object(project_io.os.path, "sameopenfile") as same:
+                    with self.assertRaisesRegex(project_io.ProjectInputError, "regular file"):
+                        project_io.read_bounded_regular_file(path, root=root, max_bytes=5)
+                    same.assert_not_called()
+                self.assertEqual(len(opened), selected_open)
+                self.assertIn(("special", selected_open), events)
+                if selected_open == 1:
+                    self.assertFalse(any(event[0] == "read" for event in events))
+                for descriptor in opened:
+                    with self.assertRaises(OSError):
+                        real_fstat(descriptor)
+                self.assertEqual(path.read_bytes(), b"owned")
+
+    def test_verification_descriptor_identity_is_checked_before_sameopenfile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "input"
+            path.write_bytes(b"owned")
+            real_open, real_fstat = os.open, os.fstat
+            opened = []
+            def open_owned(path, flags):
+                descriptor = real_open(path, flags)
+                opened.append(descriptor)
+                return descriptor
+            def inspect(descriptor):
+                metadata = real_fstat(descriptor)
+                if len(opened) == 2 and descriptor == opened[1]:
+                    fields = {name: getattr(metadata, name) for name in ("st_mode", "st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")}
+                    fields["st_ino"] += 1
+                    return SimpleNamespace(**fields)
+                return metadata
+            with mock.patch.object(project_io.os, "open", side_effect=open_owned), mock.patch.object(project_io.os, "fstat", side_effect=inspect), mock.patch.object(project_io.os.path, "sameopenfile") as same:
+                with self.assertRaisesRegex(project_io.ProjectInputError, "changed during read"):
+                    project_io.read_bounded_regular_file(path, root=root, max_bytes=5)
+                same.assert_not_called()
+            for descriptor in opened:
+                with self.assertRaises(OSError):
+                    real_fstat(descriptor)
+
+    def test_control_inputs_use_their_declared_caps_before_body_read(self):
+        for option, constant in (("config", "MAX_CONFIG_BYTES"), ("calibration_profile", "MAX_CALIBRATION_PROFILE_BYTES")):
+            with self.subTest(option=option), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                path = root / "control.json"
+                path.write_bytes(b" " * 33)
+                args = self._args(root, **{option: str(path)})
+                with mock.patch.object(analyze_project, constant, 32), mock.patch.object(project_io.os, "read") as read, mock.patch.object(analyze_project, "project_payload_from_path") as intake:
+                    with self.assertRaisesRegex(ValueError, "32-byte input limit"):
+                        analyze_project.build_payload(args)
+                    read.assert_not_called()
+                    intake.assert_not_called()
+                self.assertEqual(path.read_bytes(), b" " * 33)
+
+    def test_control_input_growth_reads_at_most_cap_plus_one(self):
+        for option, constant in (("config", "MAX_CONFIG_BYTES"), ("calibration_profile", "MAX_CALIBRATION_PROFILE_BYTES")):
+            with self.subTest(option=option), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                path = root / "control.json"
+                path.write_bytes(b"{}" + b" " * 30)
+                real_read = os.read
+                requested, received = [], []
+                def grow_read(descriptor, count):
+                    if not requested:
+                        path.write_bytes(b"{}" + b" " * 62)
+                    requested.append(count)
+                    data = real_read(descriptor, count)
+                    received.append(len(data))
+                    return data
+                with mock.patch.object(analyze_project, constant, 32), mock.patch.object(project_io.os, "read", side_effect=grow_read), mock.patch.object(analyze_project, "project_payload_from_path") as intake:
+                    with self.assertRaisesRegex(ValueError, "32-byte limit while being read"):
+                        analyze_project.build_payload(self._args(root, **{option: str(path)}))
+                    intake.assert_not_called()
+                self.assertEqual(requested, [33])
+                self.assertEqual(sum(received), 33)
+                self.assertEqual(path.read_bytes(), b"{}" + b" " * 62)
+
+    def test_control_objects_at_exact_cap_are_accepted(self):
+        for option, constant in (("config", "MAX_CONFIG_BYTES"), ("calibration_profile", "MAX_CALIBRATION_PROFILE_BYTES")):
+            with self.subTest(option=option), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "project").mkdir()
+                path = root / "control.json"
+                path.write_bytes(b"{}" + b" " * 30)
+                with mock.patch.object(analyze_project, constant, 32):
+                    payload = analyze_project.build_payload(self._args(root, **{option: str(path)}))
+                key = "config_override" if option == "config" else option
+                self.assertEqual(payload[key], {})
+                self.assertEqual(payload["files"], [])
+                self.assertEqual(path.read_bytes(), b"{}" + b" " * 30)
+
+    def test_default_folder_and_zip_names_and_explicit_name_are_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "owned-project"
+            project.mkdir()
+            archive = root / "owned-export.zip"
+            with zipfile.ZipFile(archive, "w") as handle:
+                handle.writestr("main.py", "print(1)\n")
+            for source, expected in (({"folder": str(project)}, "owned-project"), ({"folder": None, "zip": str(archive)}, "owned-export")):
+                for requested in ("", "explicit name"):
+                    with self.subTest(source=source, requested=requested):
+                        payload = analyze_project.build_payload(self._args(root, project_name=requested, **source))
+                        self.assertEqual(payload["project_name"], requested or expected)
+
+    def test_invalid_control_json_preserves_inputs_and_output_sentinels(self):
+        cases = (b'{"x":1,"x":2}', b'{"x":{"y":1,"y":2}}', b"[]", b"null", b"true", b'"text"', b"", b"{", b'{"x":NaN}', b'{"x":Infinity}', b'{"x":1e999}', b'{"x":"\xff"}')
+        for option in ("--config", "--calibration-profile"):
+            for data in cases:
+                with self.subTest(option=option, data=data), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    project = root / "project"
+                    project.mkdir()
+                    source = project / "main.py"
+                    source.write_bytes(b"print(1)\n")
+                    control, jout, tout = (root / name for name in ("control.json", "report.json", "report.txt"))
+                    control.write_bytes(data)
+                    jout.write_bytes(b"previous JSON")
+                    tout.write_bytes(b"previous text")
+                    before = {p: p.read_bytes() for p in (source, control, jout, tout)}
+                    with mock.patch.object(analyze_project, "project_payload_from_path") as intake, contextlib.redirect_stderr(io.StringIO()) as stderr:
+                        result = analyze_project.main(["--folder", str(project), option, str(control), "--json-out", str(jout), "--text-out", str(tout)])
+                        intake.assert_not_called()
+                    self.assertEqual(result, 2)
+                    self.assertIn("configuration" if option == "--config" else "calibration profile", stderr.getvalue())
+                    self.assertEqual({p: p.read_bytes() for p in before}, before)
+                    self.assertEqual(list(root.glob(".codeprobe-report-*")), [])
+
+    def test_semantically_invalid_config_is_rejected_before_project_intake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "config.json"
+            for data in ({"unknown": {}}, {"line_length_uniformity": []}, {"line_length_uniformity": {"enabled": "true"}}):
+                with self.subTest(data=data):
+                    path.write_text(json.dumps(data), encoding="utf-8")
+                    with mock.patch.object(analyze_project, "project_payload_from_path") as intake:
+                        with self.assertRaises(ValueError):
+                            analyze_project.build_payload(self._args(root, config=str(path)))
+                        intake.assert_not_called()
+
+    def test_invalid_cli_limits_precede_control_open_and_project_intake(self):
+        for changes in ({"max_entries": 1.9}, {"max_files": True}, {"max_compression_ratio": float("nan")}, {"max_compression_ratio": float("inf")}, {"max_compression_ratio": 0}, {"max_compression_ratio": 1001}):
+            with self.subTest(changes=changes), mock.patch.object(analyze_project, "_read_json_input") as control, mock.patch.object(analyze_project, "project_payload_from_path") as intake:
+                with self.assertRaises(ValueError):
+                    analyze_project.build_payload(self._args(Path("unused"), config="unused.json", **changes))
+                control.assert_not_called()
+                intake.assert_not_called()
+
+    def test_control_leaf_and_root_redirects_are_refused_without_reading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "real"
+            real.mkdir()
+            path = real / "control.json"
+            path.write_bytes(b"{}")
+            leaf, parent = root / "leaf.json", root / "alias"
+            try:
+                leaf.symlink_to(path)
+                parent.symlink_to(real, target_is_directory=True)
+            except OSError as exc:
+                if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+                    self.skipTest("symbolic-link privilege unavailable")
+                raise
+            for alias in (leaf, parent / "control.json"):
+                with self.subTest(alias=alias), mock.patch.object(project_io.os, "read") as read:
+                    with self.assertRaisesRegex(ValueError, "link|reparse"):
+                        analyze_project._read_json_input(str(alias), "owned control", max_bytes=32)
+                    read.assert_not_called()
+            self.assertEqual(path.read_bytes(), b"{}")
+
+    def test_valid_shipped_profile_and_config_preserve_effective_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project"
+            project.mkdir()
+            code = "def add(left, right):\n    return left + right\n"
+            (project / "main.py").write_text(code, encoding="utf-8")
+            override = {"line_length_uniformity": {"weight": 0.17}}
+            config = root / "config.json"
+            config.write_text(json.dumps(override), encoding="utf-8")
+            profile_path = ROOT / "calibration/03-example-calibration-profile.json"
+            args = self._args(root, config=str(config), calibration_profile=str(profile_path))
+            actual = engine.analyse_project_payload(analyze_project.build_payload(args))
+            expected_payload = project_io.project_payload_from_path(project, max_file_bytes=1000, max_total_bytes=10000, max_entries=20, max_files=10, max_archive_bytes=10000, max_ignore_bytes=1000, max_ignore_rules=100)
+            expected_payload.update(project_name="owned fixture", config_override=override, calibration_profile=json.loads(profile_path.read_text(encoding="utf-8")))
+            expected = engine.analyse_project_payload(expected_payload)
+            for key in ("decision_score", "metric_config_digest", "calibration_profile", "included_file_count", "excluded_files"):
+                self.assertEqual(actual[key], expected[key], key)
 
 
 if __name__ == "__main__":

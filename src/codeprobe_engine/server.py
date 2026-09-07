@@ -152,7 +152,7 @@ def public_resource(root: Path, request_target: str) -> PublicResource:
     if metadata.st_size > MAX_PUBLIC_FILE_BYTES:
         raise ServerPolicyError("public resource exceeds the local-server size ceiling")
     try:
-        content = read_regular_file(candidate, root=root_path)
+        content = read_regular_file(candidate, root=root_path, max_bytes=MAX_PUBLIC_FILE_BYTES)
     except (OSError, ReleaseSetError) as exc:
         raise ServerPolicyError("public resource could not be read safely") from exc
     if len(content) > MAX_PUBLIC_FILE_BYTES:

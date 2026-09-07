@@ -159,6 +159,15 @@ jobs:
         shell: bash
         run: python -I -S -B -m unittest discover -s tests -p test_calibration_profiles.py -v
 
+      - name: Verify bounded input and strict payload regressions
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          python -I -S -B -m unittest discover -s tests -p test_project_mode.py -v
+          python -I -S -B -m unittest discover -s tests -p test_runtime_smoke.py -v
+          python -I -S -B tests/test_release_recovery.py BoundedRecoveryReaderTests -v
+          python -I -S -B tests/test_local_server.py BoundedPublicResourceTests -v
+
       - name: Run the canonical read-only gate
         shell: bash
         run: python -I -S -B tools/check_release.py --require-node

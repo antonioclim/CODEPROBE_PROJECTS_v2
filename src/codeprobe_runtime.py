@@ -111,16 +111,82 @@ PROJECT_MAX_IGNORE_RULES_DEFAULT = 1_000
 PROJECT_READ_CHUNK_BYTES = 65_536
 
 
+def integer_value(value: Any, name: str) -> int:
+    """Accept integer strings and finite integral numbers without truncation.
+
+    Native callers historically accept the decimal strings understood by int,
+    including surrounding whitespace, a sign and digit separators. Integral
+    floats retain that compatibility; Boolean and arbitrary coercible objects
+    do not represent a declared integer limit.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"{name} must be an integer")
+    if isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()):
+        raise ValueError(f"{name} must be a finite integer")
+    try:
+        return int(value)
+    except (ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+
+
 def _project_limit(payload: Dict[str, Any], key: str, default: int | float, *, minimum: int | float, maximum: int | float, integer: bool = True) -> int | float:
     raw = payload.get(key, default)
-    if isinstance(raw, bool):
-        raise ValueError(f"{key} must be a bounded {'integer' if integer else 'number'}")
-    try:
-        value = int(raw) if integer else float(raw)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(f"{key} must be a bounded {'integer' if integer else 'number'}") from exc
+    if integer:
+        value = integer_value(raw, key)
+    else:
+        if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+            raise ValueError(f"{key} must be a bounded number")
+        try:
+            value = float(raw)
+        except (ValueError, OverflowError) as exc:
+            raise ValueError(f"{key} must be a bounded number") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"{key} must be finite")
     if value < minimum or value > maximum:
         raise ValueError(f"{key} must be between {minimum} and {maximum}")
+    return value
+
+
+def project_limits(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate every project limit before file collection or ZIP decoding."""
+    return {
+        "max_files": _project_limit(payload, "max_files", PROJECT_MAX_FILES_DEFAULT, minimum=1, maximum=10_000),
+        "max_file_bytes": _project_limit(payload, "max_file_bytes", PROJECT_MAX_FILE_BYTES_DEFAULT, minimum=1, maximum=16_000_000),
+        "max_total_bytes": _project_limit(payload, "max_total_bytes", PROJECT_MAX_TOTAL_BYTES_DEFAULT, minimum=1, maximum=256_000_000),
+        "max_zip_bytes": _project_limit(payload, "max_zip_bytes", PROJECT_MAX_ZIP_BYTES_DEFAULT, minimum=1, maximum=64_000_000),
+        "max_zip_entries": _project_limit(payload, "max_zip_entries", PROJECT_MAX_ZIP_ENTRIES_DEFAULT, minimum=1, maximum=20_000),
+        "max_compression_ratio": _project_limit(payload, "max_compression_ratio", PROJECT_MAX_COMPRESSION_RATIO_DEFAULT, minimum=1.0, maximum=1_000.0, integer=False),
+        "max_ignore_bytes": _project_limit(payload, "max_ignore_bytes", PROJECT_MAX_IGNORE_BYTES_DEFAULT, minimum=1, maximum=1_000_000),
+        "max_ignore_rules": _project_limit(payload, "max_ignore_rules", PROJECT_MAX_IGNORE_RULES_DEFAULT, minimum=1, maximum=10_000),
+    }
+
+
+def strict_json_object(text: str, label: str = "Payload") -> Dict[str, Any]:
+    """Parse an unambiguous JSON object with finite numeric values."""
+    if not isinstance(text, str):
+        raise ValueError(f"{label} must be JSON text")
+
+    def unique_members(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{label} contains a duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    def finite_number(token: str) -> float:
+        value = float(token)
+        if not math.isfinite(value):
+            raise ValueError(f"{label} contains a non-finite JSON number")
+        return value
+
+    try:
+        value = json.loads(text, object_pairs_hook=unique_members,
+                           parse_constant=finite_number, parse_float=finite_number)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} is not valid JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a JSON object")
     return value
 
 
@@ -1195,7 +1261,7 @@ def validate_metric_config_override(external_override: Optional[Dict[str, Dict[s
                     raise ValueError(f"contributes_to_overall for {metric_name} must be true or false.")
                 clean_metric[key] = value
             elif key == "group":
-                if value not in ALLOWED_METRIC_GROUPS:
+                if not isinstance(value, str) or value not in ALLOWED_METRIC_GROUPS:
                     raise ValueError(f"group for {metric_name} must be one of {sorted(ALLOWED_METRIC_GROUPS)}.")
                 clean_metric[key] = value
             elif key == "thresholds":
@@ -1271,10 +1337,7 @@ def normalise_calibration_profile(raw_profile: Any = None) -> Dict[str, Any]:
             "source": "default-provisional",
         }
     if isinstance(raw_profile, str):
-        try:
-            raw_profile = json.loads(raw_profile)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Calibration profile is not valid JSON: {exc}") from exc
+        raw_profile = strict_json_object(raw_profile, "Calibration profile")
     if not isinstance(raw_profile, dict):
         raise ValueError("calibration_profile must be a JSON object.")
 
@@ -4766,6 +4829,17 @@ def project_exclusion_reason(path: str, text: str, include_documentation: bool =
     return None
 
 
+def _validate_intake_rejection(item: Dict[str, Any], raw_path: str) -> None:
+    rejection = item.get("intake_rejection")
+    allowed = {"file_too_large", "project_total_byte_limit", "unsupported_file_type", "unreadable_file", "unsafe_path"}
+    if (not isinstance(rejection, dict) or set(rejection) != {"reason"}
+            or not isinstance(rejection.get("reason"), str) or rejection["reason"] not in allowed
+            or item.get("content") not in (None, "") or item.get("text") not in (None, "")
+            or len(raw_path) > 4096 or type(item.get("size_bytes")) is not int
+            or not 0 <= item["size_bytes"] <= 2**53 - 1):
+        raise ValueError("Invalid metadata-only intake rejection.")
+
+
 def collect_project_files(
     payload: Dict[str, Any],
     warnings: List[str],
@@ -4943,13 +5017,7 @@ def collect_project_files(
             raw = str(item.get("path") or item.get("name") or "")
             rejection = item.get("intake_rejection")
             if rejection is not None:
-                allowed_reasons = {"file_too_large", "project_total_byte_limit", "unsupported_file_type", "unreadable_file", "unsafe_path"}
-                if (not isinstance(rejection, dict) or set(rejection) != {"reason"}
-                        or not isinstance(rejection.get("reason"), str) or rejection["reason"] not in allowed_reasons
-                        or item.get("content") not in (None, "") or item.get("text") not in (None, "")
-                        or len(raw) > 4096 or type(item.get("size_bytes")) is not int
-                        or not 0 <= item["size_bytes"] <= 2**53 - 1):
-                    raise ValueError("Invalid metadata-only intake rejection.")
+                _validate_intake_rejection(item, raw)
                 reason = "unsafe_path" if project_path_is_unsafe(raw) else "browser_" + rejection["reason"]
                 files.append(ProjectCandidateFile(raw, "", item["size_bytes"], reason,
                     "Caller-reported browser intake exclusion; contents were not supplied or independently inspected."))
@@ -5341,19 +5409,11 @@ def project_confidence(total_sloc: int, included_count: int, contributing_count:
 
 def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Analyse a bounded multi-file project with auditable exclusion decisions."""
+    payload = validate_analysis_payload(payload, "project")
     profile = payload.get("profile") or DEFAULT_PROFILE
     override = payload.get("config_override")
-    include_documentation = bool(payload.get("include_documentation", False))
-    limits = {
-        "max_files": _project_limit(payload, "max_files", PROJECT_MAX_FILES_DEFAULT, minimum=1, maximum=10_000),
-        "max_file_bytes": _project_limit(payload, "max_file_bytes", PROJECT_MAX_FILE_BYTES_DEFAULT, minimum=1, maximum=16_000_000),
-        "max_total_bytes": _project_limit(payload, "max_total_bytes", PROJECT_MAX_TOTAL_BYTES_DEFAULT, minimum=1, maximum=256_000_000),
-        "max_zip_bytes": _project_limit(payload, "max_zip_bytes", PROJECT_MAX_ZIP_BYTES_DEFAULT, minimum=1, maximum=64_000_000),
-        "max_zip_entries": _project_limit(payload, "max_zip_entries", PROJECT_MAX_ZIP_ENTRIES_DEFAULT, minimum=1, maximum=20_000),
-        "max_compression_ratio": _project_limit(payload, "max_compression_ratio", PROJECT_MAX_COMPRESSION_RATIO_DEFAULT, minimum=1.0, maximum=1_000.0, integer=False),
-        "max_ignore_bytes": _project_limit(payload, "max_ignore_bytes", PROJECT_MAX_IGNORE_BYTES_DEFAULT, minimum=1, maximum=1_000_000),
-        "max_ignore_rules": _project_limit(payload, "max_ignore_rules", PROJECT_MAX_IGNORE_RULES_DEFAULT, minimum=1, maximum=10_000),
-    }
+    include_documentation = payload.get("include_documentation", False)
+    limits = project_limits(payload)
     calibration_raw = payload.get("calibration_profile") if payload.get("calibration_profile") is not None else payload.get("calibration_profile_json")
     scope_allowed, scope_warning = calibration_scope_decision(calibration_raw, "project", "project")
     if not scope_allowed and (_calibration_object(calibration_raw) or {}).get("scoring_contract"):
@@ -5888,18 +5948,98 @@ def format_report_text(report: AnalysisReport) -> str:
     return "\n".join(lines)
 
 
+def _optional_text_fields(value: Dict[str, Any], names: Sequence[str], label: str) -> None:
+    for name in names:
+        if value.get(name) is not None and not isinstance(value[name], str):
+            raise ValueError(f"{label}.{name} must be a string or null")
+
+
+def validate_analysis_payload(payload: Any, report_kind: str = "file") -> Dict[str, Any]:
+    """Validate public fields without reading source, archives or engine bytes.
+
+    Missing fields retain their existing defaults. Null remains valid for
+    optional UI controls and project text aliases, but does not stand for file
+    source text, a filename, a files array or a Boolean switch. Unknown fields
+    are ignored; this is the input contract, not a general schema validator.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError(f"{report_kind} payload must be a JSON object")
+    if report_kind not in {"file", "project", "metadata"}:
+        raise ValueError("Unknown analysis payload kind")
+    clean = dict(payload)
+    _optional_text_fields(clean, ("profile", "language_hint"), report_kind)
+    if clean.get("profile") not in (None, "") and clean["profile"] not in SCORING_PROFILES:
+        raise ValueError("Unknown scoring profile.")
+    for key in ("include_documentation", "require_python_ast"):
+        if key in clean and type(clean[key]) is not bool:
+            raise ValueError(f"{key} must be true or false")
+    for key in ("engine_fingerprint", "engine_integrity"):
+        raw = clean.get(key)
+        if raw is not None and not isinstance(raw, (str, dict)):
+            raise ValueError(f"{key} must be an object, string or null")
+        if isinstance(raw, dict):
+            _optional_text_fields(raw, ("algorithm", "value", "sha256", "source_sha256",
+                                       "scope", "source", "source_mode", "declared_source"), key)
+            if "available" in raw and type(raw["available"]) is not bool:
+                raise ValueError(f"{key}.available must be true or false")
+    validate_metric_config_override(clean.get("config_override"))
+    for key in ("calibration_profile", "calibration_profile_json"):
+        raw = clean.get(key)
+        if raw is None or raw == "":
+            continue
+        if isinstance(raw, str):
+            raw = strict_json_object(raw, key)
+            clean[key] = raw
+        if not isinstance(raw, dict):
+            raise ValueError(f"{key} must be an object, JSON object text or null")
+        for override_key in ("metric_overrides", "config_override"):
+            if override_key in raw:
+                validate_metric_config_override(raw[override_key])
+        for policy_key in ("review_policy", "review_thresholds", "review_bands"):
+            if policy_key in raw:
+                normalise_review_policy(raw[policy_key])
+        for policy_key in ("language_review_policy", "review_policy_by_language"):
+            policies = raw.get(policy_key)
+            if policies is None:
+                continue
+            if not isinstance(policies, dict):
+                raise ValueError(f"{policy_key} must be an object keyed by language")
+            for language, policy in policies.items():
+                if not isinstance(language, str) or language not in {*SUPPORTED_LANGUAGES, "project", "unknown"}:
+                    raise ValueError(f"Unsupported language in {policy_key}: {language}")
+                normalise_review_policy(policy)
+        normalise_calibration_profile(raw)
+    if report_kind == "file":
+        for key in ("code", "filename"):
+            if key in clean and not isinstance(clean[key], str):
+                raise ValueError(f"{key} must be a string")
+    elif report_kind == "project":
+        project_limits(clean)
+        _optional_text_fields(clean, ("project_name", "zip_base64", "zip_filename", "ignore_text"), "project")
+        if "files" in clean and not isinstance(clean["files"], list):
+            raise ValueError("files must be an array")
+        for item in clean.get("files", []):
+            if not isinstance(item, dict):
+                raise ValueError("each files entry must be an object")
+            _optional_text_fields(item, ("path", "name", "content", "text"), "files entry")
+            if item.get("size_bytes") is not None and integer_value(item["size_bytes"], "size_bytes") < 0:
+                raise ValueError("size_bytes must be a non-negative integer")
+            rejection = item.get("intake_rejection")
+            if rejection is not None:
+                path = item.get("path") or item.get("name") or ""
+                _validate_intake_rejection(item, path)
+    return clean
+
+
 def codeprobe_engine_metadata(payload_json: str = "{}") -> str:
-    """Pyodide/browser entry point returning engine metadata as JSON."""
-    try:
-        payload = json.loads(payload_json or "{}")
-    except Exception:
-        payload = {}
+    """Return metadata; an omitted or empty text argument uses default inputs."""
+    payload = validate_analysis_payload(strict_json_object("{}" if payload_json == "" else payload_json, "Metadata payload"), "metadata")
     fingerprint = payload.get("engine_fingerprint") or payload.get("engine_integrity")
     return json.dumps(runtime_metadata(fingerprint=fingerprint), ensure_ascii=False, allow_nan=False)
 
 
 def codeprobe_analyze(payload_json: str) -> str:
-    payload = json.loads(payload_json)
+    payload = validate_analysis_payload(strict_json_object(payload_json, "File payload"), "file")
     profile = payload.get("profile") or "default"
     override = payload.get("config_override")
     code = payload.get("code", "")
@@ -5930,7 +6070,7 @@ def codeprobe_analyze(payload_json: str) -> str:
 
 def codeprobe_analyze_project(payload_json: str) -> str:
     """Pyodide/browser entry point for project, folder or ZIP analysis."""
-    payload = json.loads(payload_json)
+    payload = strict_json_object(payload_json, "Project payload")
     report = analyse_project_payload(payload)
     return json.dumps(
         {

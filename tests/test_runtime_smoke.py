@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
+import math
 import sys
 import unittest
+import zipfile
+from contextlib import ExitStack
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -96,6 +102,238 @@ def main(argv: list[str]) -> int:
         output = json.loads(engine.codeprobe_analyze(json.dumps(payload)))
         self.assertFalse(output["report"]["overall_applicable"])
         self.assertEqual(output["report"]["verdict_class"], "documentation")
+
+
+class RuntimeInputContractTests(unittest.TestCase):
+    SOURCE = "def add(left, right):\n    return left + right\n"
+    ENTRYPOINTS = {
+        "file": engine.codeprobe_analyze,
+        "project": engine.codeprobe_analyze_project,
+        "metadata": engine.codeprobe_engine_metadata,
+    }
+
+    def assert_rejected_before_resources(self, raw, kind="file", *, direct=False):
+        with ExitStack() as stack:
+            probes = [stack.enter_context(mock.patch.object(engine, name)) for name in
+                      ("engine_source_fingerprint", "detect_language", "collect_project_files")]
+            probes.append(stack.enter_context(mock.patch.object(engine.base64, "b64decode")))
+            with self.assertRaises(ValueError):
+                if direct:
+                    engine.analyse_project_payload(raw)
+                else:
+                    self.ENTRYPOINTS[kind](raw)
+            for probe in probes:
+                probe.assert_not_called()
+
+    def test_non_object_roots_are_rejected_before_resources(self):
+        for kind in self.ENTRYPOINTS:
+            for raw in ("null", "[]", '"source"', "17", "true"):
+                with self.subTest(kind=kind, raw=raw):
+                    self.assert_rejected_before_resources(raw, kind)
+        for raw in (None, [], "source", 17, True):
+            with self.subTest(direct=raw):
+                self.assert_rejected_before_resources(raw, "project", direct=True)
+
+    def test_ambiguous_and_nonfinite_json_is_rejected_for_every_entry(self):
+        inputs = ('{"extra":1,"extra":2}', '{"extra":{"a":1,"a":2}}',
+                  '{"extra":NaN}', '{"extra":Infinity}', '{"extra":-Infinity}',
+                  '{"extra":1e999}', '{"extra":-1e999}', '{broken')
+        for kind in self.ENTRYPOINTS:
+            for raw in inputs:
+                with self.subTest(kind=kind, raw=raw):
+                    self.assert_rejected_before_resources(raw, kind)
+
+    def test_file_fields_have_explicit_types(self):
+        fields = {
+            "code": (None, 17, {}, []), "filename": (None, 17, {}),
+            "language_hint": (17, [], {}), "profile": (17, [], "unknown"),
+            "require_python_ast": (None, 1, "false"),
+        }
+        for name, values in fields.items():
+            for value in values:
+                with self.subTest(name=name, value=value):
+                    self.assert_rejected_before_resources(json.dumps({name: value}))
+
+    def test_project_fields_and_all_entries_are_checked_before_collection(self):
+        invalid = ({"project_name": 17}, {"include_documentation": "false"},
+                   {"zip_base64": 17}, {"ignore_text": []}, {"files": None},
+                   {"files": {}}, {"files": [None]},
+                   {"files": [{"path": 17, "content": ""}]},
+                   {"files": [{"name": [], "text": ""}]},
+                   {"files": [{"path": "a.py", "content": 17}]},
+                   {"files": [{"path": "a.py", "text": []}]},
+                   {"files": [{"path": "a.py", "content": self.SOURCE},
+                              {"path": "b.py", "content": 17}]})
+        for payload in invalid:
+            with self.subTest(payload=payload):
+                self.assert_rejected_before_resources(payload, "project", direct=True)
+                self.assert_rejected_before_resources(json.dumps(payload), "project")
+
+    def test_invalid_declared_sizes_cannot_reach_resources(self):
+        for size in (True, -1, 1.9, "1.9", float("nan"), float("inf"), [], {}):
+            payload = {"files": [{"path": "a.py", "content": self.SOURCE, "size_bytes": size}]}
+            with self.subTest(size=size):
+                self.assert_rejected_before_resources(payload, "project", direct=True)
+
+    def test_invalid_metadata_only_records_fail_during_preflight(self):
+        valid = {"path": "large.py", "size_bytes": 1000001,
+                 "intake_rejection": {"reason": "file_too_large"}}
+        for changes in ({"size_bytes": "1000001"}, {"size_bytes": 1000001.0},
+                        {"size_bytes": 2**53}, {"content": "print(1)"},
+                        {"intake_rejection": {"reason": "unknown"}},
+                        {"intake_rejection": {"reason": "file_too_large", "extra": True}}):
+            with self.subTest(changes=changes):
+                self.assert_rejected_before_resources({"files": [dict(valid, **changes)]}, "project", direct=True)
+
+    def test_invalid_configuration_is_not_replaced_by_defaults(self):
+        invalid = ([], "{}", {"unknown": {}}, {"comment_density": {"group": []}},
+                   {"comment_density": {"weight": float("nan")}},
+                   {"comment_density": {"thresholds": {"ai_low": float("inf")}}})
+        for override in invalid:
+            for kind in self.ENTRYPOINTS:
+                with self.subTest(override=override, kind=kind):
+                    self.assert_rejected_before_resources(json.dumps({"config_override": override}), kind)
+        self.assert_rejected_before_resources({"config_override": invalid[-1]}, "project", direct=True)
+
+    def test_embedded_calibration_json_uses_the_strict_parser(self):
+        invalid = ('{"profile_id":"one","profile_id":"two"}', "null", "[]",
+                   '{"validation":{"sample_count":NaN}}', '{broken')
+        invalid_policy_aliases = (
+            {"review_policy": []}, {"review_thresholds": False}, {"review_bands": 0},
+            {"language_review_policy": []}, {"review_policy_by_language": ""},
+            {"language_review_policy": {"python": []}},
+            {"review_policy_by_language": {"invalid": {}}},
+            {"language_review_policy": {"python": {}}, "review_policy_by_language": {"python": False}},
+            {"review_policy": {}, "review_thresholds": []},
+        )
+        for field in ("calibration_profile", "calibration_profile_json"):
+            for value in (*invalid, [], True, 17, {"metric_overrides": []}, *invalid_policy_aliases):
+                with self.subTest(field=field, value=value):
+                    self.assert_rejected_before_resources(json.dumps({field: value}))
+
+    def test_metadata_optional_defaults_and_fingerprint_types(self):
+        default = json.loads(engine.codeprobe_engine_metadata())
+        self.assertEqual(json.loads(engine.codeprobe_engine_metadata("")), default)
+        self.assertEqual(json.loads(engine.codeprobe_engine_metadata('{"engine_fingerprint":null}')), default)
+        for value in (None, [], 17):
+            with self.subTest(argument=value):
+                self.assert_rejected_before_resources(value, "metadata")
+        for fingerprint in ([], 17, {"value": []}, {"available": "yes"}, {"source": 17}):
+            with self.subTest(fingerprint=fingerprint):
+                self.assert_rejected_before_resources(json.dumps({"engine_fingerprint": fingerprint}), "metadata")
+
+    def test_ordinary_file_payload_and_null_controls_preserve_reports(self):
+        payload = {"code": self.SOURCE, "filename": "sum.py", "language_hint": None,
+                   "profile": None, "config_override": None, "calibration_profile": None}
+        output = json.loads(engine.codeprobe_analyze(json.dumps(payload)))
+        report = output["report"]
+        self.assertEqual((report["filename"], report["language"], report["profile"]),
+                         ("sum.py", "python", "default"))
+        self.assertIn("File: sum.py", output["text"])
+        self.assertEqual(report["metric_config_digest"], engine.metric_config_digest(engine.merged_metric_config("default")))
+        payload["calibration_profile"] = {"review_policy": {}, "review_thresholds": None,
+                                          "review_bands": {}, "language_review_policy": None,
+                                          "review_policy_by_language": {"python": {}}}
+        default_policy_report = json.loads(engine.codeprobe_analyze(json.dumps(payload)))["report"]
+        self.assertEqual(default_policy_report["review_policy"], report["review_policy"])
+        self.assertEqual(default_policy_report["metric_config_digest"], report["metric_config_digest"])
+        empty = json.loads(engine.codeprobe_analyze("{}"))["report"]
+        self.assertEqual((empty["filename"], empty["loc"]), ("fragment.py", 0))
+
+    def test_project_aliases_text_alias_and_browser_rejections_remain_valid(self):
+        payload = {"project_name": "exercise", "profile": None, "config_override": None,
+                   "calibration_profile": None, "include_documentation": False,
+                   "files": [{"path": "sum.py", "content": self.SOURCE, "size_bytes": 1.0},
+                             {"name": "copy.py", "content": None, "text": self.SOURCE},
+                             {"path": "large.py", "size_bytes": 1000001,
+                              "intake_rejection": {"reason": "file_too_large"}}]}
+        before = json.dumps(payload, sort_keys=True)
+        output = json.loads(engine.codeprobe_analyze_project(json.dumps(payload)))
+        self.assertEqual(output["report"], output["project_report"])
+        self.assertIn("Project: exercise", output["text"])
+        self.assertEqual({item["path"] for item in output["report"]["included_files"]}, {"sum.py", "copy.py"})
+        self.assertEqual(output["report"]["excluded_files"][0]["reason"], "browser_file_too_large")
+        self.assertTrue(any("actual UTF-8 size" in item for item in output["report"]["warnings"]))
+        self.assertEqual(json.dumps(payload, sort_keys=True), before)
+        empty = json.loads(engine.codeprobe_analyze_project("{}"))
+        self.assertEqual(empty["report"], empty["project_report"])
+        self.assertEqual((empty["report"]["project_name"], empty["report"]["candidate_file_count"]), ("project", 0))
+
+    def test_integer_compatibility_is_explicit_and_never_truncates(self):
+        accepted = ((0, 0), (0.0, 0), (1, 1), (1.0, 1), (" +1 ", 1),
+                    ("1_000", 1000), ("١", 1))
+        for raw, expected in accepted:
+            with self.subTest(raw=raw):
+                self.assertEqual(engine.integer_value(raw, "limit"), expected)
+        for raw in (True, False, 1.9, "1.9", "1e0", float("nan"), float("inf"),
+                    "nan", "inf", None, b"1", [], {}):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                engine.integer_value(raw, "limit")
+
+    def test_every_project_integer_limit_is_checked_before_resources(self):
+        keys = ("max_files", "max_file_bytes", "max_total_bytes", "max_zip_bytes",
+                "max_zip_entries", "max_ignore_bytes", "max_ignore_rules")
+        for key in keys:
+            for value in (True, 0, 1.9, "1.9", float("nan"), float("inf")):
+                with self.subTest(key=key, value=value):
+                    self.assert_rejected_before_resources({key: value}, "project", direct=True)
+
+    def test_project_limit_endpoints_and_integral_forms_remain_compatible(self):
+        maximums = {"max_files": 10000, "max_file_bytes": 16000000,
+                    "max_total_bytes": 256000000, "max_zip_bytes": 64000000,
+                    "max_zip_entries": 20000, "max_ignore_bytes": 1000000,
+                    "max_ignore_rules": 10000}
+        for key, maximum in maximums.items():
+            for value in (1, 1.0, " +1 ", maximum, float(maximum), str(maximum)):
+                with self.subTest(key=key, value=value):
+                    self.assertEqual(engine.project_limits({key: value})[key], int(value))
+            for value in (0, maximum + 1):
+                with self.subTest(key=key, rejected=value), self.assertRaises(ValueError):
+                    engine.project_limits({key: value})
+
+    def compressed_fixture(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("blank.py", "\n" * 4096)
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    def test_nonfinite_ratio_is_refused_before_zip_decoding_or_member_reads(self):
+        encoded = self.compressed_fixture()
+        for value in (float("nan"), float("inf"), -float("inf"), "nan", "Infinity", "-inf", "1e999", True):
+            payload = {"zip_base64": encoded, "max_compression_ratio": value}
+            with self.subTest(value=value), mock.patch.object(engine, "_read_zip_member_bounded") as read:
+                self.assert_rejected_before_resources(payload, "project", direct=True)
+                self.assert_rejected_before_resources(json.dumps(payload), "project")
+                read.assert_not_called()
+
+    def test_finite_ratio_controls_keep_the_declared_zip_exclusion(self):
+        encoded = self.compressed_fixture()
+        for ratio, expected_reads, reason in ((None, 0, "compression_ratio_exceeded"),
+                                              (1, 0, "compression_ratio_exceeded"),
+                                              (1000, 1, "empty_file")):
+            payload = {"zip_base64": encoded}
+            if ratio is not None:
+                payload["max_compression_ratio"] = ratio
+            with self.subTest(ratio=ratio), mock.patch.object(engine, "_read_zip_member_bounded", wraps=engine._read_zip_member_bounded) as read:
+                report = engine.analyse_project_payload(payload)
+                self.assertEqual(read.call_count, expected_reads)
+                self.assertEqual(report["excluded_files"][0]["reason"], reason)
+                limits = report["input_packaging"]["limits"]
+                self.assertEqual(limits["max_compression_ratio"], 100 if ratio is None else ratio)
+                self.assertTrue(all(math.isfinite(value) for value in limits.values()))
+                json.dumps(report, allow_nan=False)
+
+    def test_bound_calibration_replay_keeps_the_engine_identity_check(self):
+        config = engine.merged_metric_config("strict")
+        profile = {"profile_id": "owned-runtime-fixture",
+                   "scoring_contract": engine.scoring_contract("strict", config)}
+        payload = {"code": self.SOURCE, "filename": "sum.py", "calibration_profile": profile}
+        report = json.loads(engine.codeprobe_analyze(json.dumps(payload)))["report"]
+        self.assertEqual((report["profile"], report["calibration_profile_id"]), ("strict", "owned-runtime-fixture"))
+        self.assertEqual(report["metric_config_digest"], engine.metric_config_digest(config))
+        profile["scoring_contract"]["engine_sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "engine identity.*recalibrate"):
+            engine.codeprobe_analyze(json.dumps(payload))
 
 
 if __name__ == "__main__":

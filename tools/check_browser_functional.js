@@ -849,6 +849,130 @@ async function testParserReplayBoundary(cdp, baseUrl, fixtureState) {
   } finally { await closeSession(cdp, session); }
 }
 
+// Raw JSON is checked in the already authenticated worker's real interpreter.
+// The public worker transport normalises JSON and exposes no metadata operation,
+// so its reachable field checks are recorded separately below.
+async function testStrictJsonContracts(cdp, baseUrl, fixtureState, engineDigest) {
+  const deadline = Date.now() + 300000;
+  async function bounded(operation) {
+    const remaining = deadline - Date.now();
+    assert(remaining > 0, "strict JSON browser contract exceeded its 300-second budget");
+    let timer;
+    try {
+      return await Promise.race([
+        operation(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("strict JSON browser contract exceeded its 300-second budget")), remaining); }),
+      ]);
+    } finally { clearTimeout(timer); }
+  }
+  const previous = new Set((await bounded(() => cdp.send("Target.getTargets"))).targetInfos.map(item => item.targetId));
+  fixtureState.reset();
+  const pageUrl = `${baseUrl}/app/index.html?strict-json-contract=1`;
+  const session = await bounded(() => createSession(cdp, pageUrl));
+  let workerSession = null;
+  try {
+    await bounded(() => waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()"));
+    assertSingleVerifiedRequests(fixtureState);
+    const targets = (await bounded(() => cdp.send("Target.getTargets"))).targetInfos;
+    const workers = targets.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.url.startsWith(`blob:${baseUrl}/`));
+    assert(workers.length === 1, "the owned page did not expose exactly one new same-origin worker");
+    const worker = workers[0];
+    if (worker.openerId) assert(worker.openerId === session.targetId, "worker opener differs from the owned page");
+    workerSession = (await bounded(() => cdp.send("Target.attachToTarget", {targetId:worker.targetId, flatten:true}))).sessionId;
+    await bounded(() => cdp.send("Runtime.enable", {}, workerSession));
+    const workerBase = await bounded(() => evaluate(cdp, workerSession, "self.CODEPROBE_BASE_URL"));
+    assert(workerBase === pageUrl, "attached worker does not carry the owned page's bootstrap URL");
+    const script = `def _codeprobe_strict_json_fixture():
+    import json, sys
+    module = sys.modules['codeprobe_runtime']
+    entries = [('file', module.codeprobe_analyze), ('project', module.codeprobe_analyze_project), ('metadata', module.codeprobe_engine_metadata)]
+    positives = []
+    metadata = None
+    for kind, entry in entries:
+        result = json.loads(entry('{}'))
+        if kind == 'metadata':
+            metadata = result
+            assert result['file_report_schema_version'] == '2.2.0'
+        else:
+            assert result['report']['report_kind'] == kind
+            assert result['report']['profile'] == 'default'
+            assert isinstance(result['text'], str) and len(result['text']) > 100
+            if kind == 'file':
+                assert result['report']['filename'] == 'fragment.py'
+            else:
+                assert result['report'] == result['project_report']
+                assert result['report']['included_file_count'] == 0
+        positives.append(dict(kind=kind, case='empty-object-defaults', result='accepted'))
+    invalid = []
+    cases = [('null-root', 'null'), ('array-root', '[]'), ('scalar-root', '"scalar"'), ('duplicate-key', '{"duplicate":1,"duplicate":2}'), ('nonfinite-number', '{"value":NaN}')]
+    for kind, entry in entries:
+        for label, raw in cases:
+            try:
+                entry(raw)
+            except (ValueError, TypeError) as error:
+                invalid.append(dict(kind=kind, case=label, result='refused', error=type(error).__name__))
+            else:
+                raise AssertionError(kind + ' accepted ' + label)
+    return json.dumps(dict(positives=positives, invalid=invalid, runtime=metadata['python_runtime'], measured_sha256=metadata['engine_fingerprint']['value']), allow_nan=False)
+_codeprobe_strict_json_fixture()
+`;
+    const direct = await bounded(() => evaluate(cdp, workerSession, `(async () => {
+      const runtime = await self.CodeProbeRuntime.loadVerifiedPyodide();
+      try { return JSON.parse(runtime.runPython(${JSON.stringify(script)})); }
+      finally { runtime.globals.delete('_codeprobe_strict_json_fixture'); }
+    })()`));
+    assert(direct.runtime.platform === "emscripten" && direct.runtime.version.startsWith("3.11."), "raw JSON checks did not run in pinned Pyodide");
+    assert(direct.measured_sha256 === engineDigest, "raw JSON checks used a different engine source");
+    assert(direct.positives.length === 3 && direct.invalid.length === 15, "raw JSON matrix is incomplete");
+    assertSingleVerifiedRequests(fixtureState);
+    console.log("[PASS] browser-strict-json-direct: " + JSON.stringify({ownership:{page_target_id:session.targetId, worker_target_id:worker.targetId, worker_url:worker.url, bootstrap_url:workerBase}, ...direct}));
+
+    const code = "def add(left, right):\n    return left + right\n";
+    const valid = [
+      {kind:"file", payload:{filename:"accepted.py", code, language_hint:"auto", profile:null, config_override:{}}},
+      {kind:"project", payload:{project_name:"accepted", files:[{path:"accepted.py", content:code}], language_hint:"auto", profile:null, config_override:{}, include_documentation:false}},
+    ];
+    for (const item of valid) {
+      const result = await bounded(() => evaluate(cdp, session.sessionId, `appState.workerSession.analyse(${JSON.stringify(item.kind)}, ${JSON.stringify(item.payload)})`));
+      assert(result.report.report_kind === item.kind && result.report.profile === "default", "valid worker payload lost its report kind or default profile");
+      assert(result.report.engine_fingerprint.value === engineDigest && result.report.engine_fingerprint.source === "packaged-verified", "valid worker payload lost authenticated engine provenance");
+      assert(typeof result.text === "string" && result.text.length > 100, "valid worker payload lost its text report");
+      if (item.kind === "project") {
+        assert(JSON.stringify(result.report) === JSON.stringify(result.project_report), "worker project report alias differs");
+        assert(result.report.included_file_count === 1, "valid worker project lost its supplied file");
+      }
+    }
+    const invalid = [
+      {label:"file-code-type", kind:"file", payload:{code:17}},
+      {label:"config-object-type", kind:"file", payload:{code, config_override:[]}},
+      {label:"documentation-boolean-type", kind:"project", payload:{files:[], include_documentation:"false"}},
+      {label:"project-content-type", kind:"project", payload:{files:[{path:"bad.py", content:17}]}},
+      {label:"fractional-file-limit", kind:"project", payload:{files:[], max_files:1.9}},
+      {label:"nonfinite-compression-ratio", kind:"project", payload:{files:[], max_compression_ratio:"nan"}},
+    ];
+    const observations = [];
+    for (const item of invalid) {
+      if (!await bounded(() => evaluate(cdp, session.sessionId, "appState.workerSession.isReady()"))) {
+        fixtureState.reset();
+        await bounded(() => evaluate(cdp, session.sessionId, "appState.workerSession.initialise()"));
+      }
+      assertSingleVerifiedRequests(fixtureState);
+      const refusal = await bounded(() => evaluate(cdp, session.sessionId, `appState.workerSession.analyse(${JSON.stringify(item.kind)}, ${JSON.stringify(item.payload)}).then(() => ({rejected:false}), error => ({rejected:true, name:error.name, message:error.message}))`));
+      assert(refusal.rejected && refusal.name === "WorkerError", `${item.label} was not refused through the worker`);
+      assert(refusal.message === "The analysis worker rejected the operation.", "invalid payload exposed interpreter details");
+      assert(!await bounded(() => evaluate(cdp, session.sessionId, "appState.workerSession.isReady()")), "invalid payload left a reusable worker");
+      observations.push({kind:item.kind, case:item.label, result:"refused", error:refusal.name});
+    }
+    console.log("[PASS] browser-strict-json-worker: " + JSON.stringify({positive_cases:valid.length, observations, qualification:"Raw roots, duplicate keys, numeric NaN and metadata were tested directly in the authenticated interpreter; the worker transports serialised objects."}));
+  } finally {
+    if (workerSession) {
+      try { await cdp.send("Target.detachFromTarget", {sessionId:workerSession}); }
+      catch (_) { /* the worker is deliberately terminated after a refusal */ }
+    }
+    await closeSession(cdp, session);
+  }
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -912,6 +1036,7 @@ async function main() {
     await testPrivacyStorageFailures(cdp, baseUrl, state);
     await testNativeBrowserReplay(cdp, baseUrl, state);
     await testParserReplayBoundary(cdp, baseUrl, state);
+    await testStrictJsonContracts(cdp, baseUrl, state, engineDigest);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);

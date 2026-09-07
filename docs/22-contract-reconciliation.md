@@ -258,3 +258,60 @@ across paths, a global rollback, a power-loss durability guarantee or protection
 against every concurrent change by a hostile directory writer. Use quiescent
 input and destination trees. Generation success and technical replay eligibility
 do not establish label validity, independent sampling or empirical accuracy.
+
+## Bounded control reads and strict input values
+
+The native project CLI accepts at most 262,144 bytes for an explicit metric
+configuration and 4,000,000 bytes for a calibration profile. Both inputs use the
+stable regular-file reader, strict UTF-8 decoding and a JSON object parser that
+rejects duplicate keys and non-finite numbers, including overflowing exponents.
+Invalid limits and control inputs are rejected before folder inventory or ZIP
+intake. A valid generated profile must still match the current engine and
+effective configuration; changing its recorded digest is not recalibration.
+The derived folder or ZIP name remains the default unless explicitly replaced.
+
+Recovery control files pass their existing 262,144-byte ceiling into the release
+reader before it reads the body. The local server likewise passes its existing
+public-resource ceiling. An oversized descriptor is rejected before the first
+body read. If the file grows during reading, at most the ceiling plus one byte
+is consumed before rejection. The extra byte detects overflow and is never
+accepted as content. Zero-byte and exact-ceiling regular reads retain their
+documented behaviour, together with identity and ancestry checks. Release
+snapshot callers that omit the optional ceiling retain their existing size
+policy; this change does not impose a new universal release-file limit.
+
+Both project-reader opens request `O_NONBLOCK` where the platform provides it,
+then verify a regular descriptor and its identity. The second open has the same
+checks as the first. This permits rejection of a substituted special descriptor
+without a blocking FIFO open on supported platforms. It is not a deadline for
+ordinary filesystem I/O or a guarantee against every concurrent replacement.
+Platforms without that flag retain the descriptor and identity checks. Tests
+using substituted metadata describe that simulation explicitly; they do not
+establish an observed special-file race or hang.
+
+The public file, project and metadata JSON entry points require object roots.
+They reject ambiguous JSON and invalid field types before analysis. Source text
+and filenames must be strings; project file entries must be objects with text
+fields of the declared types. Boolean switches require JSON Booleans. Missing
+fields retain their existing defaults, and null remains valid for optional UI
+controls. Metadata retains its omitted/empty-text default but no longer hides
+malformed JSON by returning default metadata. Unknown fields remain ignored.
+Supplied configuration and calibration-policy aliases are validated even when
+their values would otherwise be bypassed by a fallback expression. Invalid
+configuration does not silently produce a default report.
+
+Project integer limits share one conversion policy between the native reader
+and runtime. Integers, finite integral floats and the decimal integer strings
+previously accepted by Python remain compatible, including signs, surrounding
+whitespace and digit separators. Fractional values, Boolean values, non-finite
+numbers and arbitrary coercible objects are rejected before resource access.
+The existing inclusive minimum and maximum values remain in force; a zero-byte
+reader ceiling is valid while project allocation limits require positive values.
+All eight project limits are validated before collection, including a finite
+compression ratio between 1 and 1,000 with the existing default of 100.
+
+File and project report aliases, text output, configuration digests and bound
+profile replay remain unchanged. Browser transport serialises objects; raw JSON
+parser checks and worker transport checks are therefore separate tests in the
+authenticated Pyodide browser gate. Input checks establish exercised software
+contracts, not authenticity of submitted metadata or empirical detection quality.

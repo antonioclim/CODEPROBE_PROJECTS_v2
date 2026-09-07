@@ -335,12 +335,18 @@ def read_regular_file_with_metadata(
     path: Path,
     *,
     root: Path | None = None,
+    max_bytes: int | None = None,
 ) -> tuple[bytes, os.stat_result]:
     """Read one regular file and return coherent descriptor metadata.
 
     Metadata is checked before and after the read. This turns a concurrent source
     mutation into a controlled validation failure rather than a mixed snapshot.
+    An explicit byte ceiling rejects an oversized descriptor before body reads
+    and permits at most one additional byte to detect growth. ``None`` retains
+    the unrestricted size policy used by existing release-snapshot callers.
     """
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 0):
+        raise ValueError("max_bytes must be a non-negative integer or None")
     path_before = _validate_no_symlink_ancestry(path, root)
     try:
         descriptor = _open_regular_for_read(path, root)
@@ -350,6 +356,8 @@ def read_regular_file_with_metadata(
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ReleaseSetError(f"release entry is not a regular file: {_safe_text(path)}")
+        if max_bytes is not None and before.st_size > max_bytes:
+            raise ReleaseSetError(f"release file exceeds the size ceiling: {_safe_text(path)}")
         path_opened = _validate_no_symlink_ancestry(path, root)
         if (
             _stat_identity(path_before) != _stat_identity(path_opened)
@@ -358,10 +366,17 @@ def read_regular_file_with_metadata(
         ):
             raise ReleaseSetError(f"release file changed before read: {_safe_text(path)}")
         chunks: list[bytes] = []
+        total = 0
         while True:
-            chunk = os.read(descriptor, 1024 * 1024)
+            request_size = 1024 * 1024
+            if max_bytes is not None:
+                request_size = min(request_size, max_bytes - total + 1)
+            chunk = os.read(descriptor, request_size)
             if not chunk:
                 break
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise ReleaseSetError(f"release file exceeds the size ceiling: {_safe_text(path)}")
             chunks.append(chunk)
         after = os.fstat(descriptor)
         try:
@@ -391,9 +406,14 @@ def read_regular_file_with_metadata(
     return b"".join(chunks), after
 
 
-def read_regular_file(path: Path, *, root: Path | None = None) -> bytes:
-    """Read one stable regular file without following a final symlink."""
-    content, _metadata = read_regular_file_with_metadata(path, root=root)
+def read_regular_file(
+    path: Path,
+    *,
+    root: Path | None = None,
+    max_bytes: int | None = None,
+) -> bytes:
+    """Read one stable regular file, optionally enforcing a byte ceiling."""
+    content, _metadata = read_regular_file_with_metadata(path, root=root, max_bytes=max_bytes)
     return content
 
 

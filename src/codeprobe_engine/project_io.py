@@ -39,10 +39,8 @@ def _bounded_positive_int(
     minimum: int = 1,
     maximum: int,
 ) -> int:
-    if isinstance(value, bool):
-        raise ProjectInputError(f"{name} must be an integer between {minimum} and {maximum}")
     try:
-        result = int(value)
+        result = engine.integer_value(value, name)
     except (TypeError, ValueError, OverflowError) as exc:
         raise ProjectInputError(
             f"{name} must be an integer between {minimum} and {maximum}"
@@ -132,6 +130,10 @@ def _open_regular(path: Path) -> int:
         flags |= os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
+    # A replacement by a FIFO must not block before fstat can reject it.
+    # Platforms without this flag retain the checks, without that guarantee.
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
     return os.open(path, flags)
 
 
@@ -143,10 +145,8 @@ def read_bounded_regular_file(
     consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
 ) -> bytes:
     """Read one stable regular file without following links and with a hard cap."""
-    if isinstance(max_bytes, bool):
-        raise ProjectInputError("max_bytes must be a non-negative integer")
     try:
-        max_bytes = int(max_bytes)
+        max_bytes = engine.integer_value(max_bytes, "max_bytes")
     except (TypeError, ValueError, OverflowError) as exc:
         raise ProjectInputError(
             "max_bytes must be a non-negative integer"
@@ -185,6 +185,11 @@ def read_bounded_regular_file(
         except OSError as exc:
             raise ProjectInputError(f"project file changed during read: {_safe_text(path)}: {_safe_text(exc)}") from exc
         try:
+            verified = os.fstat(verification)
+            if not stat.S_ISREG(verified.st_mode):
+                raise ProjectInputError(f"project entry is not a regular file: {_safe_text(path)}")
+            if _identity(verified) != _identity(after_path):
+                raise ProjectInputError(f"project file changed during read: {_safe_text(path)}")
             same_file = os.path.sameopenfile(descriptor, verification)
         finally:
             os.close(verification)
