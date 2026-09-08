@@ -660,6 +660,247 @@ class BoundedProjectControlTests(unittest.TestCase):
             for key in ("decision_score", "metric_config_digest", "calibration_profile", "included_file_count", "excluded_files"):
                 self.assertEqual(actual[key], expected[key], key)
 
+class CoherentProjectIntakeTests(unittest.TestCase):
+    def test_duplicate_root_controls_are_inert_in_both_containers_and_orders(self):
+        for names in ((".CODEPROBEIGNORE", ".codeprobeignore"), (".codeprobeignore", ".CODEPROBEIGNORE")):
+            entries = [(name, "src/\n") for name in names] + [("src/main.py", "print(1)\n")]
+            encoded, _ = zip_payload(entries)
+            for payload in ({"files": [{"path": name, "content": text} for name, text in entries]}, {"zip_base64": encoded}):
+                with self.subTest(names=names, container="zip" if "zip_base64" in payload else "files"):
+                    opened = []
+                    original = engine._read_zip_member_bounded
+                    def read(archive, info, maximum):
+                        opened.append(info.orig_filename)
+                        return original(archive, info, maximum)
+                    with mock.patch.object(engine, "_read_zip_member_bounded", side_effect=read):
+                        report = engine.analyse_project_payload(payload)
+                    self.assertEqual([item["path"] for item in report["files"]], ["src/main.py"])
+                    self.assertEqual([item["reason"] for item in report["excluded_files"]], ["duplicate_path", "duplicate_path"])
+                    self.assertFalse(any(name.casefold() == ".codeprobeignore" for name in opened))
+                    self.assertNotIn("Loaded the project-root .codeprobeignore.", report["notes"])
+
+    def test_zip_original_nul_names_are_rejected_without_reading_the_member(self):
+        for path in ("Xbad.py", "badXname.py", "good.pyXbad"):
+            encoded, raw = zip_payload([(path, "print(1)\n"), ("safe.py", "print(2)\n")])
+            altered = raw.replace(path.encode(), path.replace("X", "\x00").encode())
+            calls = []
+            original = engine._read_zip_member_bounded
+            def read(archive, info, maximum):
+                calls.append(info.orig_filename)
+                return original(archive, info, maximum)
+            with self.subTest(path=path), mock.patch.object(engine, "_read_zip_member_bounded", side_effect=read):
+                report = engine.analyse_project_payload({"zip_base64": base64.b64encode(altered).decode("ascii")})
+            self.assertEqual([item["path"] for item in report["files"]], ["safe.py"])
+            self.assertEqual(report["excluded_files"][0]["reason"], "unsafe_path")
+            self.assertIn("\\x00", report["excluded_files"][0]["path"])
+            self.assertEqual(calls, ["safe.py"])
+
+    def test_nul_positions_share_one_disposition_and_never_contribute_a_score(self):
+        for position in (0, 4095, 4096, 4100):
+            text = "#" * position + "\x00" + "\n"
+            encoded, _ = zip_payload([("main.py", text)], compression=zipfile.ZIP_STORED)
+            for payload in ({"files": [{"path": "main.py", "content": text}]}, {"zip_base64": encoded}):
+                with self.subTest(position=position, zip="zip_base64" in payload):
+                    report = engine.analyse_project_payload(payload)
+                    self.assertEqual(report["excluded_files"][0]["reason"], "undecodable_text")
+                    self.assertEqual(report["excluded_files"][0]["size_bytes"], len(text))
+                    self.assertFalse(report["overall_applicable"])
+            self.assertIsNone(engine.decode_text_bytes(text.encode())[0])
+
+    def test_content_exclusions_do_not_consume_the_single_analysis_slot(self):
+        for first in ("", "const x='" + "a" * 1900 + "';"):
+            entries = [("a.js", first), ("b.py", "print(1)\n"), ("c.py", "print(2)\n")]
+            encoded, _ = zip_payload(entries, compression=zipfile.ZIP_STORED)
+            for payload in ({"files": [{"path": path, "content": text} for path, text in entries]}, {"zip_base64": encoded}):
+                with self.subTest(empty=not first, zip="zip_base64" in payload):
+                    report = engine.analyse_project_payload({**payload, "max_files": 1})
+                    self.assertEqual([item["path"] for item in report["files"]], ["b.py"])
+                    self.assertEqual(report["excluded_files"][-1]["reason"], "project_file_limit")
+
+    def test_content_exclusions_still_consume_the_independent_byte_budget(self):
+        text = "const x='" + "a" * 1900 + "';"
+        report = engine.analyse_project_payload({"max_files": 1, "max_total_bytes": len(text), "files": [
+            {"path": "a.js", "content": text}, {"path": "b.py", "content": "print(1)\n"}]})
+        self.assertEqual([item["reason"] for item in report["excluded_files"]], ["minified_or_bundled_asset", "project_total_byte_limit"])
+        with self.assertRaisesRegex(ValueError, "entry limit"):
+            engine.analyse_project_payload({"max_zip_entries": 2, "files": [{"path": f"{index}.py", "content": ""} for index in range(3)]})
+
+    def test_root_control_compression_and_zero_size_are_checked_before_read(self):
+        encoded, raw = zip_payload([(".codeprobeignore", "#" * 512), ("src/main.py", "print(1)\n")])
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            info = archive.getinfo(".codeprobeignore")
+            ratio = info.file_size / info.compress_size
+        for maximum, expected in ((ratio, "ignore_file"), (ratio - 0.01, "compression_ratio_exceeded")):
+            calls = []
+            original = engine._read_zip_member_bounded
+            def read(archive, info, maximum_bytes):
+                calls.append(info.orig_filename)
+                return original(archive, info, maximum_bytes)
+            with mock.patch.object(engine, "_read_zip_member_bounded", side_effect=read):
+                report = engine.analyse_project_payload({"zip_base64": encoded, "max_compression_ratio": maximum})
+            self.assertEqual(report["excluded_files"][0]["reason"], expected)
+            self.assertEqual(".codeprobeignore" in calls, expected == "ignore_file")
+        altered = bytearray(raw)
+        central = altered.index(b"PK\x01\x02")
+        altered[central + 20:central + 24] = b"\0" * 4
+        with mock.patch.object(engine, "_read_zip_member_bounded", wraps=engine._read_zip_member_bounded) as read:
+            report = engine.analyse_project_payload({"zip_base64": base64.b64encode(altered).decode("ascii")})
+        self.assertEqual(report["excluded_files"][0]["reason"], "compression_ratio_exceeded")
+        self.assertFalse(any(call.args[1].orig_filename == ".codeprobeignore" for call in read.call_args_list))
+        for invalid in (float("nan"), float("inf"), -float("inf")):
+            with mock.patch.object(engine, "collect_project_files") as collect:
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    engine.analyse_project_payload({"zip_base64": encoded, "max_compression_ratio": invalid})
+                collect.assert_not_called()
+
+    def test_exact_base64_limits_accept_every_padding_class_and_reject_one_byte_over(self):
+        observed = set()
+        for comment_size in range(3):
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as archive:
+                archive.writestr("main.py", "print(1)\n")
+                archive.comment = b"x" * comment_size
+            raw = buffer.getvalue()
+            observed.add(len(raw) % 3)
+            encoded = base64.b64encode(raw).decode("ascii")
+            self.assertEqual(engine.analyse_project_payload({"zip_base64": encoded, "max_zip_bytes": len(raw)})["included_file_count"], 1)
+            with self.assertRaisesRegex(ValueError, "compressed ZIP limit"):
+                engine.analyse_project_payload({"zip_base64": encoded, "max_zip_bytes": len(raw) - 1})
+        self.assertEqual(observed, {0, 1, 2})
+        for encoded in ("A===", "AAAA!", "AAAA\n", "A" * 100):
+            with self.subTest(encoded=encoded), self.assertRaises(ValueError):
+                engine.analyse_project_payload({"zip_base64": encoded, "max_zip_bytes": 10})
+
+    def test_internal_native_exclusions_preserve_reason_size_and_lose_privilege_in_json(self):
+        native = engine._NativeProjectFile(path="large.py", content="", size_bytes=101,
+                                         pre_exclusion_reason="file_too_large", pre_exclusion_detail="Bounded native metadata.")
+        report = engine.analyse_project_payload({"files": [native], "max_file_bytes": 100})
+        self.assertEqual((report["excluded_files"][0]["reason"], report["excluded_files"][0]["size_bytes"]), ("file_too_large", 101))
+        self.assertIn("101 selected bytes", engine.format_project_report_text(report))
+        public = json.loads(json.dumps(native))
+        public["native_pre_exclusion"] = ["file_too_large", "forged", 101]
+        report = engine.analyse_project_payload({"files": [public], "max_file_bytes": 100})
+        self.assertEqual((report["excluded_files"][0]["reason"], report["excluded_files"][0]["size_bytes"]), ("empty_file", 0))
+        with self.assertRaises(ValueError):
+            engine._NativeProjectFile(path="main.py", content="print(1)\n", size_bytes=1, pre_exclusion_reason="file_too_large")
+
+    def test_slash_patterns_are_root_relative_and_basename_patterns_are_recursive(self):
+        rules = engine.parse_ignore_patterns("generated/\n!generated/student_owned.py\n")
+        self.assertFalse(engine.project_path_is_ignored("generated/student_owned.py", rules))
+        self.assertTrue(engine.project_path_is_ignored("nested/generated/student_owned.py", rules))
+        self.assertTrue(engine.project_path_is_ignored("nested/secret.py", engine.parse_ignore_patterns("secret.py")))
+
+    def test_root_control_byte_limit_is_separate_from_source_limit(self):
+        report = engine.analyse_project_payload({"max_file_bytes": 10, "max_ignore_bytes": 100, "files": [
+            {"path": ".codeprobeignore", "content": "# a bounded root control\n"}, {"path": "main.py", "content": "print(1)\n"}]})
+        self.assertEqual(report["excluded_files"][0]["reason"], "ignore_file")
+        self.assertEqual(report["included_file_count"], 1)
+        encoded, _ = zip_payload([(".codeprobeignore", b"#\xff\n"), ("main.py", "print(1)\n")], compression=zipfile.ZIP_STORED)
+        report = engine.analyse_project_payload({"zip_base64": encoded, "max_ignore_bytes": 3})
+        self.assertEqual(report["excluded_files"][0]["reason"], "ignore_file")
+        self.assertEqual(report["excluded_files"][0]["size_bytes"], 3)
+        self.assertEqual(report["included_file_count"], 1)
+
+    def test_native_reinclusion_preserves_paths_and_does_not_expand_unrelated_dependencies(self):
+        for external in (False, True):
+            with self.subTest(external=external), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "generated").mkdir()
+                (root / "generated/student_owned.py").write_text("print(1)\n", encoding="utf-8")
+                (root / "generated/other.py").write_text("print(2)\n", encoding="utf-8")
+                (root / "node_modules").mkdir()
+                (root / "node_modules/dependency.py").write_text("print(3)\n", encoding="utf-8")
+                ignore = "!generated/student_owned.py\n"
+                if not external:
+                    (root / ".codeprobeignore").write_text(ignore, encoding="utf-8")
+                traversed = []
+                original = project_io.os.scandir
+                def scandir(path):
+                    traversed.append(Path(path))
+                    return original(path)
+                with mock.patch.object(project_io.os, "scandir", side_effect=scandir):
+                    payload = project_io.project_payload_from_path(root, ignore_text=ignore if external else "")
+                report = engine.analyse_project_payload(payload)
+                self.assertEqual([item["path"] for item in report["files"]], ["generated/student_owned.py"])
+                self.assertNotIn(root / "node_modules", traversed)
+                self.assertEqual(report["input_packaging"]["unexpanded_directories"], ["node_modules"])
+                self.assertIn("Unexpanded directories (children were not inventoried):\n- node_modules", engine.format_project_report_text(report))
+                self.assertFalse(report["input_packaging"]["common_root_stripped"])
+                self.assertFalse(any(item["path"].startswith("node_modules/") for item in report["excluded_files"]))
+
+    def test_native_filename_rule_does_not_prune_other_languages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            (root / "src/a.py").write_text("print(1)\n", encoding="utf-8")
+            (root / "src/b.js").write_text("const result = 2;\n", encoding="utf-8")
+            report = engine.analyse_project_payload(project_io.project_payload_from_path(root, ignore_text="*.py\n"))
+            self.assertEqual([item["path"] for item in report["files"]], ["src/b.js"])
+            self.assertEqual(report["excluded_files"][0]["reason"], "ignored_by_codeprobeignore")
+
+    def test_native_empty_and_minified_files_preserve_budget_and_single_slot(self):
+        for first in (b"", b"const x='" + b"a" * 1900 + b"';"):
+            with self.subTest(empty=not first), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "a.js").write_bytes(first)
+                (root / "b.py").write_bytes(b"print(1)\n")
+                payload = project_io.project_payload_from_path(root, max_files=1)
+                report = engine.analyse_project_payload(payload)
+                self.assertEqual([item["path"] for item in report["files"]], ["b.py"])
+                self.assertEqual(report["excluded_files"][0]["size_bytes"], len(first))
+
+    def test_native_preexclusions_have_exact_size_reason_and_no_forbidden_body_read(self):
+        cases = ((b"x" * 101, {"max_file_bytes": 100}, "file_too_large", False),
+                 (b"x" * 11, {"max_total_bytes": 10}, "project_total_byte_limit", False),
+                 (b"x" * 4096 + b"\0", {}, "undecodable_text", True),
+                 (b"", {}, "empty_file", True))
+        for data, limits, expected, should_read in cases:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "main.py").write_bytes(data)
+                with mock.patch.object(project_io, "read_bounded_regular_file", wraps=project_io.read_bounded_regular_file) as read:
+                    payload = project_io.project_payload_from_path(root, **limits)
+                self.assertEqual(bool(read.call_count), should_read)
+                report = engine.analyse_project_payload(payload)
+                self.assertEqual((report["excluded_files"][0]["reason"], report["excluded_files"][0]["size_bytes"]), (expected, len(data)))
+                self.assertIn(f"{len(data)} selected bytes", engine.format_project_report_text(report))
+                self.assertEqual((root / "main.py").read_bytes(), data)
+
+    def test_native_directory_depth_accepts_64_and_refuses_65_before_child_enumeration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            current = root
+            for _ in range(64):
+                current /= "d"
+                current.mkdir()
+            (current / "main.py").write_text("print(1)\n", encoding="utf-8")
+            report = engine.analyse_project_payload(project_io.project_payload_from_path(root, max_entries=100))
+            self.assertEqual(report["included_file_count"], 1)
+            excessive = current / "d"
+            excessive.mkdir()
+            calls = []
+            original = project_io.os.scandir
+            def scandir(path):
+                calls.append(Path(path))
+                return original(path)
+            with mock.patch.object(project_io.os, "scandir", side_effect=scandir):
+                with self.assertRaisesRegex(project_io.ProjectInputError, "depth exceeds 64"):
+                    project_io.project_payload_from_path(root, max_entries=100)
+            self.assertNotIn(excessive, calls)
+
+    def test_native_root_aliases_fail_before_control_body_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upper, lower = root / ".CODEPROBEIGNORE", root / ".codeprobeignore"
+            upper.write_text("src/\n", encoding="utf-8")
+            lower.write_text("src/\n", encoding="utf-8")
+            if upper.samefile(lower):
+                self.skipTest("filesystem canonicalises case-equivalent names")
+            with mock.patch.object(project_io, "read_bounded_regular_file") as read:
+                with self.assertRaisesRegex(project_io.ProjectInputError, "Unicode/case-equivalent"):
+                    project_io.project_payload_from_path(root)
+                read.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

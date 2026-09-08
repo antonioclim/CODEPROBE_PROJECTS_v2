@@ -190,8 +190,9 @@ def strict_json_object(text: str, label: str = "Payload") -> Dict[str, Any]:
     return value
 
 
-def _base64_decoded_upper_bound(text: str) -> int:
-    return (len(text) // 4) * 3 + 3
+def _base64_encoded_limit(maximum_bytes: int) -> int:
+    """Include the complete padded quartet for an exact byte boundary."""
+    return 4 * ((maximum_bytes + 2) // 3)
 
 
 def _zip_eocd_entry_count(data: bytes, max_entries: int) -> int:
@@ -231,16 +232,15 @@ def _candidate_reason_for_metadata(path: str, *, size_bytes: int, compressed_siz
     if basename == ".codeprobeignore":
         if size_bytes > limits["max_ignore_bytes"]:
             return "ignore_file_too_large", f".codeprobeignore exceeds {limits['max_ignore_bytes']} bytes."
-        return "", ""
-    if size_bytes > limits["max_file_bytes"]:
+    elif size_bytes > limits["max_file_bytes"]:
         return "file_too_large", f"{size_bytes} bytes exceeds limit {limits['max_file_bytes']}."
-    if extension in PROJECT_BINARY_EXTENSIONS:
+    if basename != ".codeprobeignore" and extension in PROJECT_BINARY_EXTENSIONS:
         return "binary_or_non_source_extension", "Binary or non-source extension excluded before decompression."
-    if extension in PROJECT_DOCUMENTATION_EXTENSIONS and not include_documentation:
+    if basename != ".codeprobeignore" and extension in PROJECT_DOCUMENTATION_EXTENSIONS and not include_documentation:
         return "documentation_excluded_by_default", "Documentation excluded before decompression."
-    if extension not in PROJECT_CODE_EXTENSIONS and not (include_documentation and extension in PROJECT_DOCUMENTATION_EXTENSIONS):
+    if basename != ".codeprobeignore" and extension not in PROJECT_CODE_EXTENSIONS and not (include_documentation and extension in PROJECT_DOCUMENTATION_EXTENSIONS):
         return "unsupported_extension", "Unsupported extension excluded before decompression."
-    ratio = size_bytes / max(compressed_size, 1)
+    ratio = size_bytes / compressed_size if compressed_size else (math.inf if size_bytes else 0.0)
     if size_bytes and ratio > limits["max_compression_ratio"]:
         return "compression_ratio_exceeded", f"Declared expansion ratio {ratio:.1f}:1 exceeds {limits['max_compression_ratio']:.1f}:1."
     return "", ""
@@ -934,6 +934,7 @@ class AnalysisReport:
     metric_config_digest: str = ""
     metric_role_summary: Dict[str, Any] = field(default_factory=dict)
     tool_metadata: Dict[str, Any] = field(default_factory=dict)
+    intake_provenance: Dict[str, Any] = field(default_factory=dict)
 
 
 def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -4590,6 +4591,7 @@ class ProjectCandidateFile:
     size_bytes: int = 0
     pre_exclusion_reason: str = ""
     pre_exclusion_detail: str = ""
+    intake_provenance: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -4599,6 +4601,7 @@ class ProjectExcludedFile:
     path: str
     reason: str
     detail: str = ""
+    size_bytes: int = 0
 
 
 def normalise_project_path(path: str) -> str:
@@ -4684,7 +4687,7 @@ def strip_common_project_root(files: Sequence[ProjectCandidateFile], root: str) 
         normalised = normalise_project_path(raw_path)
         if normalised.startswith(prefix):
             new_path = normalised[len(prefix):] or normalised
-            stripped.append(ProjectCandidateFile(path=new_path, text=item.text, size_bytes=item.size_bytes, pre_exclusion_reason=item.pre_exclusion_reason, pre_exclusion_detail=item.pre_exclusion_detail))
+            stripped.append(ProjectCandidateFile(path=new_path, text=item.text, size_bytes=item.size_bytes, pre_exclusion_reason=item.pre_exclusion_reason, pre_exclusion_detail=item.pre_exclusion_detail, intake_provenance=item.intake_provenance))
         else:
             stripped.append(item)
     return stripped
@@ -4692,7 +4695,7 @@ def strip_common_project_root(files: Sequence[ProjectCandidateFile], root: str) 
 
 def project_packaging_profile(files: Sequence[ProjectCandidateFile], source: str) -> Dict[str, Any]:
     """Describe how the incoming project container was normalised."""
-    root, reason = infer_common_project_root(files)
+    root, reason = ("", "native folder paths are already relative to the selected root") if source == "native-folder" else infer_common_project_root(files)
     return {
         "source": source,
         "candidate_file_count_before_normalisation": len(files),
@@ -4705,7 +4708,7 @@ def project_packaging_profile(files: Sequence[ProjectCandidateFile], source: str
 
 def decode_text_bytes(data: bytes) -> Tuple[Optional[str], str]:
     """Decode source-like bytes. Return (text, warning_or_reason)."""
-    if b"\x00" in data[:4096]:
+    if b"\x00" in data:
         return None, "binary content contains NUL bytes"
     for encoding in ("utf-8-sig", "utf-8"):
         try:
@@ -4778,8 +4781,8 @@ def _matches_ignore_rule(path: str, rule: IgnoreRule) -> bool:
     if not rule.anchored and "/" not in pattern:
         candidates.extend(_path_parts(norm))
         candidates.append(norm.rsplit("/", 1)[-1])
-    elif not rule.anchored:
-        candidates.extend("/".join(_path_parts(norm)[i:]) for i in range(len(_path_parts(norm))))
+    # A pattern containing a slash is relative to the project root. Basename
+    # patterns remain eligible at every depth; explicit ** can span directories.
 
     return any(fnmatch.fnmatch(candidate, pattern) for candidate in candidates)
 
@@ -4816,6 +4819,8 @@ def project_exclusion_reason(path: str, text: str, include_documentation: bool =
     basename = norm.rsplit("/", 1)[-1]
     if basename == ".codeprobeignore":
         return "ignore_file"
+    if "\x00" in text:
+        return "undecodable_text"
     if ext in PROJECT_BINARY_EXTENSIONS:
         return "binary_or_non_source_extension"
     if ext in PROJECT_DOCUMENTATION_EXTENSIONS and not include_documentation:
@@ -4831,13 +4836,102 @@ def project_exclusion_reason(path: str, text: str, include_documentation: bool =
 
 def _validate_intake_rejection(item: Dict[str, Any], raw_path: str) -> None:
     rejection = item.get("intake_rejection")
-    allowed = {"file_too_large", "project_total_byte_limit", "unsupported_file_type", "unreadable_file", "unsafe_path"}
+    allowed = {"file_too_large", "project_total_byte_limit", "unsupported_file_type", "unreadable_file", "unsafe_path", "undecodable_text"}
     if (not isinstance(rejection, dict) or set(rejection) != {"reason"}
             or not isinstance(rejection.get("reason"), str) or rejection["reason"] not in allowed
             or item.get("content") not in (None, "") or item.get("text") not in (None, "")
             or len(raw_path) > 4096 or type(item.get("size_bytes")) is not int
             or not 0 <= item["size_bytes"] <= 2**53 - 1):
         raise ValueError("Invalid metadata-only intake rejection.")
+
+
+def validate_intake_provenance(raw: Any) -> Dict[str, Any]:
+    """Validate bounded caller declarations without authenticating source bytes."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict) or set(raw) != {"encoding", "normalisation", "warnings"}:
+        raise ValueError("intake_provenance must contain encoding, normalisation and warnings")
+    if raw["encoding"] not in ("utf-8", "utf-8-sig", "latin-1") or raw["normalisation"] not in ("none", "newlines"):
+        raise ValueError("intake_provenance encoding or normalisation is unsupported")
+    warnings = raw["warnings"]
+    if not isinstance(warnings, list) or len(warnings) > 8:
+        raise ValueError("intake_provenance warnings must be an array of at most eight strings")
+    for warning in warnings:
+        if (not isinstance(warning, str) or len(warning) > 512
+                or any((ord(char) < 32 and char not in "\n\t") or 127 <= ord(char) < 160
+                       or 0xD800 <= ord(char) <= 0xDFFF for char in warning)):
+            raise ValueError("intake_provenance warning is not bounded plain text")
+    return {"encoding": raw["encoding"], "normalisation": raw["normalisation"], "warnings": list(warnings)}
+
+
+class _NativeProjectFiles(list):
+    """Native inventory metadata distinct from inspected child files."""
+
+    def __init__(self, values: Iterable[Any] = (), *, unexpanded_directories: Sequence[str] = ()) -> None:
+        if len(unexpanded_directories) > 20_000 or any(
+                not isinstance(path, str) or len(path) > 4096 or project_path_is_unsafe(path)
+                for path in unexpanded_directories):
+            raise ValueError("Invalid native unexpanded-directory inventory")
+        super().__init__(values)
+        self.unexpanded_directories = tuple(unexpanded_directories)
+
+
+class _NativeProjectFile(dict):
+    """In-process native intake record; JSON cannot manufacture its attributes.
+
+    The mapping retains the existing file-list interface. Serialising it loses
+    native status deliberately, so public size declarations never admit bytes.
+    """
+
+    def __init__(self, *, path: str, content: str, size_bytes: int,
+                 pre_exclusion_reason: str = "", pre_exclusion_detail: str = "",
+                 intake_provenance: Any = None) -> None:
+        allowed = {"", "file_too_large", "project_total_byte_limit", "undecodable_text",
+                   "ignored_by_codeprobeignore", "unsupported_extension", "binary_or_non_source_extension",
+                   "documentation_excluded_by_default", "project_file_limit", "empty_file",
+                   "minified_or_bundled_asset", "ignore_file_too_large", "nested_ignore_file"}
+        if (not isinstance(path, str) or not isinstance(content, str)
+                or type(size_bytes) is not int or not 0 <= size_bytes <= 2**53 - 1
+                or pre_exclusion_reason not in allowed or not isinstance(pre_exclusion_detail, str)
+                or len(pre_exclusion_detail) > 1024 or (pre_exclusion_reason and content)):
+            raise ValueError("Invalid internal native intake record")
+        super().__init__(path=path, content=content, size_bytes=size_bytes)
+        self.native_pre_exclusion = (pre_exclusion_reason, pre_exclusion_detail, size_bytes)
+        self.native_provenance = validate_intake_provenance(intake_provenance)
+
+
+def _project_identity(paths: Sequence[str], *, strip_root: bool = True) -> Tuple[List[str], List[str]]:
+    """Fix identities before a root control can influence admission."""
+    dummy = [ProjectCandidateFile(path, "") for path in paths]
+    root, _ = infer_common_project_root(dummy) if strip_root else ("", "native folder")
+    prefix = root + "/" if root else ""
+    evaluated = []
+    for raw in paths:
+        path = raw if project_path_is_unsafe(raw) else normalise_project_path(raw)
+        if prefix and not project_path_is_unsafe(raw) and path.startswith(prefix):
+            path = path[len(prefix):]
+        evaluated.append(path)
+    control_count = sum(not project_path_is_unsafe(raw) and path.casefold() == ".codeprobeignore"
+                        for raw, path in zip(paths, evaluated))
+    seen: Set[str] = set()
+    reasons = []
+    for raw, path in zip(paths, evaluated):
+        reason = ""
+        if project_path_is_unsafe(raw):
+            reason = "unsafe_path"
+        elif (path.casefold() == ".codeprobeignore" and control_count > 1) or path.casefold() in seen:
+            reason = "duplicate_path"
+        else:
+            seen.add(path.casefold())
+        reasons.append(reason)
+    return evaluated, reasons
+
+
+def _intake_rules(root_text: str, explicit: str, limits: Dict[str, Any]) -> List[IgnoreRule]:
+    rules = parse_ignore_patterns(default_project_ignore_text() + "\n" + root_text + "\n" + explicit)
+    if len(rules) > limits["max_ignore_rules"]:
+        raise ValueError(f"active ignore rule count exceeds {limits['max_ignore_rules']}")
+    return rules
 
 
 def collect_project_files(
@@ -4847,218 +4941,170 @@ def collect_project_files(
     *,
     include_documentation: bool = False,
 ) -> Tuple[List[ProjectCandidateFile], str]:
-    """Collect bounded project candidates without decompressing excluded members."""
-    if limits is None:
-        limits = {
-            "max_files": PROJECT_MAX_FILES_DEFAULT,
-            "max_file_bytes": PROJECT_MAX_FILE_BYTES_DEFAULT,
-            "max_total_bytes": PROJECT_MAX_TOTAL_BYTES_DEFAULT,
-            "max_zip_bytes": PROJECT_MAX_ZIP_BYTES_DEFAULT,
-            "max_zip_entries": PROJECT_MAX_ZIP_ENTRIES_DEFAULT,
-            "max_compression_ratio": PROJECT_MAX_COMPRESSION_RATIO_DEFAULT,
-            "max_ignore_bytes": PROJECT_MAX_IGNORE_BYTES_DEFAULT,
-            "max_ignore_rules": PROJECT_MAX_IGNORE_RULES_DEFAULT,
-        }
+    """Collect candidates after identity and control eligibility are settled."""
+    limits = project_limits(payload) if limits is None else limits
     files: List[ProjectCandidateFile] = []
-    source = "file-list"
     explicit_ignore = str(payload.get("ignore_text") or "")
     if len(explicit_ignore.encode("utf-8")) > limits["max_ignore_bytes"]:
         raise ValueError(f"ignore_text exceeds the {limits['max_ignore_bytes']}-byte limit")
 
     if payload.get("zip_base64"):
-        source = "zip"
-        encoded = str(payload.get("zip_base64") or "")
-        if _base64_decoded_upper_bound(encoded) > limits["max_zip_bytes"] + 3:
+        encoded = payload["zip_base64"]
+        if len(encoded) > _base64_encoded_limit(limits["max_zip_bytes"]):
             raise ValueError(f"compressed ZIP limit exceeded before Base64 decoding ({limits['max_zip_bytes']} bytes)")
         try:
             archive_bytes = base64.b64decode(encoded, validate=True)
-        except Exception as exc:
+        except (ValueError, TypeError) as exc:
             raise ValueError(f"zip_base64 is not valid base64: {exc}") from exc
         if len(archive_bytes) > limits["max_zip_bytes"]:
             raise ValueError(f"compressed ZIP limit exceeded: {len(archive_bytes)} bytes exceeds {limits['max_zip_bytes']}")
         declared_entries = _zip_eocd_entry_count(archive_bytes, limits["max_zip_entries"])
         try:
             with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-                infos = archive.infolist()
-                if len(infos) != declared_entries or len(infos) > limits["max_zip_entries"]:
+                all_infos = archive.infolist()
+                if len(all_infos) != declared_entries or len(all_infos) > limits["max_zip_entries"]:
                     raise ValueError("ZIP entry inventory disagrees with the bounded EOCD preflight")
-                dummy = [ProjectCandidateFile(str(info.filename or ""), "", int(info.file_size)) for info in infos if not info.is_dir()]
-                common_root, _ = infer_common_project_root(dummy)
-                prefix = common_root.rstrip("/") + "/" if common_root else ""
-                def evaluation_path(raw: str) -> str:
-                    if project_path_is_unsafe(raw):
-                        return raw
-                    normalised = normalise_project_path(raw)
-                    return normalised[len(prefix):] if prefix and normalised.startswith(prefix) else normalised
-
-                root_ignore_text = ""
-                for info in infos:
-                    raw = str(info.filename or "")
-                    if info.is_dir() or project_path_is_unsafe(raw):
-                        continue
-                    path = evaluation_path(raw)
-                    if path != ".codeprobeignore":
-                        continue
-                    reason, detail = _candidate_reason_for_metadata(path, size_bytes=int(info.file_size), compressed_size=int(info.compress_size), limits=limits, include_documentation=include_documentation)
-                    if reason:
-                        # The main inventory pass records the exclusion once.
-                        continue
-                    entry_type = _zip_unix_entry_type(info)
-                    if entry_type not in {0, 0o100000}:
-                        # The main inventory pass records the exclusion once.
-                        continue
-                    if info.flag_bits & 0x1:
-                        # The main inventory pass records the exclusion once.
-                        continue
-                    if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
-                        # The main inventory pass records the exclusion once.
+                infos = []
+                for info in all_infos:
+                    # ZipInfo.filename has already been truncated at a NUL.
+                    raw = info.orig_filename
+                    if raw.endswith("/"):
+                        if project_path_is_unsafe(raw.rstrip("/")):
+                            raise ValueError(f"unsafe ZIP directory path: {ascii(raw)}")
+                    else:
+                        infos.append(info)
+                raw_paths = [info.orig_filename for info in infos]
+                paths, identity_reasons = _project_identity(raw_paths)
+                candidates = []
+                for info, raw, path, reason in zip(infos, raw_paths, paths, identity_reasons):
+                    detail = "Rejected by the original path or portable identity inventory." if reason else ""
+                    if not reason and _zip_unix_entry_type(info) not in {0, 0o100000}:
+                        reason, detail = "special_zip_entry", "Links and special ZIP entries are forbidden."
+                    if not reason and info.flag_bits & 0x1:
+                        reason, detail = "encrypted_zip_entry", "Encrypted ZIP entries are not accepted."
+                    if not reason and info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
+                        reason, detail = "unsupported_compression_method", "Only stored and deflated ZIP members are accepted."
+                    if not reason:
+                        reason, detail = _candidate_reason_for_metadata(path, size_bytes=info.file_size, compressed_size=info.compress_size, limits=limits, include_documentation=include_documentation)
+                    candidates.append(ProjectCandidateFile(raw, "", info.file_size, reason, detail))
+                root_text = ""
+                for info, path, candidate in zip(infos, paths, candidates):
+                    if path != ".codeprobeignore" or candidate.pre_exclusion_reason:
                         continue
                     data = _read_zip_member_bounded(archive, info, limits["max_ignore_bytes"])
-                    root_ignore_text, warning = decode_text_bytes(data)
-                    if root_ignore_text is None:
-                        raise ValueError(f".codeprobeignore is not readable text: {warning}")
-                    break
-                active_rules = parse_ignore_patterns(default_project_ignore_text() + ("\n" + root_ignore_text if root_ignore_text else "") + ("\n" + explicit_ignore if explicit_ignore else ""))
-                if len(active_rules) > limits["max_ignore_rules"]:
-                    raise ValueError(f"active ignore rule count exceeds {limits['max_ignore_rules']}")
-                seen_portable: Set[str] = set()
-                total_read = 0
-                analysed_candidates = 0
-                for info in infos:
-                    if info.is_dir():
-                        raw_dir = str(info.filename or "").rstrip("/")
-                        if project_path_is_unsafe(raw_dir):
-                            raise ValueError(f"unsafe ZIP directory path: {raw_dir}")
-                        continue
-                    raw = str(info.filename or "")
-                    path = evaluation_path(raw)
-                    if raw == "" or project_path_is_unsafe(raw):
-                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "unsafe_path", "Path is absolute, empty or contains parent-directory traversal."))
-                        continue
-                    portable = path.casefold()
-                    if portable in seen_portable:
-                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "duplicate_path", "A previous ZIP member collides on a case-insensitive filesystem."))
-                        continue
-                    seen_portable.add(portable)
-                    entry_type = _zip_unix_entry_type(info)
-                    if entry_type not in {0, 0o100000}:
-                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "special_zip_entry", "Links and special ZIP entries are forbidden."))
-                        continue
-                    if info.flag_bits & 0x1:
-                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "encrypted_zip_entry", "Encrypted ZIP entries are not accepted."))
-                        continue
-                    if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
-                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "unsupported_compression_method", "Only stored and deflated ZIP members are accepted."))
-                        continue
-                    reason, detail = _candidate_reason_for_metadata(path, size_bytes=int(info.file_size), compressed_size=int(info.compress_size), limits=limits, include_documentation=include_documentation)
-                    if reason:
-                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), reason, detail))
-                        continue
-                    if path == ".codeprobeignore":
-                        files.append(ProjectCandidateFile(raw, root_ignore_text, int(info.file_size)))
-                        continue
-                    if path.rsplit("/", 1)[-1] == ".codeprobeignore":
-                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), "nested_ignore_file", "Only a project-root .codeprobeignore may control the project."))
-                        continue
-                    if not reason and project_path_is_ignored(path, active_rules):
-                        reason, detail = "ignored_by_codeprobeignore", "Matched built-in or project ignore rules before decompression."
-                    if not reason and analysed_candidates >= limits["max_files"]:
-                        reason, detail = "project_file_limit", f"Maximum analysed file count is {limits['max_files']}."
-                    if not reason and total_read + int(info.file_size) > limits["max_total_bytes"]:
-                        reason, detail = "project_total_byte_limit", f"Reading this member would exceed the {limits['max_total_bytes']}-byte project budget."
-                    if reason:
-                        files.append(ProjectCandidateFile(raw, "", int(info.file_size), reason, detail))
-                        continue
-                    data = _read_zip_member_bounded(archive, info, limits["max_file_bytes"])
-                    total_read += len(data)
-                    analysed_candidates += 1
                     text, warning = decode_text_bytes(data)
                     if text is None:
-                        files.append(ProjectCandidateFile(raw, "", len(data), "undecodable_text", warning))
+                        candidate.pre_exclusion_reason = "undecodable_text"
+                        candidate.pre_exclusion_detail = warning
                     else:
+                        root_text = candidate.text = text
                         if warning:
-                            warnings.append(f"{raw}: {warning}.")
-                        files.append(ProjectCandidateFile(raw, text, len(data)))
+                            warnings.append(f"{path}: {warning}.")
+                active_rules = _intake_rules(root_text, explicit_ignore, limits)
+                total_read = analysed_candidates = 0
+                for info, path, candidate in zip(infos, paths, candidates):
+                    files.append(candidate)
+                    if candidate.pre_exclusion_reason or path == ".codeprobeignore":
+                        continue
+                    reason = detail = ""
+                    if path.rsplit("/", 1)[-1] == ".codeprobeignore":
+                        reason, detail = "nested_ignore_file", "Only a project-root .codeprobeignore may control the project."
+                    elif project_path_is_ignored(path, active_rules):
+                        reason, detail = "ignored_by_codeprobeignore", "Matched built-in or project ignore rules before decompression."
+                    elif analysed_candidates >= limits["max_files"]:
+                        reason, detail = "project_file_limit", f"Maximum analysed file count is {limits['max_files']}."
+                    elif total_read + info.file_size > limits["max_total_bytes"]:
+                        reason, detail = "project_total_byte_limit", f"Reading this member would exceed the {limits['max_total_bytes']}-byte project budget."
+                    if reason:
+                        candidate.pre_exclusion_reason, candidate.pre_exclusion_detail = reason, detail
+                        continue
+                    data = _read_zip_member_bounded(archive, info, min(limits["max_file_bytes"], limits["max_total_bytes"] - total_read))
+                    total_read += len(data)
+                    text, warning = decode_text_bytes(data)
+                    if text is None:
+                        candidate.pre_exclusion_reason, candidate.pre_exclusion_detail = "undecodable_text", warning
+                        continue
+                    candidate.text = text
+                    candidate.intake_provenance = {
+                        "source": "zip-intake", "encoding": "latin-1" if warning else ("utf-8-sig" if data.startswith(b"\xef\xbb\xbf") else "utf-8"),
+                        "normalisation": "none", "warnings": [warning] if warning else [],
+                    }
+                    if warning:
+                        warnings.append(f"{path}: {warning}.")
+                    reason = project_exclusion_reason(path, text, include_documentation)
+                    if reason:
+                        candidate.text = ""
+                        candidate.pre_exclusion_reason = reason
+                        candidate.pre_exclusion_detail = "Content exclusion applied after a bounded read, before consuming an analysed-file slot."
+                    else:
+                        analysed_candidates += 1
         except zipfile.BadZipFile as exc:
             raise ValueError("The uploaded archive is not a readable ZIP file.") from exc
-    else:
-        raw_items = payload.get("files") or []
-        if not isinstance(raw_items, list):
-            raise ValueError("files must be an array")
-        if len(raw_items) > limits["max_zip_entries"]:
-            raise ValueError(f"project entry limit exceeded: {len(raw_items)} exceeds {limits['max_zip_entries']}")
-        dummy = [ProjectCandidateFile(str(item.get("path") or item.get("name") or ""), "", 0) for item in raw_items if isinstance(item, dict)]
-        common_root, _ = infer_common_project_root(dummy)
-        prefix = common_root.rstrip("/") + "/" if common_root else ""
-        root_ignore_text = ""
-        for item in raw_items:
-            if not isinstance(item, dict):
-                continue
-            raw = str(item.get("path") or item.get("name") or "")
-            if project_path_is_unsafe(raw):
-                continue
-            path = normalise_project_path(raw)
-            if prefix and path.startswith(prefix):
-                path = path[len(prefix):]
-            if path == ".codeprobeignore" and not item.get("intake_rejection"):
-                root_ignore_text = str(item.get("content") if item.get("content") is not None else item.get("text") or "")
-                if len(root_ignore_text.encode("utf-8")) > limits["max_ignore_bytes"]:
-                    raise ValueError(f".codeprobeignore exceeds the {limits['max_ignore_bytes']}-byte limit")
-                break
-        active_rules = parse_ignore_patterns(default_project_ignore_text() + ("\n" + root_ignore_text if root_ignore_text else "") + ("\n" + explicit_ignore if explicit_ignore else ""))
-        if len(active_rules) > limits["max_ignore_rules"]:
-            raise ValueError(f"active ignore rule count exceeds {limits['max_ignore_rules']}")
-        total_read = 0
-        analysed_candidates = 0
-        seen_portable: Set[str] = set()
-        for item in raw_items:
-            if not isinstance(item, dict):
-                raise ValueError("each files entry must be an object")
-            raw = str(item.get("path") or item.get("name") or "")
-            rejection = item.get("intake_rejection")
-            if rejection is not None:
-                _validate_intake_rejection(item, raw)
-                reason = "unsafe_path" if project_path_is_unsafe(raw) else "browser_" + rejection["reason"]
-                files.append(ProjectCandidateFile(raw, "", item["size_bytes"], reason,
-                    "Caller-reported browser intake exclusion; contents were not supplied or independently inspected."))
-                continue
-            text = str(item.get("content") if item.get("content") is not None else item.get("text") or "")
-            actual_size = len(text.encode("utf-8"))
-            path = raw if project_path_is_unsafe(raw) else normalise_project_path(raw)
-            if prefix and not project_path_is_unsafe(raw) and path.startswith(prefix):
-                path = path[len(prefix):]
-            reason = detail = ""
-            if project_path_is_unsafe(raw):
-                reason, detail = "unsafe_path", "Path is absolute, empty or contains parent-directory traversal."
-            elif path.casefold() in seen_portable:
-                reason, detail = "duplicate_path", "A previous file collides on a case-insensitive filesystem."
-            else:
-                seen_portable.add(path.casefold())
-            if not reason and path.rsplit("/", 1)[-1] == ".codeprobeignore" and path != ".codeprobeignore":
-                reason, detail = "nested_ignore_file", "Only a project-root .codeprobeignore may control the project."
+        return files, "zip"
+
+    raw_items = payload.get("files", [])
+    if not isinstance(raw_items, list):
+        raise ValueError("files must be an array")
+    if len(raw_items) > limits["max_zip_entries"]:
+        raise ValueError(f"project entry limit exceeded: {len(raw_items)} exceeds {limits['max_zip_entries']}")
+    if any(not isinstance(item, dict) for item in raw_items):
+        raise ValueError("each files entry must be an object")
+    raw_paths = [str(item.get("path") or item.get("name") or "") for item in raw_items]
+    paths, identity_reasons = _project_identity(raw_paths, strip_root=not isinstance(raw_items, _NativeProjectFiles))
+    candidates = []
+    for item, raw, path, reason in zip(raw_items, raw_paths, paths, identity_reasons):
+        detail = "Rejected by the original path or portable identity inventory." if reason else ""
+        native = isinstance(item, _NativeProjectFile)
+        text = item.get("content") if item.get("content") is not None else item.get("text") or ""
+        actual_size = len(text.encode("utf-8"))
+        selected_size = item.native_pre_exclusion[2] if native else actual_size
+        provenance = item.native_provenance if native else validate_intake_provenance(item.get("intake_provenance"))
+        provenance = {**provenance, "source": "native-intake" if native else "caller-reported"} if provenance else {}
+        rejection = item.get("intake_rejection")
+        if rejection is not None:
+            _validate_intake_rejection(item, raw)
             if not reason:
-                metadata_reason, metadata_detail = _candidate_reason_for_metadata(path, size_bytes=actual_size, compressed_size=actual_size, limits=limits, include_documentation=include_documentation)
-                reason, detail = metadata_reason, metadata_detail
-            if not reason and path != ".codeprobeignore" and project_path_is_ignored(path, active_rules):
-                reason, detail = "ignored_by_codeprobeignore", "Matched built-in or project ignore rules."
-            if not reason and path != ".codeprobeignore" and analysed_candidates >= limits["max_files"]:
-                reason, detail = "project_file_limit", f"Maximum analysed file count is {limits['max_files']}."
-            if not reason and path != ".codeprobeignore" and total_read + actual_size > limits["max_total_bytes"]:
-                reason, detail = "project_total_byte_limit", f"Reading this file would exceed the {limits['max_total_bytes']}-byte project budget."
-            if not reason and path != ".codeprobeignore":
+                reason, detail = "browser_" + rejection["reason"], "Caller-reported browser intake exclusion; contents were not supplied or independently inspected."
+            selected_size = item["size_bytes"]
+        if not reason and native and item.native_pre_exclusion[0]:
+            reason, detail = item.native_pre_exclusion[:2]
+        if not reason:
+            reason, detail = _candidate_reason_for_metadata(path, size_bytes=selected_size, compressed_size=selected_size, limits=limits, include_documentation=include_documentation)
+        if not reason and path == ".codeprobeignore" and "\x00" in text:
+            reason, detail = "undecodable_text", "Content contains NUL bytes."
+        declared = item.get("size_bytes")
+        if declared is not None and not native and rejection is None and int(declared) != actual_size:
+            warnings.append(f"{raw}: declared size {int(declared)} replaced by actual UTF-8 size {actual_size}.")
+        candidates.append(ProjectCandidateFile(raw, text if not reason else "", selected_size, reason, detail, provenance))
+    root_text = next((candidate.text for candidate, path in zip(candidates, paths)
+                      if path == ".codeprobeignore" and not candidate.pre_exclusion_reason), "")
+    active_rules = _intake_rules(root_text, explicit_ignore, limits)
+    total_read = analysed_candidates = 0
+    for path, candidate in zip(paths, candidates):
+        files.append(candidate)
+        if candidate.pre_exclusion_reason or path == ".codeprobeignore":
+            continue
+        reason = detail = ""
+        if path.rsplit("/", 1)[-1] == ".codeprobeignore":
+            reason, detail = "nested_ignore_file", "Only a project-root .codeprobeignore may control the project."
+        elif project_path_is_ignored(path, active_rules):
+            reason, detail = "ignored_by_codeprobeignore", "Matched built-in or project ignore rules."
+        elif analysed_candidates >= limits["max_files"]:
+            reason, detail = "project_file_limit", f"Maximum analysed file count is {limits['max_files']}."
+        elif total_read + candidate.size_bytes > limits["max_total_bytes"]:
+            reason, detail = "project_total_byte_limit", f"Reading this file would exceed the {limits['max_total_bytes']}-byte project budget."
+        if not reason:
+            total_read += candidate.size_bytes
+            reason = project_exclusion_reason(path, candidate.text, include_documentation) or ""
+            if reason:
+                detail = "Content exclusion applied after byte admission, before consuming an analysed-file slot."
+            else:
                 analysed_candidates += 1
-                total_read += actual_size
-            declared = item.get("size_bytes")
-            if declared is not None:
-                try:
-                    declared_size = int(declared)
-                except (TypeError, ValueError, OverflowError):
-                    warnings.append(f"{raw}: invalid declared size ignored.")
-                else:
-                    if declared_size != actual_size:
-                        warnings.append(f"{raw}: declared size {declared_size} replaced by actual UTF-8 size {actual_size}.")
-            files.append(ProjectCandidateFile(raw, text if not reason else "", actual_size, reason, detail))
-    return files, source
+        if reason:
+            candidate.text = ""
+            candidate.pre_exclusion_reason, candidate.pre_exclusion_detail = reason, detail
+    return files, "native-folder" if isinstance(raw_items, _NativeProjectFiles) else "file-list"
+
 
 def build_project_ignore_rules(
     files: Sequence[ProjectCandidateFile],
@@ -5075,8 +5121,9 @@ def build_project_ignore_rules(
     if len(embedded) > 1:
         raise ValueError("project contains more than one root .codeprobeignore")
     if embedded:
-        encoded = embedded[0].text.encode("utf-8")
-        if len(encoded) > max_ignore_bytes:
+        # Collection measured source bytes for native/ZIP intake and UTF-8
+        # bytes for public strings. Re-encoding Latin-1 would change that unit.
+        if embedded[0].size_bytes > max_ignore_bytes:
             raise ValueError(f".codeprobeignore exceeds the {max_ignore_bytes}-byte limit")
         ignore_text += "\n" + embedded[0].text
         notes.append("Loaded the project-root .codeprobeignore.")
@@ -5434,6 +5481,8 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     candidates, source = collect_project_files(payload, warnings, limits, include_documentation=include_documentation)
     input_packaging = project_packaging_profile(candidates, source)
     input_packaging["limits"] = dict(limits)
+    if isinstance(payload.get("files"), _NativeProjectFiles):
+        input_packaging["unexpanded_directories"] = list(payload["files"].unexpanded_directories)
     if input_packaging.get("common_root_stripped"):
         candidates = strip_common_project_root(candidates, str(input_packaging.get("common_root_detected") or ""))
         warnings.append(
@@ -5449,41 +5498,55 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     ignore_rules, ignore_notes = build_project_ignore_rules(candidates, payload, max_ignore_bytes=int(limits['max_ignore_bytes']), max_ignore_rules=int(limits['max_ignore_rules']))
     included_reports: List[AnalysisReport] = []
     excluded: List[ProjectExcludedFile] = []
+    intake_provenance = []
 
     seen: Set[str] = set()
     for candidate in candidates:
         raw_path = str(candidate.path or "")
+        if candidate.intake_provenance:
+            provenance_path = normalise_project_path(raw_path) if not project_path_is_unsafe(raw_path) else ascii(raw_path)[1:-1]
+            intake_provenance.append({"path": provenance_path, **candidate.intake_provenance})
+            for warning in candidate.intake_provenance["warnings"]:
+                warnings.append(f"{provenance_path}: {candidate.intake_provenance['source']} intake: {warning}")
         if project_path_is_unsafe(raw_path):
             display_path = raw_path.replace("\\", "/").strip() or candidate.path
-            excluded.append(ProjectExcludedFile(display_path, "unsafe_path", "Path is absolute, empty or contains parent-directory traversal."))
+            if any(ord(char) < 32 or 127 <= ord(char) < 160 for char in display_path):
+                display_path = ascii(display_path)[1:-1]
+            excluded.append(ProjectExcludedFile(display_path, "unsafe_path", "Path is absolute, empty or contains NUL or parent-directory traversal.", candidate.size_bytes))
             continue
         path = normalise_project_path(raw_path)
         if candidate.pre_exclusion_reason:
-            excluded.append(ProjectExcludedFile(path if not project_path_is_unsafe(raw_path) else raw_path, candidate.pre_exclusion_reason, candidate.pre_exclusion_detail))
+            excluded.append(ProjectExcludedFile(path, candidate.pre_exclusion_reason, candidate.pre_exclusion_detail, candidate.size_bytes))
             continue
         if path in seen:
-            excluded.append(ProjectExcludedFile(path, "duplicate_path", "A previous file with the same normalised path was already considered."))
+            excluded.append(ProjectExcludedFile(path, "duplicate_path", "A previous file with the same normalised path was already considered.", candidate.size_bytes))
             continue
         seen.add(path)
 
-        if len(included_reports) >= max_files:
-            excluded.append(ProjectExcludedFile(path, "project_file_limit", f"Maximum analysed file count is {max_files}."))
+        if path == ".codeprobeignore":
+            excluded.append(ProjectExcludedFile(path, "ignore_file", "Admitted project-root control; excluded from metric analysis.", candidate.size_bytes))
             continue
         if candidate.size_bytes > max_file_bytes:
-            excluded.append(ProjectExcludedFile(path, "file_too_large", f"{candidate.size_bytes} bytes exceeds limit {max_file_bytes}."))
+            excluded.append(ProjectExcludedFile(path, "file_too_large", f"{candidate.size_bytes} bytes exceeds limit {max_file_bytes}.", candidate.size_bytes))
             continue
         if project_path_is_ignored(path, ignore_rules):
-            excluded.append(ProjectExcludedFile(path, "ignored_by_codeprobeignore", "Matched built-in or project .codeprobeignore rules."))
+            excluded.append(ProjectExcludedFile(path, "ignored_by_codeprobeignore", "Matched built-in or project .codeprobeignore rules.", candidate.size_bytes))
             continue
         reason = project_exclusion_reason(path, candidate.text, include_documentation=include_documentation)
         if reason:
-            excluded.append(ProjectExcludedFile(path, reason, "Excluded before metric analysis to keep the project aggregate focused on assessed source."))
+            excluded.append(ProjectExcludedFile(path, reason, "Excluded before metric analysis to keep the project aggregate focused on assessed source.", candidate.size_bytes))
+            continue
+        if len(included_reports) >= max_files:
+            excluded.append(ProjectExcludedFile(path, "project_file_limit", f"Maximum analysed file count is {max_files}.", candidate.size_bytes))
             continue
 
         hint = language_hint
         if hint in {"markdown", "unknown"}:
             hint = None
         report = engine.analyse(candidate.text, path, language_hint=hint, profile=profile)
+        report.intake_provenance = candidate.intake_provenance
+        for warning in candidate.intake_provenance.get("warnings", []):
+            report.warnings.append(f"{candidate.intake_provenance['source']} intake: {warning}")
         included_reports.append(report)
 
     aggregate_score, aggregate_applicable, contributors = aggregate_project_reports(included_reports)
@@ -5545,13 +5608,14 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             "calibration_profile_id": report.calibration_profile_id,
             "review_triggered": report.review_triggered,
             "warnings": report.warnings,
+            "intake_provenance": report.intake_provenance,
             "notes": report.notes,
             "metrics": report_to_dict(report)["metrics"],
         }
         for report in included_reports
     ]
     excluded_files_payload = [
-        {"path": item.path, "reason": item.reason, "detail": item.detail}
+        {"path": item.path, "reason": item.reason, "detail": item.detail, "size_bytes": item.size_bytes}
         for item in excluded
     ]
     language_counts = dict(Counter(report.language for report in included_reports))
@@ -5606,6 +5670,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "review_trigger_source": calibration_profile.get("source", "default-provisional"),
         "duration_seconds": round(duration, 4),
         "input_packaging": input_packaging,
+        "intake_provenance": intake_provenance,
         "notes": notes,
         "warnings": warnings,
         "metrics": [],
@@ -5691,10 +5756,18 @@ def format_project_report_text(report: Dict[str, Any]) -> str:
     if excluded:
         for item in excluded:
             detail = f" — {item.get('detail')}" if item.get("detail") else ""
-            lines.append(f"- {item.get('path')}: {item.get('reason')}{detail}")
+            lines.append(f"- {item.get('path')}: {item.get('reason')} ({item.get('size_bytes', 0)} selected bytes){detail}")
     else:
         lines.append("- None.")
 
+    if report.get("intake_provenance"):
+        lines.extend(["", "Input provenance (declarations do not authenticate original files):"])
+        for entry in report["intake_provenance"]:
+            lines.append(f"- {entry['path']}: {entry['source']}; encoding {entry['encoding']}; normalisation {entry['normalisation']}.")
+    unexpanded = report.get("input_packaging", {}).get("unexpanded_directories", [])
+    if unexpanded:
+        lines.extend(["", "Unexpanded directories (children were not inventoried):"])
+        lines.extend(f"- {path}" for path in unexpanded)
     if report.get("notes"):
         lines.extend(["", "Notes:"])
         lines.extend(f"- {note}" for note in report.get("notes", []))
@@ -5884,6 +5957,7 @@ def report_to_dict(report: AnalysisReport) -> Dict[str, Any]:
         "duration_seconds": round(report.duration_seconds, 4),
         "notes": report.notes,
         "warnings": report.warnings,
+        "intake_provenance": report.intake_provenance,
         "manual_review_guidance": file_manual_review_guidance(report),
         "risk_zones": file_manual_review_guidance(report).get("risk_zones", []),
         "manual_review_recommendations": file_manual_review_guidance(report).get("recommended_manual_steps", []),
@@ -5938,6 +6012,10 @@ def format_report_text(report: AnalysisReport) -> str:
             lines.append(f"    {metric.detail}")
         if metric.explanation:
             lines.append(f"    {metric.explanation}")
+    if report.intake_provenance:
+        provenance = report.intake_provenance
+        lines.extend(["", "Input provenance (declarations do not authenticate the original file):",
+                      f"- {report.filename}: {provenance['source']}; encoding {provenance['encoding']}; normalisation {provenance['normalisation']}."])
     if report.notes:
         lines.extend(["", "Notes:"])
         lines.extend(f"- {note}" for note in report.notes)
@@ -5967,6 +6045,10 @@ def validate_analysis_payload(payload: Any, report_kind: str = "file") -> Dict[s
     if report_kind not in {"file", "project", "metadata"}:
         raise ValueError("Unknown analysis payload kind")
     clean = dict(payload)
+    if "intake_provenance" in clean:
+        if clean["intake_provenance"] is None:
+            raise ValueError("intake_provenance must be an object when supplied")
+        validate_intake_provenance(clean["intake_provenance"])
     _optional_text_fields(clean, ("profile", "language_hint"), report_kind)
     if clean.get("profile") not in (None, "") and clean["profile"] not in SCORING_PROFILES:
         raise ValueError("Unknown scoring profile.")
@@ -6013,6 +6095,8 @@ def validate_analysis_payload(payload: Any, report_kind: str = "file") -> Dict[s
         for key in ("code", "filename"):
             if key in clean and not isinstance(clean[key], str):
                 raise ValueError(f"{key} must be a string")
+        if "\x00" in clean.get("code", ""):
+            raise ValueError("Source text contains NUL bytes")
     elif report_kind == "project":
         project_limits(clean)
         _optional_text_fields(clean, ("project_name", "zip_base64", "zip_filename", "ignore_text"), "project")
@@ -6022,6 +6106,10 @@ def validate_analysis_payload(payload: Any, report_kind: str = "file") -> Dict[s
             if not isinstance(item, dict):
                 raise ValueError("each files entry must be an object")
             _optional_text_fields(item, ("path", "name", "content", "text"), "files entry")
+            if "intake_provenance" in item:
+                if item["intake_provenance"] is None:
+                    raise ValueError("intake_provenance must be an object when supplied")
+                validate_intake_provenance(item["intake_provenance"])
             if item.get("size_bytes") is not None and integer_value(item["size_bytes"], "size_bytes") < 0:
                 raise ValueError("size_bytes must be a non-negative integer")
             rejection = item.get("intake_rejection")
@@ -6060,6 +6148,10 @@ def codeprobe_analyze(payload_json: str) -> str:
     engine = AnalysisEngine(config, calibration_profile=calibration_profile, engine_fingerprint=fingerprint,
                             require_python_ast=bool(payload.get("require_python_ast")))
     report = engine.analyse(code, filename, language_hint=language_hint, profile=profile)
+    provenance = validate_intake_provenance(payload.get("intake_provenance"))
+    if provenance:
+        report.intake_provenance = {**provenance, "source": "caller-reported"}
+        report.warnings.extend(f"Caller-reported intake: {warning}" for warning in provenance["warnings"])
     if scope_warning:
         report.warnings.append(scope_warning + " The generic file policy was used instead.")
         report.notes.append("The supplied calibration profile was outside its declared report-kind or language scope and was not applied.")

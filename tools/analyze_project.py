@@ -74,6 +74,15 @@ def build_payload(args: argparse.Namespace) -> Dict[str, Any]:
             args.calibration_profile, "calibration profile", max_bytes=MAX_CALIBRATION_PROFILE_BYTES,
         )
     options = engine.validate_analysis_payload(options, "project")
+    if args.ignore_file:
+        ignore_path = Path(args.ignore_file).absolute()
+        data = read_bounded_regular_file(
+            ignore_path, root=ignore_path.parent, max_bytes=args.max_ignore_bytes,
+        )
+        try:
+            options["ignore_text"] = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("explicit ignore file must be UTF-8 text") from exc
     source = Path(args.zip or args.folder)
     payload = project_payload_from_path(
         source,
@@ -85,21 +94,12 @@ def build_payload(args: argparse.Namespace) -> Dict[str, Any]:
         max_archive_bytes=args.max_archive_bytes,
         max_ignore_bytes=args.max_ignore_bytes,
         max_ignore_rules=args.max_ignore_rules,
+        ignore_text=options.get("ignore_text", ""),
+        include_documentation=args.include_documentation,
     )
     project_name = args.project_name or payload["project_name"]
     payload.update(options)
     payload["project_name"] = project_name
-    if args.ignore_file:
-        ignore_path = Path(args.ignore_file).absolute()
-        data = read_bounded_regular_file(
-            ignore_path,
-            root=ignore_path.parent,
-            max_bytes=args.max_ignore_bytes,
-        )
-        try:
-            payload["ignore_text"] = data.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError("explicit ignore file must be UTF-8 text") from exc
     return payload
 
 
@@ -204,10 +204,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         outputs = report_destinations(args)
         payload = build_payload(args)
-        result = json.loads(engine.codeprobe_analyze_project(json.dumps(payload, allow_nan=False)))
-        text = result.get("text", "")
+        report = engine.analyse_project_payload(payload)
+        text = engine.format_project_report_text(report)
         contents = {
-            "json": json.dumps(result.get("project_report", {}), indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+            "json": json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
             "text": text + ("" if text.endswith("\n") else "\n"),
         }
         write_reports(args, outputs, contents)

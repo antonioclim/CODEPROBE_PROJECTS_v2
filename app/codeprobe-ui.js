@@ -94,7 +94,8 @@
       currentJsonReport: "",
       detectedLanguage: "python",
       reportStale: false,
-      fileWarnings: []
+      fileWarnings: [],
+      intakeProvenance: null
     };
 
     const els = {
@@ -794,14 +795,15 @@
 
     async function decodeFile(file) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      if (looksBinary(bytes)) {
-        throw new Error("The file appears to be binary rather than source text.");
-      }
       if (!window.CodeProbeRuntime?.decodeSourceBytes) {
         throw new Error("The shared source-decoding boundary is unavailable.");
       }
       const decoded = window.CodeProbeRuntime.decodeSourceBytes(bytes);
-      return { text: decoded.text, warnings: decoded.warning ? [decoded.warning] : [] };
+      if (looksBinary(bytes)) {
+        throw new Error("The file appears to be binary rather than source text.");
+      }
+      return { text: decoded.text, warnings: decoded.warning ? [decoded.warning] : [],
+        intake_provenance: decoded.intake_provenance };
     }
 
     function assertPlainObject(value, label) {
@@ -918,6 +920,7 @@
       appState.projectPayload = null;
       appState.currentFileName = "";
       appState.fileWarnings = [];
+      appState.intakeProvenance = null;
       appState.analysisMode = "single";
       els.editor.value = "";
       els.editor.readOnly = false;
@@ -949,7 +952,7 @@
         if (buffer.byteLength > MAX_BROWSER_PROJECT_ZIP_BYTES) throw new Error("Project ZIP exceeds the browser byte limit.");
         appState.analysisMode = "project";
         appState.projectPayload = {
-          project_name: String(file.name || "zip-project").replace(/\.zip$/i, "") || "zip-project",
+          project_name: String(file.name || "project.zip").replace(/\.zip$/i, "") || "project",
           zip_filename: file.name || "archive.zip", zip_base64: arrayBufferToBase64(buffer),
           max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES, max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES,
           max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES, max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES
@@ -995,11 +998,13 @@
             if (bytes > MAX_BROWSER_PROJECT_TEXT_BYTES) { payloadFiles.push(rejectedInput(file, path, "file_too_large")); continue; }
             if (acceptedBytes + bytes > MAX_BROWSER_PROJECT_TOTAL_BYTES) { payloadFiles.push(rejectedInput(file, path, "project_total_byte_limit")); continue; }
             acceptedBytes += bytes;
-            payloadFiles.push({ path, content: decoded.text, size_bytes: bytes });
+            payloadFiles.push({ path, content: decoded.text, size_bytes: bytes,
+              intake_provenance: decoded.intake_provenance });
             if (decoded.warnings?.length) warnings.push(`${path}: ${decoded.warnings.join("; ")}`);
-          } catch (_) {
+          } catch (error) {
             if (generation !== appState.generation) return;
-            payloadFiles.push(rejectedInput(file, path, "unreadable_file"));
+            const reason = ["undecodable_text", "file_too_large"].includes(error?.intakeReason) ? error.intakeReason : "unreadable_file";
+            payloadFiles.push(rejectedInput(file, path, reason));
           }
         }
         if (generation !== appState.generation) return;
@@ -1240,6 +1245,7 @@
           payload = {
             code,
             filename,
+            ...(appState.intakeProvenance ? { intake_provenance: appState.intakeProvenance } : {}),
             language_hint: selectedLanguage === "auto" ? null : selectedLanguage,
             profile: els.profileSelect.value,
             config_override: override,
@@ -1251,6 +1257,10 @@
         if (generation !== appState.generation) return;
         const parsed = await appState.workerSession.analyse(isProject ? "project" : "file", payload);
         if (generation !== appState.generation) return;
+        if (isProject && (parsed.report?.project_name !== payload.project_name ||
+            parsed.project_report?.project_name !== payload.project_name)) {
+          throw new Error("Report identity does not match the analysed input.");
+        }
         renderReport(parsed, true);
         setBusy(false, isProject ? "Project analysis completed." : "Analysis completed.");
       } catch (error) {
@@ -1332,6 +1342,7 @@
         appState.projectPayload = null;
         appState.currentFileName = file.name || "fragment.txt";
         appState.fileWarnings = decoded.warnings || [];
+        appState.intakeProvenance = decoded.intake_provenance || null;
         els.editor.value = decoded.text;
         updateEditorMeta(); scheduleHighlight(); syncEditorScroll();
         const warningText = appState.fileWarnings.length ? ` (${appState.fileWarnings.join("; ")})` : "";
@@ -1363,6 +1374,7 @@
       appState.projectPayload = null;
       appState.currentProjectReport = null;
       appState.fileWarnings = [];
+      appState.intakeProvenance = null;
       appState.currentFileName = defaultFileNameForLanguage(els.languageSelect.value === "auto" ? "python" : els.languageSelect.value);
       els.editor.value = "";
       els.configOverride.value = "";
@@ -1534,6 +1546,8 @@
       appState.analysisMode = "single";
       appState.projectPayload = null;
       appState.currentProjectReport = null;
+      appState.intakeProvenance = null;
+      appState.fileWarnings = [];
       appState.currentFileName = defaultFileNameForLanguage(els.languageSelect.value === "auto" ? "python" : els.languageSelect.value);
       updateEditorMeta();
       scheduleHighlight();
@@ -1599,6 +1613,8 @@
     }
     els.editor.addEventListener("input", () => {
       invalidateInputState();
+      appState.intakeProvenance = null;
+      appState.fileWarnings = [];
       if (appState.analysisMode === "project") {
         appState.analysisMode = "single";
         appState.projectPayload = null;

@@ -68,6 +68,112 @@ class WorkerContractTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertIn("21 hermetic scenarios", completed.stdout)
 
+    @unittest.skipUnless(shutil.which("node"), "Node.js is unavailable on this runner")
+    def test_bounded_decoding_drop_inventory_and_worker_provenance(self):
+        # The shipped loader and entry execute with finite callback/interpreter
+        # doubles. Authentic browser execution remains a separate CI gate.
+        script = r'''
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const loader = fs.readFileSync("app/pyodide-loader.js", "utf8");
+const context = vm.createContext({Uint8Array, ArrayBuffer, TextDecoder,
+  TextEncoder, setTimeout, clearTimeout});
+vm.runInContext(loader, context, {timeout:1000});
+const api = context.CodeProbeRuntime;
+let observations = 0;
+const check = (name, operation) => { operation(); observations++; };
+check("UTF-8 and newline provenance", () => {
+  const result = api.decodeSourceBytes(new Uint8Array([120,13,10]));
+  assert.equal(result.text, "x\n");
+  assert.equal(result.intake_provenance.encoding, "utf-8");
+  assert.equal(result.intake_provenance.normalisation, "newlines");
+  assert.equal(result.intake_provenance.warnings.length, 0);
+});
+check("Latin-1 preserves its authentic warning", () => {
+  const result = api.decodeSourceBytes(new Uint8Array([99,97,102,233]));
+  assert.equal(result.text, "café");
+  assert.equal(result.intake_provenance.encoding, "latin-1");
+  assert.deepEqual(Array.from(result.intake_provenance.warnings),
+    ["Decoded as latin-1; review the file encoding."]);
+});
+check("UTF-8 BOM provenance", () => {
+  const result = api.decodeSourceBytes(new Uint8Array([239,187,191,120]));
+  assert.equal(result.text, "x");
+  assert.equal(result.intake_provenance.encoding, "utf-8-sig");
+});
+for (const position of [0,4095,4096,4999]) check("full candidate NUL " + position, () => {
+  const bytes = new Uint8Array(5000).fill(120); bytes[position] = 0;
+  assert.throws(() => api.decodeSourceBytes(bytes), error => error.intakeReason === "undecodable_text");
+});
+check("byte limit precedes NUL policy", () => {
+  assert.throws(() => api.decodeSourceBytes(new Uint8Array(1000001)),
+    error => error.intakeReason === "file_too_large");
+});
+const provenance = {encoding:"latin-1",normalisation:"newlines",warnings:["<em>review encoding</em>"]};
+check("plain text survives without becoming authenticated", () => {
+  const output = api.validateIntakeProvenance(provenance);
+  assert.equal(output.warnings[0], "<em>review encoding</em>");
+  assert.equal(output.source, undefined);
+});
+check("warning limit counts Unicode characters", () => {
+  const output = api.validateIntakeProvenance({...provenance,warnings:["\u{1f600}".repeat(512)]});
+  assert.equal(Array.from(output.warnings[0]).length,512);
+});
+for (const invalid of [null, [], {...provenance,source:"native-intake"},
+  {...provenance,encoding:"trusted"}, {...provenance,normalisation:"anything"},
+  {...provenance,warnings:Array(9).fill("x")}, {...provenance,warnings:["x".repeat(513)]},
+  {...provenance,warnings:["\u001b[31m"]}, {...provenance,warnings:["\u0085"]},
+  {...provenance,warnings:["\u{1f600}".repeat(513)]},
+  {...provenance,warnings:["\ud800"]}, {...provenance,warnings:["\udfff"]}]) {
+  check("invalid provenance", () => assert.throws(() => api.validateIntakeProvenance(invalid)));
+}
+async function run() {
+  const files = [{name:"a.py"},{name:"b.py"}];
+  const item = file => ({kind:"file",webkitGetAsEntry:() => file &&
+    ({isFile:true,file:resolve => resolve(file)})});
+  let result = await api.collectDroppedFiles({items:files.map(item),files});
+  assert.equal(result.length, 2); assert.equal(result[0], files[0]); assert.equal(result[1], files[1]); observations++;
+  result = await api.collectDroppedFiles({items:[item(null),item(null)],files});
+  assert.equal(result.length, 2); assert.equal(result[0], files[0]); assert.equal(result[1], files[1]); observations++;
+  for (const items of [[item(files[0]),item(null)],[item(null),item(files[1])]]) {
+    await assert.rejects(api.collectDroppedFiles({items,files}), /incomplete/); observations++;
+  }
+  await assert.rejects(api.collectDroppedFiles({items:[item(null),item(null)],files:[files[0]]}), /incomplete/); observations++;
+  await assert.rejects(api.collectDroppedFiles({items:[{kind:"file",webkitGetAsEntry:() =>
+    ({isFile:true,file:resolve => {resolve(files[0]);resolve(files[1]);}})}]}), /repeated a callback/); observations++;
+
+  const replies = [], supplied = [];
+  const runtime = {FS:{writeFile() {}}, globals:{set(_key,value) {supplied.push(JSON.parse(value));},delete() {}},
+    runPython(command) {return command === "import codeprobe_runtime" ? null : "{}";}};
+  const worker = vm.createContext({Uint8Array,JSON,Number,Object,Array,
+    self:{CodeProbeRuntime:{...api,loadVerifiedPyodide:async () => runtime,
+      loadVerifiedEngine:async () => ({copyBytes:() => new Uint8Array([1]),fingerprint:{source:"fixture"}}),
+      getBootstrapConsumption:() => ({})},postMessage:message => replies.push(message)}});
+  vm.runInContext(fs.readFileSync("app/analysis-worker.js","utf8"),worker,{timeout:1000});
+  await worker.self.onmessage({data:{id:1,type:"init",manual:null}});
+  for (const [kind,payload] of [["file",{code:"x=1",intake_provenance:provenance}],
+    ["project",{files:[{path:"a.py",content:"x=1",intake_provenance:provenance}]}]]) {
+    await worker.self.onmessage({data:{id:replies.length+1,type:"analyse",kind,payloadJson:JSON.stringify(payload)}});
+    assert.equal(replies.at(-1).error, undefined);
+    const actual = supplied.at(-1);
+    assert.deepEqual((actual.files ? actual.files[0] : actual).intake_provenance,provenance); observations++;
+  }
+  const before = supplied.length;
+  await worker.self.onmessage({data:{id:99,type:"analyse",kind:"file",payloadJson:JSON.stringify({code:"x=1",
+    intake_provenance:{...provenance,source:"native-intake"}})}});
+  assert.equal(replies.at(-1).error,true); assert.equal(supplied.length,before); observations++;
+  console.log("intake protocol observations: " + observations);
+}
+run().catch(error => {console.error(error);process.exitCode=1;});
+'''
+        completed = subprocess.run(
+            [shutil.which("node"), "-"], input=script, cwd=ROOT,
+            capture_output=True, text=True, timeout=45, check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn("intake protocol observations: 31", completed.stdout)
+
     def test_an_extra_worker_import_is_rejected_by_the_actual_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1013,6 +1013,209 @@ _codeprobe_strict_json_fixture()
   }
 }
 
+// Real File/DOM/controller/worker/Pyodide paths. Entry callbacks and the one
+// returned-identity fault below are controlled fixtures, not OS drag claims.
+async function testIntakeContracts(cdp, baseUrl, downloads, fixtureState, compact, engineDigest) {
+  const deadline = Date.now() + 300000;
+  const observations = [];
+  async function caseWithinBudget(name, operation) {
+    const remaining = Math.min(60000, deadline - Date.now());
+    assert(remaining > 0, "intake browser group exceeded its 300-second budget");
+    const started = Date.now();
+    let timer;
+    try {
+      await Promise.race([operation(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`intake case timed out: ${name}`)), remaining);
+      })]);
+      observations.push({case:name, result:"PASS", elapsed_ms:Date.now() - started});
+      console.log("[PASS] browser-intake-case: " + JSON.stringify({ui:compact ? "compact" : "main", ...observations[observations.length - 1]}));
+    } finally { clearTimeout(timer); }
+  }
+  fixtureState.reset();
+  const session = await createSession(cdp, `${baseUrl}/app/${compact ? "project" : "index"}.html?intake-i06=1`);
+  const id = session.sessionId;
+  const active = compact ? "state" : "appState";
+  const button = compact ? "analyseBtn" : "analyzeBtn";
+  const status = compact ? "status" : "statusText";
+  const folderName = compact ? "intake" : "selected-files";
+  const noAcceptedReport = compact
+    ? "state.json === '' && document.getElementById('jsonReport').value === ''"
+    : "appState.currentReport === null && document.getElementById('jsonReport').value === '{}'";
+  const text = "# café\ndef add(left, right):\n    return left + right\n\ndef multiply(left, right):\n    return left * right\n\ndef main():\n    return multiply(add(1, 2), 3)\n";
+  const latin = [...Buffer.from(text.replace(/\n/g, "\r\n"), "latin1")];
+  const utf8 = [...Buffer.from(text.replace(/\n/g, "\r\n"), "utf8")];
+  const warning = "Decoded as latin-1; review the file encoding.";
+  async function selectFiles(files, single = false) {
+    await evaluate(cdp, id, `(() => {
+      const transfer = new DataTransfer();
+      for (const item of ${JSON.stringify(files)}) {
+        const file = new File([new Uint8Array(item.bytes)], item.name, {type:'text/x-python'});
+        if (item.path) Object.defineProperty(file, '_codeprobeRelativePath', {value:item.path, configurable:true});
+        transfer.items.add(file);
+      }
+      const input = document.getElementById('${single ? "fileInput" : "folderInput"}');
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    })()`);
+    await waitForExpression(cdp, id, `${active}.loadingInput === false`, 60000);
+  }
+  async function analyse(single = false) {
+    await evaluate(cdp, id, `document.getElementById('${button}').click()`);
+    await waitForExpression(cdp, id, `document.getElementById('${status}').textContent === '${single ? "Analysis completed." : "Project analysis completed."}'`, 60000);
+    return await evaluate(cdp, id, `({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value, dom:document.body.textContent})`);
+  }
+  async function download(name, report, requiredText) {
+    fs.rmSync(downloads, {recursive:true, force:true});
+    fs.mkdirSync(downloads, {recursive:true});
+    await cdp.send("Browser.setDownloadBehavior", {behavior:"allow", downloadPath:downloads});
+    await evaluate(cdp, id, "document.getElementById('exportJsonBtn').click(); document.getElementById('exportTextBtn').click()");
+    const jsonPath = path.join(downloads, `${name}.json`), textPath = path.join(downloads, `${name}.txt`);
+    await Promise.all([waitForFile(jsonPath, 60000), waitForFile(textPath, 60000)]);
+    assert(JSON.stringify(JSON.parse(fs.readFileSync(jsonPath, "utf8"))) === JSON.stringify(report), "downloaded JSON differs from the accepted report");
+    assert(fs.readFileSync(textPath, "utf8").includes(requiredText), "downloaded text lost the intake contract");
+  }
+  function checkProvenance(report, encoding, hasWarning) {
+    const provenance = report.intake_provenance;
+    assert(provenance && provenance.source === "caller-reported", "intake provenance is absent or represented as authenticated");
+    assert(provenance.encoding === encoding && provenance.normalisation === "newlines", "intake encoding or normalisation differs from the CRLF fixture");
+    assert(Array.isArray(provenance.warnings) && provenance.warnings.length === (hasWarning ? 1 : 0), "intake warning count differs");
+    if (hasWarning) {
+      assert(provenance.warnings[0] === warning, "Latin-1 intake warning changed");
+      assert(report.warnings.some(item => item.includes(warning)), "report warnings lost the caller-reported decoding warning");
+    } else assert(!report.warnings.some(item => item.includes("latin-1")), "valid UTF-8 acquired a false decoding warning");
+  }
+  try {
+    if (!compact) await waitForExpression(cdp, id, "appState.workerSession?.isReady()", 60000);
+    if (!compact) {
+      for (const item of [{label:"latin1", bytes:latin, encoding:"latin-1"}, {label:"utf8", bytes:utf8, encoding:"utf-8"}]) {
+        await caseWithinBudget(`single-${item.label}-report-and-downloads`, async () => {
+          await selectFiles([{name:`${item.label}.py`, bytes:item.bytes}], true);
+          assert(await evaluate(cdp, id, `document.getElementById('editor').value === ${JSON.stringify(text)}`), "single controller did not retain the exact decoded and normalised text");
+          const result = await analyse(true);
+          checkProvenance(result.report, item.encoding, item.label === "latin1");
+          assert(result.report.engine_fingerprint.value === engineDigest, "single intake report used different engine bytes");
+          if (item.label === "latin1") assert(result.dom.includes(warning) && result.text.includes(warning), "single UI or text report lost decoding warning");
+          await download(item.label, result.report, item.label === "latin1" ? warning : "utf8.py");
+        });
+      }
+    }
+    await caseWithinBudget("folder-latin1-utf8-report-and-downloads", async () => {
+      await selectFiles([{name:"latin1.py", path:"intake/latin1.py", bytes:latin}, {name:"utf8.py", path:"intake/utf8.py", bytes:utf8}]);
+      const payload = await evaluate(cdp, id, `${compact ? "state.payload" : "appState.projectPayload"}`);
+      assert(payload.files.length === 2 && payload.files.every(item => item.intake_provenance), "controller payload lost decoding provenance");
+      assert(payload.files.every(item => item.content === text), "folder payload differs from the independently decoded and normalised fixture");
+      assert(payload.project_name === folderName, "annotated file-list project name differs from its controller contract");
+      const result = await analyse();
+      assert(result.report.included_file_count === 2, "folder intake did not analyse both valid text files");
+      checkProvenance(result.report.included_files.find(item => item.path.endsWith("latin1.py")), "latin-1", true);
+      checkProvenance(result.report.included_files.find(item => item.path.endsWith("utf8.py")), "utf-8", false);
+      assert(result.text.includes(warning) && result.dom.includes(warning), "project UI or text report lost decoding warning");
+      await download(folderName, result.report, warning);
+    });
+    await caseWithinBudget("caller-reported-warning-rendered-as-text", async () => {
+      const marker = '<b id="intake-provenance-marker">caller message</b>';
+      await evaluate(cdp, id, `(() => {
+        const payload = ${compact ? "state.payload" : "appState.projectPayload"};
+        payload.files[0].intake_provenance = {encoding:'latin-1', normalisation:'none', warnings:[${JSON.stringify(marker)}]};
+      })()`);
+      const result = await analyse();
+      assert(result.report.included_files[0].intake_provenance.source === "caller-reported", "warning was attributed to an authenticated source");
+      assert(result.dom.includes(marker) && result.text.includes(marker), "caller-reported warning was erased");
+      assert(await evaluate(cdp, id, "document.getElementById('intake-provenance-marker') === null"), "caller-reported warning became a DOM element");
+      await download(folderName, result.report, marker);
+    });
+    await caseWithinBudget("full-bounded-nul-screen-and-exclusion-inventory", async () => {
+      const positions = [0, 4095, 4096, 5000];
+      const files = [{name:"valid.py", path:"nul/valid.py", bytes:utf8}];
+      for (const position of positions) {
+        const bytes = new Array(5001).fill(35); bytes[position] = 0;
+        files.push({name:`nul-${position}.py`, path:`nul/nul-${position}.py`, bytes});
+      }
+      const decoded = await evaluate(cdp, id, `(${JSON.stringify(files.slice(1))}).map(item => {
+        try { window.CodeProbeRuntime.decodeSourceBytes(new Uint8Array(item.bytes)); return {name:item.name, refused:false}; }
+        catch (error) { return {name:item.name, refused:true, message:error.message}; }
+      })`);
+      assert(decoded.length === 4 && decoded.every(item => item.refused && item.message.includes("NUL")), "full bounded decoder accepted a NUL position");
+      await selectFiles(files);
+      const result = await analyse();
+      assert(result.report.included_file_count === 1 && result.report.excluded_file_count === 4, "NUL inventory does not reconcile");
+      for (const position of positions) assert(result.report.excluded_files.some(item => item.path.endsWith(`nul-${position}.py`) && item.reason === "browser_undecodable_text"), `NUL ${position} lost its exclusion reason`);
+    });
+    for (const [name, project] of [[".zip", "project"], ["ordinary.zip", "ordinary"]]) {
+      await caseWithinBudget(`zip-name-${name}-accepted-and-exported`, async () => {
+        await evaluate(cdp, id, `(() => {
+          const bytes = Uint8Array.from(atob('UEsDBBQAAAAIAHYnJl2Js2mnTgAAAJEAAAAHAAAAbWFpbi5weUtJTVNITEnRyElNK9FRKMpMzyjRtOJSAIKi1JLSojwFkISCNkSGiysFqDy3NKcksyCnkoAeLRQ9iZl5GqiK4MaArDfUUTDS1FEw1uQCAFBLAQIUAxQAAAAIAHYnJl2Js2mnTgAAAJEAAAAHAAAAAAAAAAAAAACAAQAAAABtYWluLnB5UEsFBgAAAAABAAEANQAAAHMAAAAAAA=='), value => value.charCodeAt(0));
+          const transfer = new DataTransfer(); transfer.items.add(new File([bytes], ${JSON.stringify(name)}, {type:'application/zip'}));
+          const input = document.getElementById('${compact ? "zipInput" : "projectZipInput"}'); input.files = transfer.files;
+          input.dispatchEvent(new Event('change', {bubbles:true}));
+        })()`);
+        await waitForExpression(cdp, id, `${active}.loadingInput === false`, 60000);
+        const result = await analyse();
+        assert(result.report.project_name === project && result.report.included_file_count === 1, "ZIP name fallback differs or lost its member");
+        await download(project, result.report, project);
+      });
+    }
+    await caseWithinBudget("wrong-returned-project-identity-refused", async () => {
+      await evaluate(cdp, id, `(() => {
+        const actual = ${active}.workerSession;
+        window.intakeWrongIdentityResponses = 0;
+        window.restoreIntakeSession = () => { ${active}.workerSession = actual; };
+        ${active}.workerSession = {...actual, async analyse(kind, payload) {
+          const result = await actual.analyse(kind, payload);
+          window.intakeWrongIdentityResponses += 1;
+          window.intakeIdentityOriginalDigest = result.report.engine_fingerprint.value;
+          result.report.project_name = 'unrelated-project';
+          if (result.project_report) result.project_report.project_name = 'unrelated-project';
+          return result;
+        }};
+        document.getElementById('${button}').click();
+      })()`);
+      await waitForExpression(cdp, id, `window.intakeWrongIdentityResponses === 1 && ${active}.busy === false`, 60000);
+      assert(await evaluate(cdp, id, `window.intakeIdentityOriginalDigest === ${JSON.stringify(engineDigest)} && document.getElementById('${status}').textContent.includes('failed; no report was accepted')`), "identity refusal did not follow an authenticated analysis and explicit failure state");
+      assert(await evaluate(cdp, id, `document.getElementById('exportJsonBtn').disabled && document.getElementById('exportTextBtn').disabled && (${noAcceptedReport})`), "wrong report identity remained exportable");
+      await evaluate(cdp, id, "window.restoreIntakeSession()");
+    });
+    await caseWithinBudget("drop-all-valid-all-null-and-mixed-permutations", async () => {
+      const outcome = await evaluate(cdp, id, `(async () => {
+        const a = new File(['# a'], 'a.py'), b = new File(['# b'], 'b.py');
+        function item(file, valid, repeated = false) { return {kind:'file', webkitGetAsEntry:() => valid ? {isFile:true, name:file.name, file(resolve) {resolve(file); if (repeated) resolve(file);}} : null}; }
+        const cases = [];
+        for (const flags of [[true,true], [false,false], [true,false], [false,true]]) {
+          const transfer = {items:[item(a,flags[0]),item(b,flags[1])],files:[a,b],types:['Files']};
+          try { const files = await window.CodeProbeRuntime.collectDroppedFiles(transfer); cases.push({flags, names:files.map(file => file.name), error:null}); }
+          catch (error) { cases.push({flags, names:[], error:error.message}); }
+        }
+        try {
+          const files = await window.CodeProbeRuntime.collectDroppedFiles({items:[item(a,true,true)],files:[a],types:['Files']});
+          cases.push({case:'repeated-callback', names:files.map(file => file.name), error:null});
+        } catch (error) { cases.push({case:'repeated-callback', names:[], error:error.message}); }
+        window.intakeMixedDrop = {items:[item(a,true),item(b,false)],files:[a,b],types:['Files']};
+        const event = new Event('drop', {bubbles:true,cancelable:true});
+        Object.defineProperty(event, 'dataTransfer', {value:window.intakeMixedDrop}); document.dispatchEvent(event);
+        return cases;
+      })()`);
+      for (const item of outcome.slice(0, 2)) assert(!item.error && item.names.length === 2 && new Set(item.names).size === 2, "complete drop selection lost or duplicated a file");
+      assert(outcome.length === 5, "drop callback matrix is incomplete");
+      for (const item of outcome.slice(2)) assert(item.error && item.names.length === 0, "mixed entry selection or repeated callback returned an accepted inventory");
+      await waitForExpression(cdp, id, `${active}.loadingInput === false`, 60000);
+      assert(await evaluate(cdp, id, `${compact ? "state.payload" : "appState.projectPayload"} === null && document.getElementById('exportJsonBtn').disabled && (${noAcceptedReport})`), "mixed drop left a partial analysable project or prior report");
+    });
+    if (!compact) {
+      for (const provenance of [{encoding:"invented", normalisation:"none", warnings:[]}, {encoding:"utf-8", normalisation:"none", warnings:"invented"}]) {
+        await caseWithinBudget(`malformed-provenance-${typeof provenance.warnings === "string" ? "warnings" : "encoding"}`, async () => {
+          if (!await evaluate(cdp, id, "appState.workerSession.isReady()")) {
+            fixtureState.reset(); await evaluate(cdp, id, "appState.workerSession.initialise()");
+          }
+          const result = await evaluate(cdp, id, `appState.workerSession.analyse('file', ${JSON.stringify({filename:"bad-metadata.py", code:text, intake_provenance:provenance})}).then(() => ({accepted:true}), error => ({accepted:false,name:error.name}))`);
+          assert(!result.accepted && result.name === "WorkerError", "malformed intake provenance was accepted by the authenticated worker");
+          assert(!await evaluate(cdp, id, "appState.workerSession.isReady()"), "malformed intake provenance left a reusable worker");
+        });
+      }
+    }
+    console.log("[PASS] browser-intake-i06: " + JSON.stringify({ui:compact ? "compact" : "main", engine_sha256:engineDigest, observations, qualification:"Real Chromium File/DOM, authenticated worker/Pyodide and downloaded exports; controlled entry callbacks and one returned-identity fault injection."}));
+  } finally { await closeSession(cdp, session); }
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -1077,6 +1280,8 @@ async function main() {
     await testNativeBrowserReplay(cdp, baseUrl, state);
     await testParserReplayBoundary(cdp, baseUrl, state);
     await testStrictJsonContracts(cdp, baseUrl, state, engineDigest);
+    await testIntakeContracts(cdp, baseUrl, downloads, state, false, engineDigest);
+    await testIntakeContracts(cdp, baseUrl, downloads, state, true, engineDigest);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);
