@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import errno
 import http.client
-import importlib.util
 import io
 import json
 import os
@@ -16,11 +15,17 @@ import unittest.mock
 import urllib.error
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+TOOLS = ROOT / "tools"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
+
+import run_local_server  # noqa: E402
 
 from codeprobe_engine.server import (  # noqa: E402
     CONTENT_SECURITY_POLICY,
@@ -175,6 +180,36 @@ class LocalServerPolicyTests(unittest.TestCase):
                 with self.subTest(port=port), self.assertRaises(ServerPolicyError):
                     create_server(ROOT, "127.0.0.1", port)
             constructor.assert_not_called()
+
+    def test_exclusive_address_option_precedes_binding_without_changing_other_hosts(self) -> None:
+        for exclusive_available in (False, True):
+            with self.subTest(exclusive_available=exclusive_available):
+                platform_socket = SimpleNamespace(SOL_SOCKET=socket.SOL_SOCKET)
+                if exclusive_available:
+                    platform_socket.SO_EXCLUSIVEADDRUSE = 12345
+                server = object.__new__(server_module._LocalThreadingHTTPServer)
+                server.socket = unittest.mock.Mock()
+                server.allow_reuse_address = True
+                server.allow_reuse_port = True
+
+                def observe_bind(selected):
+                    self.assertIs(selected, server)
+                    self.assertEqual(selected.allow_reuse_address, not exclusive_available)
+                    self.assertEqual(selected.allow_reuse_port, not exclusive_available)
+                    if exclusive_available:
+                        selected.socket.setsockopt.assert_called_once_with(socket.SOL_SOCKET, 12345, 1)
+                    else:
+                        selected.socket.setsockopt.assert_not_called()
+
+                with (
+                    unittest.mock.patch.object(server_module, "socket", platform_socket),
+                    unittest.mock.patch.object(
+                        server_module.ThreadingHTTPServer, "server_bind", autospec=True,
+                        side_effect=observe_bind,
+                    ) as bind,
+                ):
+                    server.server_bind()
+                bind.assert_called_once_with(server)
 
     def test_raw_target_is_rejected_before_normalising_url_parser(self) -> None:
         targets = (
@@ -347,13 +382,6 @@ class LocalServerMemoryTests(unittest.TestCase):
         self.assertIn("400", text)
 
 
-def load_server_cli():
-    spec = importlib.util.spec_from_file_location("codeprobe_server_cli_test", ROOT / "tools/run_local_server.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def stop_owned_server(server, thread):
     shutdown = threading.Thread(target=server.shutdown, daemon=True)
     shutdown.start()
@@ -368,7 +396,7 @@ def stop_owned_server(server, thread):
 
 class LocalServerCliTests(unittest.TestCase):
     def test_default_launch_binds_zero_once_and_prints_both_actual_urls(self):
-        cli = load_server_cli()
+        cli = run_local_server
         server = unittest.mock.Mock(server_address=("127.0.0.1", 45678))
         server.serve_forever.side_effect = KeyboardInterrupt
         output = io.StringIO()
@@ -383,7 +411,7 @@ class LocalServerCliTests(unittest.TestCase):
         server.server_close.assert_called_once_with()
 
     def test_explicit_consent_reaches_factory_without_public_bind(self):
-        cli = load_server_cli()
+        cli = run_local_server
         server = unittest.mock.Mock(server_address=("0.0.0.0", 8123))
         server.serve_forever.side_effect = KeyboardInterrupt
         with (
@@ -394,7 +422,7 @@ class LocalServerCliTests(unittest.TestCase):
         create.assert_called_once_with(ROOT, "0.0.0.0", 8123, allow_network=True)
 
     def test_nonloopback_without_consent_never_reaches_factory(self):
-        cli = load_server_cli()
+        cli = run_local_server
         errors = io.StringIO()
         with unittest.mock.patch.object(cli, "create_server") as create, contextlib.redirect_stderr(errors):
             self.assertEqual(cli.main(["--host", "0.0.0.0", "--no-browser"]), 2)
@@ -402,7 +430,7 @@ class LocalServerCliTests(unittest.TestCase):
         self.assertIn("--allow-network", errors.getvalue())
 
     def test_ipv6_urls_are_bracketed_and_browser_uses_actual_port(self):
-        cli = load_server_cli()
+        cli = run_local_server
         server = unittest.mock.Mock(server_address=("::1", 45679, 0, 0))
         server.serve_forever.side_effect = KeyboardInterrupt
         output = io.StringIO()
@@ -417,7 +445,7 @@ class LocalServerCliTests(unittest.TestCase):
         self.assertIn("Project: http://[::1]:45679/app/project.html", output.getvalue())
 
     def test_constructor_failure_is_controlled_and_opens_no_browser(self):
-        cli = load_server_cli()
+        cli = run_local_server
         errors = io.StringIO()
         with (
             unittest.mock.patch.object(cli, "create_server", side_effect=OSError("owned occupied port")),
@@ -555,7 +583,7 @@ class LocalServerHttpTests(unittest.TestCase):
                         response.close()
 
     def test_an_occupied_fixed_port_returns_a_controlled_cli_error(self):
-        cli = load_server_cli()
+        cli = run_local_server
         errors = io.StringIO()
 
         def require_occupied_port(*args, **kwargs):
@@ -574,7 +602,7 @@ class LocalServerHttpTests(unittest.TestCase):
         browser.assert_not_called()
 
     def test_cli_printed_urls_reach_both_pages_on_its_actual_bound_port(self):
-        cli = load_server_cli()
+        cli = run_local_server
         output = io.StringIO()
 
         def create_and_exercise(root, host, port, *, allow_network):

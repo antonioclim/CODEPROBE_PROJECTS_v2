@@ -269,7 +269,17 @@ def handler_for_root(root: Path) -> type[CodeProbeRequestHandler]:
     return BoundCodeProbeRequestHandler
 
 
-class _IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+class _LocalThreadingHTTPServer(ThreadingHTTPServer):
+    def server_bind(self) -> None:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            # Windows address reuse can admit a second listener on an occupied port.
+            self.allow_reuse_address = False
+            self.allow_reuse_port = False
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+class _IPv6ThreadingHTTPServer(_LocalThreadingHTTPServer):
     address_family = socket.AF_INET6
 
 
@@ -283,10 +293,9 @@ def create_server(
     if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535:
         raise ServerPolicyError("port must be an integer between 0 and 65535")
     bind_address = validate_bind_address(host, allow_network=allow_network)
-    server_type = _IPv6ThreadingHTTPServer if ":" in bind_address else ThreadingHTTPServer
+    server_type = _IPv6ThreadingHTTPServer if ":" in bind_address else _LocalThreadingHTTPServer
     server = server_type((bind_address, port), handler_for_root(root))
     server.daemon_threads = True
-    server.allow_reuse_address = True
     return server
 
 

@@ -69,6 +69,7 @@ APPROVED_LOCAL_IMPORTS = {
     "compare_releases",
     "final_audit",
     "prepare_pyodide_fixture",
+    "run_local_server",
 }
 APPROVED_SOURCE_ENTRIES = {"codeprobe_engine", "codeprobe_runtime.py"}
 APPROVED_SOURCE_ENTRY_TYPES = {
