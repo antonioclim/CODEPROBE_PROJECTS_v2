@@ -177,6 +177,11 @@ jobs:
           python -I -S -B -m unittest discover -s tests -p test_reference_integrity.py -v
           python -I -S -B -m unittest discover -s tests -p test_release_integrity.py -v
 
+      - name: Verify local HTTP contracts on IPv4 and IPv6
+        timeout-minutes: 3
+        shell: bash
+        run: python -I -S -B -m unittest discover -s tests -p test_local_server.py -v
+
       - name: Run the canonical read-only gate
         shell: bash
         run: python -I -S -B tools/check_release.py --require-node

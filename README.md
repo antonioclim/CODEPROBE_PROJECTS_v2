@@ -121,7 +121,17 @@ If `py` is unavailable but Python is installed, use `python -I -S -B tools/run_l
 python3 -I -S -B tools/run_local_server.py
 ```
 
-Open the address printed by the server, normally `http://127.0.0.1:8123/app/index.html`. The compact page is at `http://127.0.0.1:8123/app/project.html`. Use the local HTTP server rather than double-clicking an HTML file. The helper publishes declared application resources, including the packaged engine needed for analysis; it does not expose the whole repository or directory listings. Non-loopback binding requires explicit `--allow-network` and is not a production multi-user security configuration.
+Open the address labelled **Open** for the main page or **Project** for the compact project page. By default, the server binds an available port and prints both complete URLs with that actual port. Keep the terminal open while using the application; press Ctrl+C to stop the server. Add `--no-browser` to print the URLs without opening a browser automatically.
+
+To request port 8123 explicitly:
+
+```bash
+python3 -I -S -B tools/run_local_server.py --port 8123
+```
+
+If that port is available, the URLs are `http://127.0.0.1:8123/app/index.html` and `http://127.0.0.1:8123/app/project.html`. An occupied port produces a startup error. On a host with IPv6 loopback support, `--host ::1` selects IPv6 and prints bracketed URLs such as `http://[::1]:8123/app/index.html` when port 8123 was explicitly requested.
+
+The local HTTP server publishes declared application resources, including the packaged engine needed for analysis; it does not expose the whole repository or directory listings. Non-loopback binding requires explicit `--allow-network` and is not a production multi-user security configuration.
 
 Paste/open your source, confirm **Language**, choose a scoring mode and select **Analyse**. For a mixed-language project, keep Auto. Inspect included/excluded files, applicability, warnings and the review plan before saving JSON/text. **Cancel analysis** terminates the worker; retry starts a fresh interpreter. Loading new input or changing scoring settings invalidates the old report and export state.
 
