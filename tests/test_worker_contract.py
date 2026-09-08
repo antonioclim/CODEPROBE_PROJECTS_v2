@@ -169,7 +169,7 @@ run().catch(error => {console.error(error);process.exitCode=1;});
 '''
         completed = subprocess.run(
             [shutil.which("node"), "-"], input=script, cwd=ROOT,
-            capture_output=True, text=True, timeout=45, check=False,
+            capture_output=True, text=True, encoding="utf-8", timeout=45, check=False,
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertIn("intake protocol observations: 31", completed.stdout)
