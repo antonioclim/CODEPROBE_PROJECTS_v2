@@ -2119,6 +2119,336 @@ for case in cases:
     qualification:"Six finite JavaScript/Bash context groups ran in the owned authenticated worker interpreter; main file/main project/compact project used actual File/DOM, public worker transport and JSON/text downloads for EOF diagnostics and unavailable code metrics. Submitted source was analysed as data. These bounded lexical observations do not establish full language validation, compiler semantics or empirical authorship accuracy."}));
 }
 
+// Markdown/detection context metadata has no public worker operation. Fixed lexical
+// oracles inspect the owned authenticated interpreter; warning/export cases
+// separately exercise the existing public UI and worker transport.
+async function testDocumentLanguageContracts(cdp, baseUrl, downloads, fixtureState, engineDigest) {
+  const deadline = Date.now() + 300000;
+  const observations = [];
+  async function withinCase(name, findings, boundary, operation) {
+    const remaining = Math.min(60000, deadline - Date.now());
+    assert(remaining > 0, "Markdown/detection browser group exceeded its 300-second budget");
+    const started = Date.now();
+    let timer;
+    try {
+      const observed = await Promise.race([operation(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Markdown/detection browser case timed out: ${name}`)), remaining);
+      })]);
+      const row = {case:name, findings, boundary, result:"PASS", elapsed_ms:Date.now() - started, observed};
+      observations.push(row);
+      console.log("[PASS] browser-documents-i10-case: " + JSON.stringify(row));
+    } finally { clearTimeout(timer); }
+  }
+  const directCases = [
+  {
+    "name": "markdown-finite-structure-and-documentation",
+    "finding": "A02-F015",
+    "script": "cases = [{'id': 'MD-01-basic-fence', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '# Visible\\n```js\\n# Hidden\\n```\\n', 'expected': {'fences': 1, 'headings': ['Visible'], 'links': 0}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': '32ff67a8a293ddd5eff13f44ae75a4ac5c77b491b2b89754fb996f4125a4108d'}, {'id': 'MD-02-shorter-closer', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '````\\n```\\n# Hidden\\n````\\n# Visible\\n', 'expected': {'fences': 1, 'headings': ['Visible'], 'links': 0}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': '63180415d47988a306c2c6639262541f2c26272924120b10f771563c90085d90'}, {'id': 'MD-03-trailing-close-text', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '```\\n``` not-a-close\\n# Hidden\\n```\\n# Visible\\n', 'expected': {'fences': 1, 'headings': ['Visible'], 'links': 0}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': '61688e2f71eee2a24c8a4099bdaff3c78e5aebe156eff0eff7c93e6c6ef3b8e3'}, {'id': 'MD-04-indented-code', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '    ```\\n    # Hidden\\n    ```\\n# Visible\\n', 'expected': {'fences': 0, 'headings': ['Visible'], 'links': 0}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': 'bd4caf111262177082717bbbaec0be6d1a83321e96d22f27555d4b207e1e5385'}, {'id': 'MD-05-setext-heading', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': 'Visible\\n=======\\n', 'expected': {'fences': 0, 'headings': ['Visible'], 'links': 0}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': '6848e9ed3dfd1f40bf9f3577d108ead215e77c788731ed594d6a0c3fdc47ca13'}, {'id': 'MD-06-inline-code-link', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '`[not a link](https://example.invalid)`\\n', 'expected': {'fences': 0, 'headings': [], 'links': 0}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': 'f422635604ebb492f2f4477ff3eeeb2b2cfa196ddc3b518a44bc06f0a7248613'}, {'id': 'MD-07-inline-link-control', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '[a link](https://example.invalid)\\n', 'expected': {'fences': 0, 'headings': [], 'links': 1}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': '0b731e7f984fa45c1864a209222d9c7a78bc1532f8c968dac346b574b568cd82'}, {'id': 'MD-08-reference-link', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '[a link][ref]\\n\\n[ref]: https://example.invalid\\n', 'expected': {'fences': 0, 'headings': [], 'links': 1}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': 'ee028118388064a5c15a33980e5ced8e27a544b0c51e4ecc9ba8cadac01ed2ff'}, {'id': 'MD-09-other-character', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '```\\n~~~\\n# Hidden\\n```\\n# Visible\\n', 'expected': {'fences': 1, 'headings': ['Visible'], 'links': 0}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': '33207807ed1b374319cd956d01bf75bb176a0e29e74efa5d1bc97d730092cd2a'}, {'id': 'MD-11-whitespace-close-suffix', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '```\\n# Hidden\\n``` \\t\\n# Visible\\n', 'expected': {'fences': 1, 'headings': ['Visible'], 'links': 0}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': '8c49349999269a77bfef1d146fd624932fe86bf5c36416be62916a4b6c810b43'}, {'id': 'MD-18-multiline-code-span', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': '`first\\n[hidden](https://example.invalid)\\nlast`\\n', 'expected': {'fences': 0, 'headings': [], 'links': 0}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': '0fed34da9ec4d9e6e3c98ea5fe3bd3984681d4dc45dbc54b510bb90fd162d07d'}, {'id': 'MD-29-documentation-programme', 'family': 'markdown', 'filename': 'fixture.md', 'hint': None, 'source': \"# Notes\\n\\n```python\\ndef phantom():\\n    raise RuntimeError('never execute')\\nphantom()\\n```\\n\\nRead [guide](https://example.invalid).\\n\", 'expected': {'fences': 1, 'headings': ['Notes'], 'links': 1}, 'oracle_basis': 'CommonMark 0.31.2 selected block/inline rules', 'source_sha256': '4dac2c1fc8fd8d3f4671eaef4dd48c9673ed84898911eaad08ccf5e982e8c726'}]\nobserved = []\nfor case in cases:\n    context = module.build_analysis_context(case['source'], case['filename'], case['hint'])\n    info = context.markdown\n    actual = dict(fences=info.code_fence_count, headings=[item[2] for item in info.headings], links=info.link_count)\n    assert actual == case['expected'], (case['id'], actual, case['expected'])\n    assert context.language == 'markdown' and not context.functions, case['id']\n    result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=case['source'], filename=case['filename']))))\n    report = result['report']\n    assert report['verdict_class'] == 'documentation' and report['overall_applicable'] is False, case['id']\n    assert all(not item['contributes_to_overall'] for item in report['metrics'] if item['name'].startswith('markdown_')), case['id']\n    observed.append(dict(case=case['id'], source_sha256=case['source_sha256'], features=actual,\n                         functions=[], verdict_class=report['verdict_class'], overall_applicable=report['overall_applicable']))\n"
+  },
+  {
+    "name": "language-shebang-precedence-and-uncertainty",
+    "finding": "A02-F018",
+    "script": "cases = [{'id': 'DETECT-05-cue-substring', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': 'The python tutorial explains syntax.', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': 'b7a799bdc860e872a3718c042203622952238a5fb4ed7ab156ed0d41c145173f'}, {'id': 'DETECT-06-shebang', 'family': 'detection', 'filename': 'script', 'hint': None, 'source': '#!/usr/bin/env node\\nconsole.log(1);', 'expected': {'language': 'javascript'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': 'c4deb859a7bf7c089e108c44280a1ebd084f030ba7f3ae4abdf4e4390d239397'}, {'id': 'DETECT-07-direct-python3.12', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': '#!/usr/bin/python3.12\\n', 'expected': {'language': 'python'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': 'e0e69989eeec1a8663962a326029727c25814b2a6c6aac1c67c59042ef496728'}, {'id': 'DETECT-09-env-split', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': '#!/usr/bin/env -S node --trace-warnings\\n', 'expected': {'language': 'javascript'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': '6af9d57870fdbe8ee99b74aa62940a8e1ad73da4814c3d0e7229ea6eb5b94674'}, {'id': 'DETECT-11-extension-before-shebang', 'family': 'detection', 'filename': 'sample.JS', 'hint': None, 'source': '#!/usr/bin/python3\\n', 'expected': {'language': 'javascript'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': 'aee50b3d023b039c7116109895cdbe61a93b7869da6ea0984da85862fc5b3ed7'}, {'id': 'DETECT-12-hint-before-extension', 'family': 'detection', 'filename': 'sample.JS', 'hint': 'bash', 'source': '#!/usr/bin/python3\\n', 'expected': {'language': 'bash'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': 'aee50b3d023b039c7116109895cdbe61a93b7869da6ea0984da85862fc5b3ed7'}, {'id': 'DETECT-13-h-header-c', 'family': 'detection', 'filename': 'sample.H', 'hint': None, 'source': 'int add(int value);\\n', 'expected': {'language': 'c'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': 'eed85c2b4dbaa14b84fbbb7e979753723517d7a0b05400556bb0967bf58d014c'}, {'id': 'DETECT-14-h-header-cpp', 'family': 'detection', 'filename': 'sample.h', 'hint': None, 'source': 'namespace one {}\\nnamespace two {}\\n', 'expected': {'language': 'cpp'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': '4b99cda8df534a7aaaec1f4b8e48c3e2cf52726c931d574c53c2390f58e2e5fe'}, {'id': 'DETECT-17-prose-node', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': 'The node tutorial explains syntax.', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': '63b35e89121d5d64e0a06ac9d4a10f88f845f608b98a34fc091b2377504421ae'}, {'id': 'DETECT-17-prose-deno', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': 'The deno tutorial explains syntax.', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': 'c097fbc4762104b6b7be269eb9b864b721e7411971cfb576f066c7e7d1af8db0'}, {'id': 'DETECT-17-prose-shell', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': 'The /shell tutorial explains syntax.', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': '3cece6ff10d75640aff08a3db6732e2b9de2d1e2ff3572bc67a2e96dd71a2d99'}, {'id': 'DETECT-18-lookalike-python-tools', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': '#!/usr/bin/python-tools\\n', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': 'e3d7e7fffa1931282b9e6dd1ab848b039882e38a3ddd5ba41547bc6927e7b01b'}, {'id': 'DETECT-19-leading-space', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': ' #!/usr/bin/python3\\n', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': '5bc3328e83a88c4d4c466334914a78e996a0beec8777e4659b33e964a802d2f1'}, {'id': 'DETECT-20-later-python', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': 'Plain prose\\n#!/usr/bin/python3\\n', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': '381b31c2f43a5c637f13d518e14badc6cff63e71adf9b889406da1efd1165086'}, {'id': 'DETECT-21-later-shell', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': 'Plain prose\\n#!/bin/sh\\n', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': '9baf5f4782aff5af369661e6aac1bf2eac8cebba8ea9ceb98e202808869d4e39'}, {'id': 'DETECT-23-env-assignment', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': '#!/usr/bin/env OPTION=x python3\\n', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': '9c13b974ac22805affcc3306e71c527877c5abc594d890eb53d8020f3271d7c2'}, {'id': 'DETECT-25-env-quoted-split', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': '#!/usr/bin/env -S \"python3 -I\"\\n', 'expected': {'language': 'unknown'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': '0a3495bccfd3191e5a159ecdc29c4586dd21684152389575abc51b14a27cf212'}, {'id': 'DETECT-29-fallback-content', 'family': 'detection', 'filename': 'sample.txt', 'hint': None, 'source': 'The python tutorial explains syntax.\\nfunction add(value) { return value; }\\n', 'expected': {'language': 'javascript'}, 'oracle_basis': 'Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax', 'source_sha256': 'bcd32bd8cbcf76dabc74f88375ae7dee74985866e45c5f6a9098a68e6d84bed8'}]\nobserved = []\nwarning = 'The language could not be detected with strong confidence.'\nfor case in cases:\n    actual = module.detect_language(case['filename'], case['source'], case['hint'])\n    assert actual == case['expected']['language'], (case['id'], actual, case['expected'])\n    result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=case['source'], filename=case['filename'], language_hint=case['hint']))))\n    report = result['report']\n    assert report['language'] == actual, case['id']\n    assert (warning in report['warnings']) == (actual == 'unknown'), case['id']\n    if actual == 'unknown':\n        assert warning in result['text'], case['id']\n    observed.append(dict(case=case['id'], source_sha256=case['source_sha256'], language=actual, warnings=report['warnings']))\n"
+  }
+];
+  fixtureState.reset();
+  const pageUrl = `${baseUrl}/app/index.html?documents-i10=1`;
+  let session = null, workerSession = null, ownership = null, actualRuntime = null;
+  try {
+    await withinCase("documents-owned-worker", [], "authenticated-worker-ownership", async () => {
+      await cdp.send("Target.setDiscoverTargets", {discover:true});
+      const previous = new Set((await cdp.send("Target.getTargets")).targetInfos.map(item => item.targetId));
+      session = await createSession(cdp, pageUrl);
+      await waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()", 60000);
+      assertSingleVerifiedRequests(fixtureState);
+      await cdp.send("Target.setAutoAttach", {autoAttach:true, waitForDebuggerOnStart:false, flatten:true,
+        filter:[{type:"worker"}, {exclude:true}]}, session.sessionId);
+      const discoveryDeadline = Date.now() + 5000;
+      let workers = [], attachments = [];
+      do {
+        workers = (await cdp.send("Target.getTargets")).targetInfos.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.parentId === session.targetId);
+        attachments = [...cdp.attachedTargets.entries()].filter(([, item]) => item.parentSessionId === session.sessionId && workers.some(worker => worker.targetId === item.targetInfo.targetId));
+        if (workers.length && attachments.length) break;
+        await delay(100);
+      } while (Date.now() < discoveryDeadline);
+      assert(workers.length === 1 && attachments.length === 1, "Markdown/detection oracle did not locate exactly one owned worker channel");
+      const worker = workers[0];
+      if (worker.openerId) assert(worker.openerId === session.targetId, "Markdown/detection oracle worker opener differs from its owned page");
+      assert(attachments[0][1].targetInfo.type === "worker" && attachments[0][1].targetInfo.parentId === session.targetId, "Markdown/detection oracle attachment differs from its owned worker");
+      [workerSession] = attachments[0];
+      await cdp.send("Runtime.enable", {}, workerSession);
+      const workerBase = await evaluate(cdp, workerSession, "self.CODEPROBE_BASE_URL");
+      assert(workerBase === pageUrl, "Markdown/detection oracle worker bootstrap URL differs from its owned page");
+      ownership = {page_target_id:session.targetId, worker_target_id:worker.targetId, worker_parent_id:worker.parentId, bootstrap_url:workerBase};
+      return ownership;
+    });
+    for (const item of directCases) {
+      await withinCase(item.name, [item.finding], "context-in-authenticated-worker", async () => {
+        const script = "def _codeprobe_documents_i10_fixture():\n    import json, sys\n    module = sys.modules['codeprobe_runtime']\n" +
+          item.script.trim().split("\n").map(line => "    " + line).join("\n") +
+          "\n    metadata = json.loads(module.codeprobe_engine_metadata('{}'))\n    return json.dumps(dict(observed=observed, runtime=metadata['python_runtime'], measured_sha256=metadata['engine_fingerprint']['value']), allow_nan=False)\n_codeprobe_documents_i10_fixture()\n";
+        const result = await evaluate(cdp, workerSession, `(async () => {
+          const runtime = await self.CodeProbeRuntime.loadVerifiedPyodide();
+          try { return JSON.parse(runtime.runPython(${JSON.stringify(script)})); }
+          finally { runtime.globals.delete('_codeprobe_documents_i10_fixture'); }
+        })()`);
+        assert(result.runtime.platform === "emscripten" && result.runtime.version === "3.11.3", "Markdown/detection context oracle used an unexpected interpreter");
+        assert(result.measured_sha256 === engineDigest, "Markdown/detection context oracle used different engine bytes");
+        actualRuntime = result.runtime;
+        assertSingleVerifiedRequests(fixtureState);
+        return {...result, oracle_sha256:crypto.createHash("sha256").update(script).digest("hex")};
+      });
+    }
+  } finally {
+    if (workerSession) await cdp.send("Target.detachFromTarget", {sessionId:workerSession}, session.sessionId);
+    if (session) await closeSession(cdp, session);
+    await cdp.send("Target.setDiscoverTargets", {discover:false});
+  }
+
+  const fileCases = [
+  {
+    "id": "MD-02-shorter-closer",
+    "family": "markdown",
+    "filename": "fixture.md",
+    "hint": null,
+    "source": "````\n```\n# Hidden\n````\n# Visible\n",
+    "expected": {
+      "fences": 1,
+      "headings": [
+        "Visible"
+      ],
+      "links": 0
+    },
+    "oracle_basis": "CommonMark 0.31.2 selected block/inline rules",
+    "source_sha256": "63180415d47988a306c2c6639262541f2c26272924120b10f771563c90085d90"
+  },
+  {
+    "id": "MD-06-inline-code-link",
+    "family": "markdown",
+    "filename": "fixture.md",
+    "hint": null,
+    "source": "`[not a link](https://example.invalid)`\n",
+    "expected": {
+      "fences": 0,
+      "headings": [],
+      "links": 0
+    },
+    "oracle_basis": "CommonMark 0.31.2 selected block/inline rules",
+    "source_sha256": "f422635604ebb492f2f4477ff3eeeb2b2cfa196ddc3b518a44bc06f0a7248613"
+  },
+  {
+    "id": "MD-29-documentation-programme",
+    "family": "markdown",
+    "filename": "fixture.md",
+    "hint": null,
+    "source": "# Notes\n\n```python\ndef phantom():\n    raise RuntimeError('never execute')\nphantom()\n```\n\nRead [guide](https://example.invalid).\n",
+    "expected": {
+      "fences": 1,
+      "headings": [
+        "Notes"
+      ],
+      "links": 1
+    },
+    "oracle_basis": "CommonMark 0.31.2 selected block/inline rules",
+    "source_sha256": "4dac2c1fc8fd8d3f4671eaef4dd48c9673ed84898911eaad08ccf5e982e8c726"
+  },
+  {
+    "id": "DETECT-05-cue-substring",
+    "family": "detection",
+    "filename": "sample.txt",
+    "hint": null,
+    "source": "The python tutorial explains syntax.",
+    "expected": {
+      "language": "unknown"
+    },
+    "oracle_basis": "Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax",
+    "source_sha256": "b7a799bdc860e872a3718c042203622952238a5fb4ed7ab156ed0d41c145173f"
+  },
+  {
+    "id": "DETECT-09-env-split",
+    "family": "detection",
+    "filename": "sample.txt",
+    "hint": null,
+    "source": "#!/usr/bin/env -S node --trace-warnings\n",
+    "expected": {
+      "language": "javascript"
+    },
+    "oracle_basis": "Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax",
+    "source_sha256": "6af9d57870fdbe8ee99b74aa62940a8e1ad73da4814c3d0e7229ea6eb5b94674"
+  }
+];
+  const projectCases = [
+  {
+    "id": "MD-29-documentation-programme",
+    "family": "markdown",
+    "filename": "fixture.md",
+    "hint": null,
+    "source": "# Notes\n\n```python\ndef phantom():\n    raise RuntimeError('never execute')\nphantom()\n```\n\nRead [guide](https://example.invalid).\n",
+    "expected": {
+      "fences": 1,
+      "headings": [
+        "Notes"
+      ],
+      "links": 1
+    },
+    "oracle_basis": "CommonMark 0.31.2 selected block/inline rules",
+    "source_sha256": "4dac2c1fc8fd8d3f4671eaef4dd48c9673ed84898911eaad08ccf5e982e8c726",
+    "selected_filename": "fixture.md"
+  },
+  {
+    "id": "DETECT-05-cue-substring",
+    "family": "detection",
+    "filename": "sample.txt",
+    "hint": null,
+    "source": "The python tutorial explains syntax.",
+    "expected": {
+      "language": "unknown"
+    },
+    "oracle_basis": "Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax",
+    "source_sha256": "b7a799bdc860e872a3718c042203622952238a5fb4ed7ab156ed0d41c145173f",
+    "selected_filename": "sample.txt"
+  },
+  {
+    "id": "DETECT-16-content-javascript",
+    "family": "detection",
+    "filename": "sample.txt",
+    "hint": null,
+    "source": "function add(value) { return value; }\n",
+    "expected": {
+      "language": "javascript"
+    },
+    "oracle_basis": "Frozen public hint/extension/shebang/content precedence; exact interpreter names and selected literal env syntax",
+    "source_sha256": "c549c7cbdf94395322c3c4601f93ce67cb802176249cabeaddb691918d5d8a65",
+    "selected_filename": "control.js"
+  }
+];
+
+  const uncertainty = "The language could not be detected with strong confidence.";
+  function checkFile(report, item) {
+    const language = item.family === "markdown" ? "markdown" : item.expected.language;
+    assert(report.language === language, "I10 file report selected an unexpected language");
+    assert(report.engine_fingerprint.value === engineDigest && report.engine_fingerprint.source === "packaged-verified", "I10 file report lost verified provenance");
+    if (language === "markdown") {
+      assert(report.verdict_class === "documentation" && report.overall_applicable === false, "Markdown acquired a code authorship aggregate");
+      assert(report.warnings.some(warning => warning.startsWith("Markdown scope:")), "Markdown report lost its finite extraction qualification");
+      const fence = report.metrics.find(metric => metric.name === "markdown_code_fence_density");
+      const link = report.metrics.find(metric => metric.name === "markdown_link_density");
+      assert(fence.detail.includes(`code_fence_blocks=${item.expected.fences},`), "Markdown report lost exact fence count");
+      assert(link.detail.startsWith(`links=${item.expected.links},`), "Markdown report lost exact link count");
+      assert(report.metrics.filter(metric => metric.name.startsWith("markdown_")).every(metric => metric.contributes_to_overall === false), "Markdown feature entered code aggregate");
+    }
+    assert(report.warnings.includes(uncertainty) === (language === "unknown"), "Language uncertainty was lost or fabricated");
+    return language;
+  }
+  async function download(id, name, result) {
+    fs.rmSync(downloads, {recursive:true, force:true}); fs.mkdirSync(downloads, {recursive:true});
+    await cdp.send("Browser.setDownloadBehavior", {behavior:"allow", downloadPath:downloads});
+    await evaluate(cdp, id, "document.getElementById('exportJsonBtn').click(); document.getElementById('exportTextBtn').click()");
+    const jsonPath = path.join(downloads, `${name}.json`), textPath = path.join(downloads, `${name}.txt`);
+    await Promise.all([waitForFile(jsonPath, 60000), waitForFile(textPath, 60000)]);
+    assert(JSON.stringify(JSON.parse(fs.readFileSync(jsonPath, "utf8"))) === JSON.stringify(result.report), "I10 JSON download differs from accepted report");
+    assert(fs.readFileSync(textPath, "utf8") === result.text, "I10 text download differs from accepted report");
+  }
+  fixtureState.reset();
+  let page = null;
+  try {
+    for (const item of fileCases) {
+      await withinCase(`main-file-${item.id}-json-text-downloads`, [item.family === "markdown" ? "A02-F015" : "A02-F018"], "public-file-ui-worker-report-exports", async () => {
+        if (!page) {
+          page = await createSession(cdp, `${baseUrl}/app/index.html?documents-i10-file=1`);
+          await waitForExpression(cdp, page.sessionId, "appState.workerSession?.isReady()", 60000);
+        }
+        const id = page.sessionId;
+        await evaluate(cdp, id, `(() => {
+          const transfer = new DataTransfer();
+          transfer.items.add(new File([${JSON.stringify(item.source)}], ${JSON.stringify(item.filename)}, {type:'text/plain'}));
+          const input = document.getElementById('fileInput'); input.files = transfer.files;
+          input.dispatchEvent(new Event('change', {bubbles:true}));
+        })()`);
+        await waitForExpression(cdp, id, "appState.loadingInput === false && !document.getElementById('analyzeBtn').disabled", 60000);
+        const before = await evaluate(cdp, id, "({detected:appState.detectedLanguage, label:document.getElementById('langMeta').textContent, source:document.getElementById('editor').value})");
+        const expectedLanguage = item.family === "markdown" ? "markdown" : item.expected.language;
+        assert(before.source === item.source && before.detected === expectedLanguage, "I10 real File source or preview language differs");
+        const labels = {markdown:"Markdown", unknown:"Unknown", javascript:"JavaScript"};
+        assert(before.label === `Detected language: ${labels[expectedLanguage]}`, "I10 displayed language is inconsistent with the fixed oracle");
+        await evaluate(cdp, id, "document.getElementById('analyzeBtn').click()");
+        await waitForExpression(cdp, id, "document.getElementById('statusText').textContent === 'Analysis completed.'", 60000);
+        const result = await evaluate(cdp, id, "({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value, warnings:document.getElementById('warningsList').textContent, score:document.getElementById('scoreValue').textContent})");
+        const language = checkFile(result.report, item);
+        if (language === "markdown") {
+          assert(result.score === "N/A", "Markdown UI displays an applicable code score");
+          assert(result.text.includes("Markdown scope:") && result.warnings.includes("Markdown scope:"), "Markdown scope is missing from visible warnings or text report");
+        }
+        if (language === "unknown") assert(result.text.includes(uncertainty) && result.warnings.includes(uncertainty), "Ambiguity missing from visible warning or text report");
+        const name = item.filename.replace(/\.[^.]+$/, "");
+        await download(id, name, result);
+        assertSingleVerifiedRequests(fixtureState);
+        return {source_sha256:item.source_sha256, filename:item.filename, language, preview:before.label, warnings:result.report.warnings,
+          verdict_class:result.report.verdict_class, overall_applicable:result.report.overall_applicable, engine_sha256:engineDigest};
+      });
+    }
+  } finally { if (page) await closeSession(cdp, page); }
+  for (const compact of [false, true]) {
+    fixtureState.reset();
+    let projectPage = null;
+    const mode = compact ? "compact-project" : "main-project";
+    const active = compact ? "state" : "appState", button = compact ? "analyseBtn" : "analyzeBtn", status = compact ? "status" : "statusText";
+    try {
+      await withinCase(`${mode}-default-documentation-exclusions-downloads`, ["A02-F015", "A02-F018"], "public-project-ui-default-exclusions-exports", async () => {
+        projectPage = await createSession(cdp, `${baseUrl}/app/${compact ? "project" : "index"}.html?documents-i10-project=1`);
+        const id = projectPage.sessionId;
+        if (!compact) await waitForExpression(cdp, id, "appState.workerSession?.isReady()", 60000);
+        await evaluate(cdp, id, `(() => {
+          const transfer = new DataTransfer();
+          for (const item of ${JSON.stringify(projectCases)}) {
+            const file = new File([item.source], item.selected_filename, {type:'text/plain'});
+            Object.defineProperty(file, '_codeprobeRelativePath', {value:'documents/' + item.selected_filename});
+            transfer.items.add(file);
+          }
+          const input = document.getElementById('folderInput'); input.files = transfer.files;
+          input.dispatchEvent(new Event('change', {bubbles:true}));
+        })()`);
+        await waitForExpression(cdp, id, `${active}.loadingInput === false && !document.getElementById('${button}').disabled`, 60000);
+        await evaluate(cdp, id, `document.getElementById('${button}').click()`);
+        await waitForExpression(cdp, id, `document.getElementById('${status}').textContent === 'Project analysis completed.'`, 60000);
+        const result = await evaluate(cdp, id, "({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value, dom:document.body.textContent})");
+        assert(result.report.engine_fingerprint.value === engineDigest && result.report.included_file_count === 1 && result.report.excluded_file_count === 2, "Default project UI admission changed");
+        assert(result.report.included_files[0].language === "javascript", "Default project lost extension-based code control");
+        for (const name of ["fixture.md", "sample.txt"]) {
+          assert(result.report.excluded_files.some(item => item.path.endsWith(name) && item.reason === "documentation_excluded_by_default"), "Default documentation exclusion missing");
+          assert(result.text.includes(name), "Project text lost excluded documentation path");
+        }
+        assert(result.dom.includes("Excluded files: 2."), "Project UI hides its exclusion warning");
+        await download(id, compact ? "documents" : "selected-files", result);
+        assertSingleVerifiedRequests(fixtureState);
+        return {included:1, excluded:result.report.excluded_files, source_cases:projectCases.map(item => ({case:item.id, source_sha256:item.source_sha256, selected_filename:item.selected_filename})), engine_sha256:engineDigest};
+      });
+      await withinCase(`${mode}-worker-explicit-documentation-opt-in`, ["A02-F015", "A02-F018"], "public-worker-project-api-explicit-opt-in", async () => {
+        const id = projectPage.sessionId;
+        const payload = await evaluate(cdp, id, compact ? "state.payload" : "appState.projectPayload");
+        payload.include_documentation = true;
+        const result = await evaluate(cdp, id, `${active}.workerSession.analyse('project', ${JSON.stringify(payload)})`);
+        const report = result.report;
+        assert(report.engine_fingerprint.value === engineDigest && report.included_file_count === 3 && report.excluded_file_count === 0, "Explicit worker documentation opt-in did not admit exact files");
+        const document = report.included_files.find(item => item.path.endsWith("fixture.md"));
+        const ambiguous = report.included_files.find(item => item.path.endsWith("sample.txt"));
+        assert(document && ambiguous, "Explicit opt-in member inventory differs");
+        checkFile(document, projectCases[0]); checkFile(ambiguous, projectCases[1]);
+        assert(report.warnings.some(item => item.includes("sample.txt") && item.includes(uncertainty)), "Explicit project warning lacks uncertain member path");
+        assert(report.warnings.some(item => item.includes("fixture.md") && item.includes("Markdown scope:")), "Explicit project warning lacks Markdown member qualification");
+        assert(result.text.includes("fixture.md") && result.text.includes("Markdown scope:"), "Explicit project text lost Markdown scope");
+        assert(result.text.includes("sample.txt") && result.text.includes(uncertainty), "Explicit project text lost language uncertainty");
+        assert(JSON.stringify(report) === JSON.stringify(result.project_report), "Explicit worker project report aliases differ");
+        assertSingleVerifiedRequests(fixtureState);
+        return {included:3, excluded:0, languages:report.included_files.map(item => ({path:item.path, language:item.language, verdict_class:item.verdict_class, overall_applicable:item.overall_applicable})), warnings:report.warnings,
+          engine_sha256:engineDigest, qualification:"Public worker API with explicit include_documentation=true, using actual File-decoded payload. This is not an available UI opt-in control or a UI download observation."};
+      });
+    } finally { if (projectPage) await closeSession(cdp, projectPage); }
+  }
+  console.log("[PASS] browser-documents-i10: " + JSON.stringify({engine_sha256:engineDigest, runtime:actualRuntime, ownership, observations,
+    qualification:"Two fixed context groups ran in the owned authenticated worker interpreter. Five main-file cases used real File/DOM labels, public worker transport and JSON/text downloads. Both project UIs retained default documentation exclusions and downloaded exact reports; separate public worker calls explicitly opted in documentation. Source remained data; no fenced programme or shebang interpreter was executed. Finite extraction rules do not establish complete CommonMark conformance or authorship accuracy."}));
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -2188,6 +2518,7 @@ async function main() {
     await testPythonStructureContracts(cdp, baseUrl, downloads, state, engineDigest, parserFixtures);
     await testCLikeStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
     await testScriptStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
+    await testDocumentLanguageContracts(cdp, baseUrl, downloads, state, engineDigest);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);

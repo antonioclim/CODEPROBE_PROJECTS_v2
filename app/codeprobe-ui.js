@@ -295,6 +295,31 @@
       return "fragment" + (extensionMap[lang] || ".txt");
     }
 
+    function detectShebangLanguage(code) {
+      // Mirror the runtime's literal interpreter subset for the local preview.
+      // The directive is data; no command, quote or environment is evaluated.
+      const firstLine = String(code || "").split(/[\r\n]/, 1)[0];
+      if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(firstLine)) return null;
+      const directive = /^#![ \t]*(\/[^ \t"'\\]+)(?:[ \t]+([^\r\n]*))?$/.exec(firstLine);
+      if (!directive) return null;
+      const interpreter = directive[1], components = interpreter.slice(1).split("/");
+      if (components.some(component => !component || component === "." || component === "..")) return null;
+      let name = components[components.length - 1];
+      if (interpreter === "/usr/bin/env") {
+        const argumentsText = String(directive[2] || "").replace(/^[ \t]+|[ \t]+$/g, "");
+        if (!argumentsText || /['"\\$]/.test(argumentsText)) return null;
+        const words = argumentsText.split(/[ \t]+/);
+        if (words[0] === "-S") words.shift();
+        else if (words.length !== 1) return null;
+        if (!words.length) return null;
+        name = words[0];
+      }
+      if (/^python(?:[0-9]+(?:\.[0-9]+)*)?$/.test(name)) return "python";
+      if (["node", "nodejs", "deno"].includes(name)) return "javascript";
+      if (["sh", "bash", "zsh", "ksh"].includes(name)) return "bash";
+      return null;
+    }
+
     function detectLanguage(filename, code, hint = null) {
       const supported = ["python", "javascript", "bash", "c", "cpp", "csharp", "markdown"];
       if (hint && supported.includes(hint)) {
@@ -315,10 +340,8 @@
         return cppHeaderHits >= 2 ? "cpp" : "c";
       }
 
-      const firstLine = code ? String(code).split("\n", 1)[0] : "";
-      if (firstLine.includes("python")) return "python";
-      if (firstLine.includes("node") || firstLine.includes("deno")) return "javascript";
-      if (firstLine.includes("bash") || firstLine.startsWith("#!/bin/sh") || firstLine.includes("/sh")) return "bash";
+      const shebangLanguage = detectShebangLanguage(code);
+      if (shebangLanguage) return shebangLanguage;
 
       const markdownHits =
         (code.match(/(^|\n)#{1,6}\s+\S/g) || []).length +
@@ -326,7 +349,7 @@
         (code.match(/\[[^\]]+\]\([^)]+\)/g) || []).length;
       const pyHits = (code.match(/(^|\n)\s*(?:def |class |import |from |if __name__ == )/g) || []).length;
       const jsHits = (code.match(/(^|\n)\s*(?:function |const |let |var |import |export |class )/g) || []).length;
-      const shHits = (code.match(/(^|\n)\s*(?:#!\/bin\/(?:ba)?sh|if \[|for \w+ in|echo |export )/g) || []).length;
+      const shHits = (code.match(/(^|\n)\s*(?:if \[|for \w+ in|echo |export )/g) || []).length;
       const csharpHits =
         (code.match(/\busing\s+[A-Z][A-Za-z0-9_.]*\s*;/g) || []).length +
         (code.match(/\bnamespace\s+[A-Z][A-Za-z0-9_.]*/g) || []).length +

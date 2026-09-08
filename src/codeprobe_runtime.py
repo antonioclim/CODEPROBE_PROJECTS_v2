@@ -1589,6 +1589,42 @@ def identifier_style_kind(identifier: str) -> str:
     return "other"
 
 
+def _interpreter_language(name: str) -> str:
+    """Recognise literal interpreter names without looking up an executable."""
+    if re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)*)?", name):
+        return "python"
+    if name in {"node", "nodejs", "deno"}:
+        return "javascript"
+    if name in {"sh", "bash", "zsh", "ksh"}:
+        return "bash"
+    return ""
+
+
+def _shebang_language(code: str) -> str:
+    """Read a finite first-line directive, not shell syntax or OS capability."""
+    first_line = re.split(r"[\r\n]", code, maxsplit=1)[0]
+    if any(ord(char) < 32 and char != "\t" or ord(char) == 127 for char in first_line):
+        return ""
+    directive = re.fullmatch(r"#![ \t]*(/[^ \t\"'\\]+)(?:[ \t]+(.*))?", first_line)
+    if not directive:
+        return ""
+    executable, arguments = directive.groups()
+    components = executable.split("/")[1:]
+    if any(part in {"", ".", ".."} for part in components):
+        return ""
+    if executable == "/usr/bin/env":
+        arguments = arguments or ""
+        if any(char in arguments for char in "\"'\\$"):
+            return ""
+        words = re.split(r"[ \t]+", arguments.strip(" \t"))
+        if words[0] == "-S":
+            words = words[1:]
+        elif len(words) != 1:
+            return ""
+        return _interpreter_language(words[0]) if words else ""
+    return _interpreter_language(components[-1])
+
+
 def detect_language(filename: str, code: str, hint: Optional[str] = None) -> str:
     if hint in SUPPORTED_LANGUAGES:
         return str(hint)
@@ -1613,13 +1649,9 @@ def detect_language(filename: str, code: str, hint: Optional[str] = None) -> str
     if extension in MARKDOWN_EXTENSIONS:
         return "markdown"
 
-    first_line = code.split("\n", 1)[0] if code else ""
-    if "python" in first_line:
-        return "python"
-    if "node" in first_line or "deno" in first_line:
-        return "javascript"
-    if "bash" in first_line or first_line.startswith("#!/bin/sh") or "/sh" in first_line:
-        return "bash"
+    interpreter = _shebang_language(code)
+    if interpreter:
+        return interpreter
 
     scores = {
         "python": 0,
@@ -1632,7 +1664,7 @@ def detect_language(filename: str, code: str, hint: Optional[str] = None) -> str
     }
     scores["python"] += len(re.findall(r"(^|\n)\s*(?:def |class |import |from |if __name__ == )", code))
     scores["javascript"] += len(re.findall(r"(^|\n)\s*(?:function |const |let |var |import |export )", code))
-    scores["bash"] += len(re.findall(r"(^|\n)\s*(?:#!\/bin\/(?:ba)?sh|if \[|for \w+ in|echo |export )", code))
+    scores["bash"] += len(re.findall(r"(^|\n)\s*(?:if \[|for \w+ in|echo |export )", code))
     scores["c"] += len(re.findall(r"(^|\n)\s*#include\s*<[^>]+>|(^|\n)\s*(?:int|char|float|double|void)\s+\**\w+\s*\(", code))
     scores["c"] += len(re.findall(r"\b(?:printf|scanf|malloc|free)\s*\(", code))
     scores["cpp"] += len(re.findall(r"\b(?:namespace|template\s*<|std::|cout|cin|cerr|using\s+namespace|constexpr|typename)\b", code))
@@ -3504,38 +3536,150 @@ def approx_js_import_use_ratio(context: AnalysisContext) -> Optional[float]:
     return safe_div(len(bindings & used), len(bindings), default=0.0)
 
 
+MARKDOWN_REFERENCE_LABEL_LIMIT = 999
+MARKDOWN_LINK_DESTINATION = r"(?:<[^<>\n]*>|[^\s<>()]+)"
+MARKDOWN_LINK_TITLE = r'''(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?'''
+
+
+def _markdown_reference_label(label: str) -> str:
+    if len(label) > MARKDOWN_REFERENCE_LABEL_LIMIT:
+        return ""
+    return " ".join(label.split()).casefold()
+
+
+def _mask_markdown_code_spans(text: str) -> str:
+    """Mask matching backtick runs within one block without rescanning suffixes."""
+    runs: Dict[int, List[int]] = defaultdict(list)
+    for match in re.finditer(r"`+", text):
+        runs[match.end() - match.start()].append(match.start())
+    masked = list(text)
+    cursor = 0
+    while cursor < len(text):
+        if text[cursor] == "\\" and cursor + 1 < len(text) and re.match(r"[!-/:-@\[-`{-~]", text[cursor + 1]):
+            cursor += 2
+            continue
+        if text[cursor] != "`":
+            cursor += 1
+            continue
+        end = cursor + 1
+        while end < len(text) and text[end] == "`":
+            end += 1
+        width = end - cursor
+        positions = runs.get(width, [])
+        following = bisect_right(positions, cursor)
+        if following < len(positions):
+            end = positions[following] + width
+            for index in range(cursor, end):
+                if text[index] != "\n":
+                    masked[index] = " "
+        cursor = end
+    return "".join(masked)
+
+
+def _markdown_inline_features(text: str, references: Set[str]) -> Tuple[str, int]:
+    text = _mask_markdown_code_spans(text)
+    # Escaped punctuation cannot open a link or image after code-span masking.
+    text = re.sub(r"\\[!-/:-@\[-`{-~]", "  ", text)
+    pattern = (
+        r"(?P<image>!?)\[(?P<text>[^\[\]\n\\]*)\]"
+        rf"(?:\([ \t]*(?P<destination>{MARKDOWN_LINK_DESTINATION}|){MARKDOWN_LINK_TITLE}[ \t]*\)"
+        r"|\[(?P<reference>[^\[\]\n\\]*)\])?"
+    )
+    links = 0
+
+    def replace(match: re.Match) -> str:
+        nonlocal links
+        label = match.group("text")
+        reference = match.group("reference")
+        target = _markdown_reference_label(reference or label)
+        resolved = match.group("destination") is not None or bool(target and target in references)
+        if resolved:
+            links += int(not match.group("image"))
+            return label
+        return match.group(0)
+
+    plain = re.sub(pattern, replace, text)
+    return re.sub(r"[*_~>#-]", " ", plain), links
+
+
 def parse_markdown(code: str) -> MarkdownInfo:
+    """Extract top-level documentation features from a finite CommonMark subset.
+
+    Containers, lazy continuation, multiline setext text, nested link labels,
+    complex destinations, HTML and autolinks are not a complete parse. Fenced
+    content remains data and the heading tuple retains its ordinal field.
+    """
     info = MarkdownInfo()
-    lines = code.split("\n") if code else []
-    in_fence = False
-    fence_marker = ""
-    prose_lines: List[str] = []
+    lines = normalise_newlines(code).split("\n") if code else []
+    if lines and lines[-1] == "":
+        lines.pop()  # A final newline does not create another physical fence line.
+    fence = ""
+    blocks: List[str] = []
+    paragraph: List[str] = []
+    references: Set[str] = set()
+    definition = re.compile(
+        rf"^ {{0,3}}\[([^\[\]\n\\]{{1,{MARKDOWN_REFERENCE_LABEL_LIMIT}}})\]:[ \t]*"
+        rf"{MARKDOWN_LINK_DESTINATION}{MARKDOWN_LINK_TITLE}[ \t]*$"
+    )
+
+    def flush() -> None:
+        if paragraph:
+            blocks.append("\n".join(paragraph))
+            paragraph.clear()
+
     for line in lines:
-        stripped = line.rstrip()
-        fence_match = re.match(r"^\s*(```+|~~~+)", stripped)
-        if fence_match:
-            marker = fence_match.group(1)
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker[0]
-                info.code_fence_count += 1
-            elif marker[0] == fence_marker:
-                in_fence = False
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            info.code_fence_line_count += 1
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) and not marker.group(2).strip(" \t"):
+                fence = ""
+            continue
+        if marker and (marker.group(1)[0] != "`" or "`" not in marker.group(2)):
+            flush()
+            fence = marker.group(1)
+            info.code_fence_count += 1
             info.code_fence_line_count += 1
             continue
-        if in_fence:
-            info.code_fence_line_count += 1
+        indentation = re.match(r"^[ \t]*", line).group(0)
+        if not line.strip() or len(indentation.expandtabs(4)) >= 4:
+            flush()
             continue
-        heading_match = re.match(r"^\s*(#{1,6})\s+(.+?)\s*$", stripped)
-        if heading_match:
-            info.headings.append((len(heading_match.group(1)), len(info.headings) + 1, heading_match.group(2)))
-        info.link_count += len(re.findall(r"\[[^\]]+\]\([^)]+\)", stripped))
-        plain = re.sub(r"\[[^\]]+\]\(([^)]+)\)", lambda m: m.group(0).split("](")[0][1:], stripped)
-        plain = re.sub(r"`[^`]+`", " ", plain)
-        plain = re.sub(r"[*_~>#-]", " ", plain)
+        heading = re.match(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?)|)[ \t]*$", line)
+        if heading:
+            flush()
+            title = re.sub(r"(?:^|[ \t]+)#+[ \t]*$", "", heading.group(2) or "").strip(" \t")
+            info.headings.append((len(heading.group(1)), len(info.headings) + 1, title))
+            blocks.append(title)
+            continue
+        reference = definition.fullmatch(line) if not paragraph else None
+        if reference:
+            label = _markdown_reference_label(reference.group(1))
+            if label:
+                references.add(label)
+                continue
+        underline = re.fullmatch(r" {0,3}(=+|-+)[ \t]*", line)
+        if underline and len(paragraph) == 1:
+            level = 1 if underline.group(1)[0] == "=" else 2
+            info.headings.append((level, len(info.headings) + 1, paragraph[0].strip()))
+            flush()
+            continue
+        if re.fullmatch(r" {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})", line):
+            flush()
+            continue
+        if re.match(r"^ {0,3}(?:>|[-+*][ \t]|[0-9]+[.)][ \t])", line):
+            flush()
+            blocks.append(line)
+            continue
+        paragraph.append(line)
+    flush()
+
+    prose: List[str] = []
+    for block in blocks:
+        plain, links = _markdown_inline_features(block, references)
+        info.link_count += links
         if plain.strip():
-            prose_lines.append(plain)
-    info.prose_text = "\n".join(prose_lines)
+            prose.append(plain)
+    info.prose_text = "\n".join(prose)
     info.prose_word_count = len(re.findall(r"\b[A-Za-z][A-Za-z'-]*\b", info.prose_text))
     return info
 
@@ -4275,6 +4419,7 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
         scan = scan_markdown(normalised_code)
         identifiers, operators, operands = generic_tokens_and_identifiers(scan.cleaned_code, language)
         markdown_info = parse_markdown(normalised_code)
+        notes.append("Markdown scope: top-level fences, ATX and single-line setext headings, matching code spans and flat inline/reference links form a finite CommonMark 0.31.2 subset. Containers, lazy continuation, nested links, complex destinations, HTML and autolinks are not fully parsed; prose word counts retain the ASCII-oriented vocabulary. Fenced code is documentation data only.")
     else:
         scan = ScanResult(normalised_code, set(), {index for index, line in enumerate(lines, start=1) if line.strip()}, [], "")
         identifiers, operators, operands = generic_tokens_and_identifiers(normalised_code, "generic")
@@ -6439,7 +6584,8 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             hint = None
         report = engine.analyse(candidate.text, path, language_hint=hint, profile=profile)
         warnings.extend(f"{path}: {warning}" for warning in report.warnings
-                        if warning.startswith(("Tokenizer warning:", "AST warning:", "C-family scope:", "C-family extraction warning:", "C-family declaration warning:", "JavaScript scope:", "JavaScript warning:", "Bash scope:", "Bash warning:")))
+                        if warning.startswith(("Tokenizer warning:", "AST warning:", "C-family scope:", "C-family extraction warning:", "C-family declaration warning:", "JavaScript scope:", "JavaScript warning:", "Bash scope:", "Bash warning:", "Markdown scope:"))
+                        or warning == "The language could not be detected with strong confidence.")
         report.intake_provenance = candidate.intake_provenance
         for warning in candidate.intake_provenance.get("warnings", []):
             report.warnings.append(f"{candidate.intake_provenance['source']} intake: {warning}")

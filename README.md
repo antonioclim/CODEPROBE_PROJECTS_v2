@@ -41,11 +41,79 @@ This table follows the extension sets and language detector in [the runtime](src
 | **C#** / `csharp` | `.cs` | C# lexical and structural heuristics. No Roslyn/.NET compilation, dependency resolution or runtime execution. |
 | **Markdown** / `markdown` | `.md`, `.markdown` | Documentation metrics only. The overall AI-style code aggregate is not applicable. Fenced code is not recursively analysed as separate programmes. |
 
-Extension matching is case-insensitive. Auto detection also examines first-line/shebang and content cues for a pasted snippet or a single text file. **Project admission is extension-based first:** an extensionless script, `.txt` file or unsupported-language file does not become an ordinary project source merely because the single-file detector could guess its contents.
+Extension matching is case-insensitive. Auto detection uses the precedence and finite shebang subset below. **Project admission is extension-based first:** an extensionless script, `.txt` file or unsupported-language file does not become an ordinary project source merely because the single-file detector could guess its contents.
 
 For an ambiguous snippet, choose its actual supported language. For a mixed-language project, leave **Language = Auto** in the main interface; a forced language hint can be applied across its files. The compact project page uses per-file detection. In particular, `.h` classification is a heuristic, so inspect `language` in the report rather than assuming every header is C.
 
 There are no dedicated analysers for Java, Go, Rust, R, PHP, Ruby, Swift, Kotlin, SQL, PowerShell, HTML, CSS or notebook JSON in this version. A text box accepting pasted text, an unknown-language fallback or the application itself using HTML/CSS does **not** establish support for those languages. Not every metric applies to every supported language; inspect metric applicability and warnings.
+
+### Automatic language detection
+
+Single-file detection applies a supported explicit hint first, then the recognised
+case-insensitive extension, then a recognised first-line shebang, then the existing
+content heuristics. The `.h` extension retains its C/C++ content heuristic.
+Thus a `.md` file remains Markdown in Auto even if it contains a Python shebang;
+a supported explicit hint can override that extension in single-file mode.
+
+A shebang cue must start with `#!` at character zero of the first physical line,
+with optional spaces or tabs before an absolute interpreter path. Basenames are
+case-sensitive: `python`, `python` followed by ASCII version components such as
+`python3.12`, `node`, `nodejs`, `deno`, `sh`, `bash`, `zsh` and `ksh` are recognised.
+Empty, `.` and `..` path components and first-line ASCII control characters other than
+tabs are outside the subset.
+Direct interpreter arguments do not change that language cue; their validity is
+not checked. The exact `/usr/bin/env` path supports exactly one recognised
+interpreter basename, or `-S` followed by that basename and space/tab-separated
+arguments. The `env` subset excludes environment assignments, other `env` options, quotes,
+backslashes and variable expansion. It does not resolve PATH or establish that
+an interpreter exists. Operating systems and `env` implementations have wider
+and differing argument rules; see the [FreeBSD env manual](https://man.freebsd.org/cgi/man.cgi?query=env&sektion=1&format=html).
+
+Leading whitespace or a BOM before `#!`, a later quoted shebang, a lookalike name
+such as `python-tools`, or prose mentioning `python`, `node`, `deno` or `bash`
+does not establish a shebang cue in the supplied text. File intake can strip an
+encoding BOM before supplying decoded text; this differs from a raw API string
+whose BOM is still present. The detector then examines content; without
+a positive supported cue it returns `unknown` and preserves the language
+uncertainty warning in JSON/text, including path-qualified project warnings.
+This is a heuristic selection, not a confidence probability or syntax validation.
+No shebang interpreter or submitted source is executed.
+
+Project admission remains separate. The native `--include-documentation` option
+admits the documented text extensions for subsequent detection; it does not admit
+extensionless scripts. A supported code-language hint can force an admitted
+project member's analysis; a Markdown project hint is ignored so that members
+retain per-file detection. Both browser project routes retain their documented
+admission policy: documentation is excluded and neither project interface offers
+a documentation opt-in control. An API request enabling documentation is a
+separate route.
+
+### Markdown extraction boundaries
+
+Markdown supplies documentation context with a finite structural extractor.
+Its selected fence, heading, code-span and reference rules follow
+[CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/); this is not a complete
+CommonMark renderer or conformance claim.
+
+| Feature | CodeProbe extraction contract |
+|---|---|
+| Fenced blocks | Top-level openers have 0–3 leading spaces and at least three identical backticks or tildes. A closer uses the same character, is at least as long, has 0–3 leading spaces and only a space/tab suffix. Backtick opener information cannot contain a backtick. An unclosed block extends to document end. |
+| Indented code | Lines at four or more indentation columns are excluded from these documentation features; tabs use four-column stops. Complete paragraph/container indentation semantics are outside the subset. |
+| Headings | ATX headings and a single ordinary text line followed by a setext underline are recognised. Multiline setext paragraphs and nested container headings are outside the subset. |
+| Code spans | Matching equal-width backtick runs are masked before hyperlink and prose counting; supported spans can cross lines within a prose block. Unmatched runs remain literal text. |
+| Hyperlinks | Simple inline links and full, collapsed or shortcut references with same-line flat definitions at a paragraph boundary are counted once. Reference labels are limited to 999 characters, with whitespace collapsed and case-folded matching. Definitions and images are not hyperlink occurrences. |
+
+Nested labels or destinations, multiline reference definitions, container/lazy
+continuation rules, raw HTML and autolinks are not fully parsed; apparent syntax
+inside such forms can still affect counts. The prose
+word/token measures retain their ASCII-oriented rules; they are not multilingual
+linguistic analysis. Read the `Markdown scope:` warning with the existing metric
+details. Single-file browser results and file JSON/text retain that qualification,
+as do documentation-enabled native/API project reports and exports.
+Markdown's overall code score remains N/A, and Markdown members do not contribute
+to a project code aggregate. Fenced source is neither executed nor recursively
+analysed as a programme. Correcting counts does not validate editorial preferences
+in the documentation metrics or establish authorship evidence.
 
 ### JavaScript and Bash extraction boundaries
 

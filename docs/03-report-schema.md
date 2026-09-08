@@ -14,7 +14,6 @@ A file analysis report has schema version `2.2.0` and includes at least:
   "app_version": "2.2.0",
   "filename": "main.py",
   "language": "python",
-  "detected_language": "python",
   "input_lines": 120,
   "input_sloc": 92,
   "overall_score": 0.31,
@@ -169,6 +168,81 @@ Bound calibrated Python analysis requires a successful AST parse, including
 project members. Calibration sample scoring enforces the same condition.
 Unbound diagnostic analysis retains its warning-bearing fallback. Runtime
 metadata are observations, not a universal cross-version equivalence guarantee.
+
+## Language detection and documentation admission
+
+The public `language` field retains the selected analysis
+family. It is not a probability estimate, interpreter availability check or
+proof that the source is syntactically valid. Single-file precedence is supported
+explicit hint, recognised case-insensitive extension, recognised first-line
+shebang, then content heuristics; the `.h` C/C++ heuristic is preserved.
+The [README detection subset](../README.md#automatic-language-detection) specifies
+the exact interpreter names and the deliberately limited `/usr/bin/env` forms.
+Unsupported shebang text falls through to content analysis without executing it.
+
+If no positive supported cue is found, the family is `unknown` and `warnings`
+retains `The language could not be detected with strong confidence.` File text
+includes the same warning. Project `included_files` retains each member's
+warning and promotes it with the member path to project `warnings`; project
+text consumes that promoted list. Content heuristics can still select a language
+after a rejected shebang cue, and their selection
+does not certify complete language recognition.
+
+Project admission precedes detection and remains extension-based. The optional
+Boolean `include_documentation` admits `.md`, `.markdown`, `.txt`, `.rst` and
+`.adoc`, subject to the ordinary ignore, path and resource limits. It does not
+admit an extensionless script. Plain text admission does not create a dedicated
+reStructuredText/AsciiDoc parser or guarantee documentation-only scoring: its
+contents are detected using the same rules. Project code-language hints can
+override an admitted member; Markdown/unknown project hints are discarded so
+that per-file detection continues. The native CLI exposes admission as
+`--include-documentation`. Both browser project interfaces exclude documentation
+and offer no documentation opt-in control; a direct worker/API request enabling
+documentation is a separate route. Detection operates on supplied text: file
+decoding may remove a BOM before detection, while a BOM retained in a raw API
+string prevents an offset-zero shebang cue.
+
+## Markdown documentation features
+
+Markdown retains `verdict_class` and `reading_class` = `documentation`,
+`overall_applicable: false` and the compatibility numeric placeholder
+`overall_score: 0.0`. Consumers must use applicability: that zero is not a
+measured absence of authorship concern. Markdown members have no contribution to
+the project code aggregate. A project containing only Markdown therefore has
+zero contributing files and an inapplicable project code score; its project
+reading follows the existing insufficient-evidence contract.
+
+Reports add a `Markdown scope:` warning describing the finite extractor. It is
+retained in file JSON/text and single-file browser results, and promoted with
+the member path in documentation-enabled native/API project JSON/text.
+The scope note qualifies extraction;
+it does not suppress the existing documentation metrics. An unclosed supported
+fence reaches document end and is not reported as a syntax failure. The same
+report/text JSON envelope and schema versions are retained.
+Promoted scope and detection warnings enter the existing project-confidence
+formula, so its evidence-coverage label can change independently of the concern
+score. This does not change weights or thresholds or establish statistical
+confidence or authorship accuracy.
+
+`markdown_code_fence_density.detail` records fence block/line counts and density;
+`markdown_link_density.detail` records hyperlink count, prose word count and
+density. Fence line count includes opener, payload and any accepted closer.
+Matched code spans, fenced/indented code and recognised reference definitions
+are excluded from hyperlink/prose extraction; images are not hyperlinks.
+`markdown_heading_structure.detail` describes the inventoried headings when
+enough headings make the metric applicable. Internal `MarkdownInfo.headings`
+tuples retain `(level, ordinal, text)`; the ordinal is not a physical line number
+and the internal heading/link inventory is not added to public JSON.
+
+The [README Markdown subset](../README.md#markdown-extraction-boundaries) declares
+fence delimiters, indentation, code-span matching, single-line setext and flat
+reference support, including the 999-character reference-label limit. Full
+CommonMark rendering, nested/container syntax, HTML, autolinks and multilingual
+linguistic analysis are not established. Correct counts do not independently
+validate existing editorial score preferences, thresholds or authorship claims.
+Fenced programmes remain data and are never executed or recursively added to
+the code aggregate. A new engine still requires a newly bound profile; Markdown
+does not bypass engine-identity checks merely because its code score is N/A.
 
 ## Python diagnostics and structural metadata
 

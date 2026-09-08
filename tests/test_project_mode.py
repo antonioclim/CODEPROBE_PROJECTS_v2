@@ -952,5 +952,62 @@ class PythonProjectDiagnosticTests(unittest.TestCase):
             self.assertEqual(list(root.glob(".codeprobe-report-*")), [])
 
 
+class DocumentationDetectionProjectTests(unittest.TestCase):
+    """Project admission and language selection remain distinct decisions."""
+
+    def test_optional_markdown_stays_outside_code_aggregation(self):
+        code = "def add(left, right):\n    result = left + right\n    return result\n\ndef subtract(left, right):\n    result = left - right\n    return result\n"
+        document = "# Notes\n\n```python\ndef phantom():\n    raise RuntimeError('never execute')\nphantom()\n```\n\nRead [guide](https://example.invalid).\n"
+        files = [{"path": "main.py", "content": code}, {"path": "notes.md", "content": document}]
+        baseline = api.analyse_project({"files": files})["report"]
+        self.assertEqual([item["path"] for item in baseline["files"]], ["main.py"])
+        self.assertEqual([(item["path"], item["reason"]) for item in baseline["excluded_files"]],
+                         [("notes.md", "documentation_excluded_by_default")])
+        for entry in (api.analyse_project, lambda item: json.loads(engine.codeprobe_analyze_project(json.dumps(item)))):
+            output = entry({"files": files, "include_documentation": True})
+            report = output["report"]
+            self.assertEqual(output["project_report"], report)
+            self.assertEqual([item["path"] for item in report["files"]], ["main.py", "notes.md"])
+            document_report = next(item for item in report["files"] if item["path"] == "notes.md")
+            self.assertEqual((document_report["language"], document_report["verdict_class"]), ("markdown", "documentation"))
+            self.assertFalse(document_report["overall_applicable"])
+            self.assertEqual(document_report["decision_score"], 0)
+            self.assertEqual(report["aggregation"]["contributors"], baseline["aggregation"]["contributors"])
+            self.assertEqual(report["decision_score"], baseline["decision_score"])
+            self.assertIn("code_fence_blocks=1", next(item for item in document_report["metrics"] if item["name"] == "markdown_code_fence_density")["detail"])
+            self.assertIn("notes.md", output["text"])
+
+    def test_admitted_prose_ambiguity_reaches_member_project_json_and_text(self):
+        note = "The language could not be detected with strong confidence."
+        files = [{"path": marker.replace("/", "") + ".txt", "content": "The " + marker + " tutorial explains syntax."}
+                 for marker in ("python", "node", "deno", "bash", "/shell")]
+        for entry in (api.analyse_project, lambda item: json.loads(engine.codeprobe_analyze_project(json.dumps(item)))):
+            output = entry({"files": files, "include_documentation": True})
+            report = output["report"]
+            self.assertEqual(report["included_file_count"], 5)
+            self.assertEqual(report["excluded_files"], [])
+            for member in report["files"]:
+                self.assertEqual(member["language"], "unknown")
+                self.assertIn(note, member["warnings"])
+                promoted = member["path"] + ": " + note
+                self.assertIn(promoted, report["warnings"])
+                self.assertIn(promoted, output["text"])
+
+    def test_mixed_selection_and_forced_hint_do_not_expand_project_admission(self):
+        files = [{"path": "source.PY", "content": "def add(value):\n    return value\n"},
+                 {"path": "module.JS", "content": "function add(value) { return value; }\n"},
+                 {"path": "directive.txt", "content": "#!/usr/bin/env node\nconsole.log(1);"},
+                 {"path": "script", "content": "#!/usr/bin/env node\nconsole.log(1);"}]
+        payload = {"files": files, "include_documentation": True}
+        report = api.analyse_project(payload)["report"]
+        self.assertEqual({item["path"]: item["language"] for item in report["files"]},
+                         {"source.PY": "python", "module.JS": "javascript", "directive.txt": "javascript"})
+        self.assertEqual([(item["path"], item["reason"]) for item in report["excluded_files"]],
+                         [("script", "unsupported_extension")])
+        forced = api.analyse_project({**payload, "language_hint": "bash"})["report"]
+        self.assertEqual({item["language"] for item in forced["files"]}, {"bash"})
+        self.assertEqual(forced["excluded_files"], report["excluded_files"])
+
+
 if __name__ == "__main__":
     unittest.main()

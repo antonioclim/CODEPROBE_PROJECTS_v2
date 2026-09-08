@@ -845,5 +845,175 @@ class BashLexicalContractTests(unittest.TestCase):
                     self.assertIn("BASH_SUBSTITUTION_LIMIT", context.tokenizer_error)
 
 
+class MarkdownExtractionContractTests(unittest.TestCase):
+    """Selected CommonMark forms are inspected as text, never rendered or run."""
+
+    def assert_features(self, source, fences, headings, links=0):
+        info = engine.parse_markdown(source)
+        self.assertEqual(info.code_fence_count, fences)
+        self.assertEqual([item[2] for item in info.headings], headings)
+        self.assertEqual(info.link_count, links)
+        return info
+
+    def test_fences_require_matching_character_length_and_whitespace_suffix(self):
+        cases = (
+            "````\n```\n# Hidden\n````\n# Visible\n",
+            "```\n``` not-a-close\n# Hidden\n```\n# Visible\n",
+            "```\n~~~\n# Hidden\n```\n# Visible\n",
+            "~~~ language\n# Hidden\n~~~~\n# Visible\n",
+            "```\n# Hidden\n``` \t\n# Visible\n",
+            "```\n    ```\n# Hidden\n```\n# Visible\n",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                self.assert_features(source, 1, ["Visible"])
+
+    def test_fence_indentation_distinguishes_zero_to_three_spaces_from_code(self):
+        for width in range(4):
+            pad = " " * width
+            with self.subTest(width=width):
+                self.assert_features(pad + "```js\n# Hidden\n" + pad + "```\n# Visible\n", 1, ["Visible"])
+        for pad in ("    ", "\t"):
+            with self.subTest(pad=pad):
+                self.assert_features(pad + "```\n" + pad + "# Hidden\n" + pad + "```\n# Visible\n", 0, ["Visible"])
+        self.assert_features("``\n# Visible\n~~\n", 0, ["Visible"])
+        self.assert_features("```js\n# Hidden\n[a link](https://example.invalid)\n", 1, [])
+
+    def test_code_spans_mask_links_with_exact_runs_across_prose_lines(self):
+        cases = (
+            ("`[not a link](https://example.invalid)`\n", 0),
+            ("`` literal ` [hidden](https://example.invalid) `` [shown](https://example.invalid)\n", 1),
+            ("`first\n[hidden](https://example.invalid)\nlast`\n", 0),
+            ("`unmatched [shown](https://example.invalid)\n", 1),
+            ("\\`literal [shown](https://example.invalid)\n", 1),
+        )
+        for source, links in cases:
+            with self.subTest(source=source):
+                self.assert_features(source, 0, [], links)
+
+    def test_single_line_setext_and_atx_headings_preserve_ordinals(self):
+        info = self.assert_features("Visible\n=======\n\nSecond\n---\n\n# Third ###\n", 0, ["Visible", "Second", "Third"])
+        self.assertEqual(info.headings, [(1, 1, "Visible"), (2, 2, "Second"), (1, 3, "Third")])
+        self.assert_features("---\n\nVisible prose\n", 0, [])
+        self.assert_features("    # Hidden\n\n# Visible\n", 0, ["Visible"])
+        for source in ("# ###\n", "# \t###\n"):
+            with self.subTest(empty_title=source):
+                self.assertEqual(self.assert_features(source, 0, [""]).headings, [(1, 1, "")])
+
+    def test_flat_reference_forms_resolve_definitions_and_exclude_images(self):
+        cases = (
+            ("[a link][ref]\n\n[ref]: https://example.invalid\n", 1),
+            ("[ref][]\n\n[ref]: https://example.invalid\n", 1),
+            ("[ref]\n\n[ref]: https://example.invalid\n", 1),
+            ("[a link][ REf   label ]\n\n[ref label]: https://example.invalid\n", 1),
+            ("[no target][missing]\n", 0),
+            ("`[hidden][ref]`\n\n[ref]: https://example.invalid\n", 0),
+            ("![alt](https://example.invalid/image.png)\n", 0),
+            ("![ref]\n\n[ref]: https://example.invalid/image.png\n", 0),
+        )
+        for source, links in cases:
+            with self.subTest(source=source):
+                self.assert_features(source, 0, [], links)
+        self.assert_features("[no target][ref]\n\n```\n[ref]: https://example.invalid\n```\n", 1, [], 0)
+
+    def test_reference_label_limit_has_fixed_character_endpoints(self):
+        for width in (998, 999, 1000):
+            label = "r" * width
+            source = "[link][" + label + "]\n\n[" + label + "]: https://example.invalid\n"
+            with self.subTest(width=width):
+                self.assert_features(source, 0, [], 1 if width <= 999 else 0)
+
+    def test_fenced_programme_remains_documentation_in_context_api_and_text(self):
+        source = "# Notes\n\n```python\ndef phantom():\n    raise RuntimeError('never execute')\nphantom()\n```\n\nRead [guide](https://example.invalid).\n"
+        with mock.patch.object(engine, "python_parse") as parse, mock.patch.object(engine, "scan_javascript") as javascript:
+            context = engine.build_analysis_context(source, "notes.md")
+            self.assertEqual(context.functions, [])
+            for entry in (api.analyse_file, lambda item: json.loads(engine.codeprobe_analyze(json.dumps(item)))):
+                output = entry({"filename": "notes.md", "code": source})
+                report = output["report"]
+                self.assertEqual((report["language"], report["verdict_class"]), ("markdown", "documentation"))
+                self.assertFalse(report["overall_applicable"])
+                self.assertEqual(report["decision_score"], 0)
+                self.assertTrue(all(not item["contributes_to_overall"] for item in report["metrics"] if item["group"] == "documentation"))
+                self.assertIn("code_fence_blocks=1", output["text"])
+                self.assertIn("links=1", output["text"])
+            parse.assert_not_called()
+            javascript.assert_not_called()
+
+
+class LanguageDetectionContractTests(unittest.TestCase):
+    """Interpreter names are literal cues; no shebang command is executed."""
+
+    def test_hint_extension_and_header_precedence_remains_explicit(self):
+        cases = (
+            ("README.md", "# Notes", "javascript", "javascript"),
+            ("sample.JS", "#!/usr/bin/python3\n", None, "javascript"),
+            ("sample.JS", "#!/usr/bin/python3\n", "bash", "bash"),
+            ("Component.TSX", "", None, "javascript"),
+            ("sample.MARKDOWN", "#!/usr/bin/python3\n", None, "markdown"),
+            ("sample.H", "int add(int value);\n", None, "c"),
+            ("sample.h", "namespace one {}\nnamespace two {}\n", None, "cpp"),
+        )
+        for filename, source, hint, language in cases:
+            with self.subTest(filename=filename, hint=hint):
+                self.assertEqual(engine.detect_language(filename, source, hint), language)
+
+    def test_direct_shebangs_use_exact_case_sensitive_interpreter_names(self):
+        for name, language in (("python", "python"), ("python3", "python"), ("python3.12", "python"),
+                               ("node", "javascript"), ("nodejs", "javascript"), ("deno", "javascript"),
+                               ("sh", "bash"), ("bash", "bash"), ("zsh", "bash"), ("ksh", "bash")):
+            with self.subTest(name=name):
+                self.assertEqual(engine.detect_language("sample.txt", "#!/usr/bin/" + name + "\n"), language)
+        for name in ("python-tools", "bashful", "node-helper", "denoising", "shadow", "Python3"):
+            with self.subTest(lookalike=name):
+                self.assertEqual(engine.detect_language("sample.txt", "#!/usr/bin/" + name + "\n"), "unknown")
+
+    def test_env_support_is_a_literal_subset_and_does_not_expand_arguments(self):
+        cases = (
+            ("#!/usr/bin/env python3.12\n", "python"),
+            ("#!/usr/bin/env -S node --trace-warnings\n", "javascript"),
+            ("#!/usr/bin/env\tpython3\r\n", "python"),
+            ("#! /usr/bin/python3 -I\n", "python"),
+            ("#!/usr/bin/env OPTION=x python3\n", "unknown"),
+            ("#!/usr/bin/env -i python3\n", "unknown"),
+            ('#!/usr/bin/env -S "python3 -I"\n', "unknown"),
+            ("#!/opt/bin/env python3\n", "unknown"),
+            ("#!/usr/bin/env python3 -I\n", "unknown"),
+            ("#!/usr/bin/env -S python3 ${ARGS}\n", "unknown"),
+        )
+        for source, language in cases:
+            with self.subTest(source=source):
+                self.assertEqual(engine.detect_language("sample.txt", source), language)
+
+    def test_only_an_offset_zero_first_line_can_supply_a_shebang_cue(self):
+        cases = (" #!/usr/bin/python3\n", "Plain prose\n#!/usr/bin/python3\n",
+                 "Plain prose\n#!/bin/sh\n", "\ufeff#!/usr/bin/python3\n", "#!python3\n")
+        for source in cases:
+            with self.subTest(source=source):
+                self.assertEqual(engine.detect_language("sample.txt", source), "unknown")
+
+    def test_prose_mentions_remain_ambiguous_in_context_json_and_text(self):
+        note = "The language could not be detected with strong confidence."
+        for marker in ("python", "node", "deno", "bash", "/shell"):
+            source = "The " + marker + " tutorial explains syntax."
+            with self.subTest(marker=marker):
+                context = engine.build_analysis_context(source, "sample.txt")
+                self.assertEqual(context.language, "unknown")
+                self.assertIn(note, context.notes)
+                for entry in (api.analyse_file, lambda item: json.loads(engine.codeprobe_analyze(json.dumps(item)))):
+                    output = entry({"filename": "sample.txt", "code": source})
+                    self.assertEqual(output["report"]["language"], "unknown")
+                    self.assertIn(note, output["report"]["warnings"])
+                    self.assertIn(note, output["text"])
+
+    def test_content_scoring_continues_after_a_plain_interpreter_mention(self):
+        cases = (("def add(value):\n    return value\n", "python"),
+                 ("function add(value) { return value; }\n", "javascript"),
+                 ("The python tutorial explains syntax.\nfunction add(value) { return value; }\n", "javascript"))
+        for source, language in cases:
+            with self.subTest(source=source):
+                self.assertEqual(engine.detect_language("sample.txt", source), language)
+
+
 if __name__ == "__main__":
     unittest.main()
