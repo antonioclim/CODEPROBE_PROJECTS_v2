@@ -47,6 +47,74 @@ For an ambiguous snippet, choose its actual supported language. For a mixed-lang
 
 There are no dedicated analysers for Java, Go, Rust, R, PHP, Ruby, Swift, Kotlin, SQL, PowerShell, HTML, CSS or notebook JSON in this version. A text box accepting pasted text, an unknown-language fallback or the application itself using HTML/CSS does **not** establish support for those languages. Not every metric applies to every supported language; inspect metric applicability and warnings.
 
+### C, C++ and C# extraction boundaries
+
+These families use a bounded static extractor. Ordinary named functions and
+methods with brace-delimited bodies can be inventoried; an omitted function is
+not evidence that no function exists. Operator overloads, C# expression-bodied
+members and headers exceeding **800 characters** remain outside that inventory;
+C# lambda arrows also qualify the function inventory.
+The header budget starts at its first non-whitespace character and includes
+whitespace immediately before the opening `{`. Recognised omissions produce
+extraction warnings, and metrics requiring a complete function inventory become
+unavailable. The extractor does not expand macros or resolve conditional
+compilation, types, includes or dependencies.
+
+C/C++ comment masking recognises immediate backslash/newline continuations,
+including split comment delimiters, while retaining physical line coordinates.
+It preserves the C++ raw-string exception rather than splicing raw content.
+Splices in ordinary code tokens and C++ splices with intervening spaces or tabs
+are diagnosed as outside the supported subset. The language-level distinction is
+defined in [C translation phases](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf)
+and [C++ raw-string tokenisation](https://eel.is/c++draft/lex.pptoken).
+
+C# masking recognises ordinary, verbatim, raw and interpolated strings, including
+nested strings within interpolation expressions. Raw quote delimiters are bounded
+to **3–16 quotes**; active interpolation expressions to **16 levels**, with
+expression delimiter nesting bounded to **32** and raw interpolation prefixes
+to **16 dollar signs**. Raw opening-brace runs longer than the dollar-prefix
+width and unparenthesised interpolation format/conditional suffixes introduced
+by `:` are diagnosed as outside this subset. The whole interpolated literal
+is masked, including its expressions: identifiers and branches inside those
+expressions do not contribute structural features. This deliberate omission is
+reported. Unterminated or mismatched delimiters and exceeded lexical bounds
+produce warnings and suppress unsafe function extraction. These are lexical
+boundaries, not verification of C# string values, indentation rules or compilation.
+See [C# raw strings](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/tokens/raw-string)
+and [interpolation](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/tokens/interpolated).
+
+Identifier extraction retains source spelling. Its Unicode subset admits `_`
+and categories `Lu`, `Ll`, `Lt`, `Lm`, `Lo` and `Nl` initially, adding `Mn`, `Mc`,
+`Nd` and `Pc` for subsequent characters. C# verbatim spelling such as `@class`
+remains an identifier. Unicode escapes and other categories receive a diagnostic;
+names are not silently normalised, stripped or replaced by a suffix. This is a
+lexical inventory, not semantic name resolution: for example, preserving `@name`
+and `name` does not establish two different C# bindings. The category database
+belongs to the executing Python runtime. See the
+[C# identifier rules](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/language-specification/lexical-structure#643-identifiers).
+
+Local declaration extraction separates the declared name from its initialiser:
+`int a = x < y, b = 2;` declares `a` and `b`, not `y`. It accepts ordinary multiline
+declarations and simple typedef aliases from preceding file-scope declarations
+in the same file or from the inventoried function's lexical scopes. Parameters
+and local objects can shadow those aliases. Each stripped logical statement is
+bounded to **4,096 characters** before its semicolon and delimiter nesting to
+**32**. Separate limits of **64 accepted typedef declarations** apply at file
+scope and within each function, including nested scopes; repeated declarations
+count towards the limit. Aliases are not imported from another function or file.
+Numeric array extents used by the size proxy are limited to **nine ASCII decimal
+digits**; longer digit sequences are diagnosed and extent expressions are not
+evaluated. Complex or excessive declarations are qualified rather than guessed.
+Dependent register-pressure, stack-depth and memory-access features
+remain source-level proxies, not measurements of compiler allocation or runtime
+memory use.
+
+Read `warnings` alongside each metric's `applicable`, `detail` and `explanation`.
+File and project JSON/text retain the diagnostics; projects also identify the
+affected member path, and both browser interfaces display project warnings.
+[Report schema notes](docs/03-report-schema.md#c-c-and-c-diagnostics) describe the
+warning classes and their effect on applicability.
+
 ## Documents, databases and other file types
 
 **Three roles must be kept separate:** a document shipped with the kit, a file admitted as analysis input and a configuration/report format. A format's presence in the repository does not mean the engine can read its contents as a document or dataset.
@@ -234,6 +302,13 @@ The paths above are illustrative. Start from [the manifest templates](calibratio
 Scoring mode, effective metric configuration and engine identity are bound before fitting/evaluation and checked on application. Selection uses the fit partition; the holdout is not used to tune the threshold. An unmet fit target produces a **non-operational diagnostic profile**, refused on application. Successful writing of diagnostics can return exit 0; inspect `operational` and `operational_reason` instead of inferring feasibility from the exit code.
 
 Python calibration requires successful AST parsing, including relevant project members. A native interpreter accepting newer syntax does not make that syntax parsable by Pyodide's interpreter. Runtime metadata do not certify universal cross-version replay. Old unbound profiles remain provisional and must not be relabelled as verified replay contracts.
+
+C-family calibration requires available lexical, function and declaration
+features within the [documented subset](#c-c-and-c-extraction-boundaries), both
+when scoring corpus samples and when applying a bound profile. An unresolved
+feature issue aborts sample analysis or bound application; an ordinary scope
+qualification alone does not. Re-fitting uses the actual source samples and
+engine identity, not edited fingerprint fields in an older profile.
 
 Fresh opaque sample/group identifiers are assigned for export after partitioning and fitting. They do not anonymise scores, labels, row ordering or group sizes. See [calibration guide](docs/06-calibration-guide.md) and [contract reconciliation](docs/22-contract-reconciliation.md).
 

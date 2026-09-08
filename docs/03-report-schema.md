@@ -296,6 +296,91 @@ for the whole parser or browser. Invalid input remains diagnostic fallback;
 [the tokenizer documentation](https://docs.python.org/3/library/tokenize.html)
 does not promise stable tokenisation of syntactically invalid Python.
 
+## C, C++ and C# diagnostics
+
+The existing JSON envelope and report schema versions remain unchanged. These
+families add diagnostic strings to `warnings`, with the following prefixes:
+
+| Prefix | Meaning and interpretation |
+|---|---|
+| `C-family scope:` | The finite extraction contract applies. It identifies excluded forms, including structural features inside C# interpolation expressions. This is a qualification, not a compiler diagnosis. |
+| `Tokenizer warning: C-family` | A detected lexical problem prevents a safe structural inventory, for example an unterminated literal, mismatched raw delimiter, excessive nesting or an identifier form outside the admitted subset. Function extraction is suppressed for the file, and dependent metrics are unavailable. |
+| `C-family extraction warning:` | A recognised function form, signature or file-scope alias context exceeds the extraction subset. Ordinary supported functions can remain inventoried, but metrics requiring a complete inventory are unavailable. |
+| `C-family declaration warning:` | A declaration or local alias cannot be resolved within the bounded declaration subset. Register-pressure and stack-depth proxies are unavailable. |
+
+File JSON and text retain these warnings. Project JSON retains them in each
+member's `included_files` entry and promotes them to project `warnings` with the
+member path. Project text and both browser interfaces consume that promoted list.
+The native project CLI uses the same project report and text formatter; the
+Python API and browser worker retain their existing report/text envelopes.
+A completed operation means that a diagnostic report was produced, not that
+the source compiled or its inventory is complete.
+
+Applying a bound calibration profile requires available C-family lexical,
+function and declaration features within this subset, including every admitted
+project member. A recorded issue in any of those features raises `ValueError`
+before a complete report envelope is returned. A scope message alone does not
+trigger that refusal. Unbound analysis can retain a qualified partial report;
+it is not evidence that the same input is accepted under a bound profile.
+The optional Boolean request field `require_c_family_features` enforces the
+same availability requirement without supplying a bound profile. Calibration
+sample analysis sets this field for both file and project samples; a refusal
+is recorded as a sample error and aborts profile preparation. Its default is
+false for unbound diagnostic analysis, and a false value cannot override the
+requirement imposed by a bound profile.
+
+Consumers must read `applicable`, `detail` and `explanation` together. An
+unavailable metric is not a measured zero. A remaining applicable file or project
+score uses the features that remain applicable; it does not reinstate omitted
+structural evidence. The main browser's low-level quality card includes only
+applicable memory proxies and displays N/A when none apply.
+
+With lexical safety unavailable, only `line_length_uniformity`,
+`blank_line_regularity` and `indentation_consistency` remain eligible; the file
+aggregate is N/A because fewer than four contributing metrics can remain.
+Function-extraction issues make `function_length`, `cyclomatic_complexity`,
+`function_complexity_uniformity`, `register_pressure`, `stack_frame_depth`,
+`redundant_memory_access` and `code_elegance` unavailable. Declaration issues
+make `register_pressure` and `stack_frame_depth` unavailable. A scope message
+alone does not suppress metrics. These rules preserve existing weights and
+thresholds. Promoted warnings also enter the existing project-confidence
+calculation, so the coverage label can change while the concern score stays
+the same.
+
+The internal context retains `c_family_lexically_safe`,
+`c_family_function_issues` and `c_family_declaration_issues`. Its functions,
+parameters and declaration names are extraction metadata; this change does not
+add a public JSON inventory of those objects.
+Physical line coordinates refer to the newline-normalised source. Comment and
+literal masking preserves their positions, including C/C++ continued comments
+and C++ raw strings. This does not imply full preprocessing or macro expansion.
+
+| Extraction boundary | Exact bound or qualification |
+|---|---|
+| Function header | 800 characters from the first non-whitespace character through whitespace before the body-opening `{`; a truncated suffix is not accepted as a complete header. |
+| Function forms | Ordinary named functions/methods with brace-delimited bodies; operator overloads and C# expression-bodied members remain qualified omissions. C# lambda arrows also qualify the inventory. |
+| C# raw delimiter | 3–16 quote characters; malformed or excessive delimiters are diagnostic. |
+| C# interpolation | At most 16 active interpolation expressions, counting the outer expression as one; expression delimiter nesting is bounded to 32 and raw prefix width to 16 dollar signs. Entire interpolated literals, including their expression contents, are masked. Raw opening-brace runs longer than the prefix width and unparenthesised `:` format/conditional suffixes are diagnosed as unsupported. |
+| Logical declaration | At most 4,096 characters after stripping surrounding whitespace and before the semicolon; delimiter nesting is bounded to 32. |
+| Numeric array extent | At most nine ASCII decimal digits for the size proxy; longer or non-ASCII digit sequences are diagnosed. Extent expressions are not evaluated and retain a variable-extent proxy classification. |
+| Typedef inventory | Separate limits of 64 accepted typedef declarations at file scope and within each inventoried function, including nested scopes; repeated declarations count towards the limit. Only preceding simple file-scope aliases in the same file are inherited. Parameters/local objects can shadow aliases and scope exit removes local visibility. Aliases from other functions/files are not used. |
+| Identifier spelling | Start: `_`, `Lu`, `Ll`, `Lt`, `Lm`, `Lo`, `Nl`; continuation adds `Mn`, `Mc`, `Nd`, `Pc`. A leading `@` is recognised for C# only and is retained. Escapes and other categories are diagnosed. |
+
+These bounds define CodeProbe's subset, not the limits of the languages. In
+particular, retaining lexical spelling does not resolve C# verbatim-name
+equivalence or validate the full identifier rules of a C/C++ dialect. No Unicode
+normalisation or escape decoding is silently applied to the identifier
+inventory. Python runtime versions can use different Unicode databases; tested
+cross-runtime examples do not establish agreement for every Unicode character.
+See the [README extraction boundaries](../README.md#c-c-and-c-extraction-boundaries)
+for supported forms and the associated language references.
+
+The declaration inventory distinguishes `a` and `b` from the initialiser
+identifiers `x` and `y` in `int a = x < y, b = 2;`. Correcting those names changes
+the inputs to memory proxies. It does not measure actual register allocation,
+stack-frame size, memory traffic or authorship, and does not independently
+validate the formulas of those metrics.
+
 ## Re-fitting after an engine change
 
 Parser changes alter the measured engine SHA-256 and can alter extracted

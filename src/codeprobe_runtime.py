@@ -838,6 +838,7 @@ class FunctionInfo:
     signature: str = ""
     body: str = ""
     parameters: List[str] = field(default_factory=list)
+    type_aliases: Dict[str, str] = field(default_factory=dict)
 
     @property
     def is_empty(self) -> bool:
@@ -890,6 +891,9 @@ class AnalysisContext:
     markdown: MarkdownInfo = field(default_factory=MarkdownInfo)
     file_extension: str = ""
     python_import_usage: Dict[str, Any] = field(default_factory=dict)
+    c_family_lexically_safe: bool = True
+    c_family_function_issues: List[str] = field(default_factory=list)
+    c_family_declaration_issues: List[str] = field(default_factory=list)
 
     @property
     def loc(self) -> int:
@@ -1685,6 +1689,7 @@ class ScanResult:
     comment_texts: List[str]
     tokenizer_error: str = ""
 
+    notes: List[str] = field(default_factory=list)
 
 class ScannerState:
     NORMAL = "normal"
@@ -1984,197 +1989,313 @@ def scan_bash(code: str) -> ScanResult:
     return ScanResult("".join(cleaned), comment_line_numbers, code_line_numbers, comment_texts)
 
 
+CSHARP_RAW_QUOTE_LIMIT = 16
+CSHARP_INTERPOLATION_LIMIT = 16
+C_LIKE_HEADER_LIMIT = 800
+C_LIKE_DECLARATION_LIMIT = 4096
+C_LIKE_DELIMITER_LIMIT = 32
+C_LIKE_TYPEDEF_LIMIT = 64
+C_IDENTIFIER_START_CATEGORIES = {"Lu", "Ll", "Lt", "Lm", "Lo", "Nl"}
+C_IDENTIFIER_CONTINUE_CATEGORIES = C_IDENTIFIER_START_CATEGORIES | {"Mn", "Mc", "Nd", "Pc"}
+
+
+def _c_identifier_start(char: str) -> bool:
+    return bool(char) and (char == "_" or unicodedata.category(char) in C_IDENTIFIER_START_CATEGORIES)
+
+
+def _c_identifier_continue(char: str) -> bool:
+    return bool(char) and (char == "_" or unicodedata.category(char) in C_IDENTIFIER_CONTINUE_CATEGORIES)
+
+
+def _c_identifier_end(text: str, start: int, language: str) -> int:
+    cursor = start + int(language == "csharp" and text[start:start + 1] == "@")
+    if cursor >= len(text) or not _c_identifier_start(text[cursor]):
+        return start
+    cursor += 1
+    while cursor < len(text) and _c_identifier_continue(text[cursor]):
+        cursor += 1
+    return cursor
+
+
+def _c_identifier_spans(text: str, language: str) -> Iterable[Tuple[str, int, int]]:
+    cursor = 0
+    while cursor < len(text):
+        end = _c_identifier_end(text, cursor, language)
+        if end > cursor and (not cursor or not _c_identifier_continue(text[cursor - 1])):
+            yield text[cursor:end], cursor, end
+            cursor = end
+        else:
+            cursor += 1
+
+
+def _csharp_literal_end(code: str, start: int, nesting: int = 0) -> Tuple[int, str, bool]:
+    """Mask a finite literal, including its interpolation expressions.
+
+    Returned errors make the whole file structurally unavailable. Recursive
+    calls only enter a nested interpolation; the active depth is bounded.
+    """
+    cursor = start
+    dollars = 0
+    verbatim = False
+    while cursor < len(code) and code[cursor] in "@$":
+        dollars += int(code[cursor] == "$")
+        verbatim = verbatim or code[cursor] == "@"
+        cursor += 1
+        if cursor - start > CSHARP_RAW_QUOTE_LIMIT + 1:
+            return len(code), "C# literal prefix exceeds the bounded subset", True
+    if cursor >= len(code) or code[cursor] not in "\"'":
+        return start, "", False
+    quote = code[cursor]
+    if quote == "'" and cursor != start:
+        return len(code), "unsupported C# prefixed character literal", False
+    quote_end = cursor + 1
+    while quote_end < len(code) and code[quote_end] == quote and quote == '"':
+        quote_end += 1
+    quotes = quote_end - cursor
+    raw = quotes >= 3
+    if raw and (quotes > CSHARP_RAW_QUOTE_LIMIT or verbatim):
+        return len(code), f"C# raw delimiter exceeds {CSHARP_RAW_QUOTE_LIMIT} quotes or uses an unsupported prefix", bool(dollars)
+    if not raw and dollars > 1:
+        return len(code), "multiple interpolation prefixes require a raw C# literal", True
+    if dollars > CSHARP_RAW_QUOTE_LIMIT:
+        return len(code), f"C# raw interpolation brace width exceeds {CSHARP_RAW_QUOTE_LIMIT}", True
+    cursor = quote_end if raw else cursor + 1
+    width = dollars if raw else 1
+    while cursor < len(code):
+        char = code[cursor]
+        if raw and char == '"':
+            end = cursor + 1
+            while end < len(code) and code[end] == '"':
+                end += 1
+            if end - cursor == quotes:
+                return end, "", bool(dollars)
+            if end - cursor > quotes:
+                return len(code), "C# raw closing delimiter has the wrong quote length", bool(dollars)
+            cursor = end
+            continue
+        if not raw and char == quote:
+            if verbatim and code.startswith('""', cursor):
+                cursor += 2
+                continue
+            return cursor + 1, "", bool(dollars)
+        if not raw and not verbatim and char == "\\":
+            cursor += 2
+            continue
+        if not raw and not verbatim and char in "\r\n":
+            return len(code), "unterminated ordinary C# string or character literal", bool(dollars)
+        if dollars and char == "{":
+            if not raw and code.startswith("{{", cursor):
+                cursor += 2
+                continue
+            end = cursor
+            while end < len(code) and code[end] == "{":
+                end += 1
+            if raw and end - cursor < width:
+                cursor = end
+                continue
+            if raw and end - cursor != width:
+                return len(code), "unsupported C# raw interpolation brace combination", True
+            if nesting >= CSHARP_INTERPOLATION_LIMIT:
+                return len(code), f"C# interpolation nesting exceeds {CSHARP_INTERPOLATION_LIMIT}", True
+            cursor, error = _csharp_interpolation_end(code, cursor + width, width, nesting + 1)
+            if error:
+                return len(code), error, True
+            continue
+        if dollars and not raw and char == "}":
+            if not code.startswith("}}", cursor):
+                return len(code), "unmatched C# interpolation closing brace", True
+            cursor += 2
+            continue
+        cursor += 1
+    kind = "raw" if raw else "verbatim" if verbatim else "ordinary"
+    return len(code), f"unterminated C# {kind} literal", bool(dollars)
+
+
+def _csharp_interpolation_end(code: str, start: int, width: int, nesting: int) -> Tuple[int, str]:
+    cursor = start
+    delimiters: List[str] = []
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    while cursor < len(code):
+        char = code[cursor]
+        if not delimiters and code.startswith("}" * width, cursor):
+            return cursor + width, ""
+        if code.startswith("//", cursor):
+            end = code.find("\n", cursor + 2)
+            cursor = len(code) if end < 0 else end
+            continue
+        if code.startswith("/*", cursor):
+            end = code.find("*/", cursor + 2)
+            if end < 0:
+                return len(code), "unterminated comment inside C# interpolation"
+            cursor = end + 2
+            continue
+        if char in "\"'@$":
+            end, error, _ = _csharp_literal_end(code, cursor, nesting)
+            if error:
+                return len(code), error
+            if end > cursor:
+                cursor = end
+                continue
+        if char in pairs:
+            delimiters.append(pairs[char])
+            if len(delimiters) > C_LIKE_DELIMITER_LIMIT:
+                return len(code), f"C# interpolation delimiter nesting exceeds {C_LIKE_DELIMITER_LIMIT}"
+        elif char in ")]}":
+            if not delimiters or delimiters.pop() != char:
+                return len(code), "mismatched delimiter inside C# interpolation"
+        elif char == ":" and not delimiters:
+            return len(code), "C# interpolation format or conditional suffix is outside the bounded subset"
+        cursor += 1
+    return len(code), "unterminated C# interpolation expression"
+
+
 def scan_c_like(code: str, language: str) -> ScanResult:
-    cleaned: List[str] = []
-    line_no = 1
-    state = ScannerState.NORMAL
-    comment_line_numbers: Set[int] = set()
-    code_line_numbers: Set[int] = set()
+    cleaned = list(code)
+    comments: Set[int] = set()
+    code_lines: Set[int] = set()
     comment_texts: List[str] = []
-    comment_buffer: List[str] = []
-    escaped = False
-    raw_delim = ""
-    current_quote = ""
+    notes: List[str] = []
+    error = ""
+    cursor = 0
+    line = 1
 
-    def flush_comment() -> None:
-        if comment_buffer:
-            comment_texts.append("".join(comment_buffer).strip())
-            comment_buffer[:] = []
+    def diagnose(message: str) -> None:
+        nonlocal error
+        if not error:
+            error = f"C-family at line {line}: {message}; lexical and structural features are unavailable."
 
-    i = 0
-    length = len(code)
-    while i < length:
-        ch = code[i]
-        nxt = code[i + 1] if i + 1 < length else ""
-        nxt2 = code[i + 2] if i + 2 < length else ""
+    def mask(start: int, end: int, comment: bool = False) -> None:
+        nonlocal line
+        for index in range(start, end):
+            if comment:
+                comments.add(line)
+            elif not code[index].isspace():
+                code_lines.add(line)
+            if code[index] == "\n":
+                line += 1
+            elif code[index] != "\r":
+                cleaned[index] = " "
 
-        if state == ScannerState.NORMAL:
-            if ch == "\n":
-                cleaned.append("\n")
-                line_no += 1
-                i += 1
-                continue
-            if language == "csharp" and ch == "@" and nxt == '"':
-                state = ScannerState.VERBATIM
-                cleaned.extend([" ", " "])
-                i += 2
-                continue
-            if language == "csharp" and ((ch == "$" and nxt == "@") or (ch == "@" and nxt == "$")) and nxt2 == '"':
-                state = ScannerState.VERBATIM
-                cleaned.extend([" ", " ", " "])
-                i += 3
-                continue
-            if language == "csharp" and ch == "$" and nxt == '"':
-                state = ScannerState.DOUBLE
-                current_quote = '"'
-                cleaned.extend([" ", " "])
-                i += 2
-                continue
-            if language in {"c", "cpp"} and ch == "R" and nxt == '"':
-                opener = code.find("(", i + 2, min(length, i + 24))
-                if opener != -1:
-                    raw_delim = code[i + 2 : opener]
-                    state = ScannerState.RAW
-                    cleaned.extend(" " * (opener - i + 1))
-                    i = opener + 1
+    def after_splices(index: int) -> int:
+        while language in {"c", "cpp"} and index < len(code) and code[index] == "\\":
+            if code.startswith("\\\r\n", index):
+                index += 3
+            elif code.startswith("\\\n", index):
+                index += 2
+            else:
+                if language == "cpp" and re.compile(r"\\[ \t]+\r?\n").match(code, index):
+                    diagnose("C++ whitespace-separated line splicing is outside the bounded subset")
+                break
+        return index
+
+    while cursor < len(code):
+        char = code[cursor]
+        next_index = after_splices(cursor + 1)
+        following = code[next_index:next_index + 1]
+        if char == "/" and following in {"/", "*"}:
+            start = cursor
+            block = following == "*"
+            cursor = next_index + 1
+            closed = not block
+            while cursor < len(code):
+                spliced = after_splices(cursor)
+                if spliced != cursor:
+                    cursor = spliced
                     continue
-            if ch == "/" and nxt == "/":
-                state = ScannerState.LINE_COMMENT
-                comment_line_numbers.add(line_no)
-                comment_buffer.extend([ch, nxt])
-                cleaned.extend([" ", " "])
-                i += 2
-                continue
-            if ch == "/" and nxt == "*":
-                state = ScannerState.BLOCK_COMMENT
-                comment_line_numbers.add(line_no)
-                comment_buffer.extend([ch, nxt])
-                cleaned.extend([" ", " "])
-                i += 2
-                continue
-            if ch == "'":
-                state = ScannerState.CHAR
-                current_quote = "'"
-                cleaned.append(" ")
-                i += 1
-                continue
-            if ch == '"':
-                state = ScannerState.DOUBLE
-                current_quote = '"'
-                cleaned.append(" ")
-                i += 1
-                continue
-            if not ch.isspace():
-                code_line_numbers.add(line_no)
-            cleaned.append(ch)
-            i += 1
+                if not block and code[cursor] in "\r\n":
+                    break
+                next_index = after_splices(cursor + 1)
+                if block and code[cursor] == "*" and code[next_index:next_index + 1] == "/":
+                    cursor = next_index + 1
+                    closed = True
+                    break
+                cursor += 1
+            if not closed:
+                diagnose("unterminated block comment")
+            comment_texts.append(code[start:cursor].strip())
+            mask(start, cursor, True)
             continue
-
-        if state == ScannerState.DOUBLE:
-            if ch == "\n":
-                cleaned.append("\n")
-                line_no += 1
-                escaped = False
-                i += 1
+        if language == "csharp" and char in "\"'@$":
+            end, problem, interpolated = _csharp_literal_end(code, cursor)
+            if end > cursor:
+                if problem:
+                    diagnose(problem)
+                if interpolated and not notes:
+                    notes.append("C-family scope: C# interpolated literals are masked as a whole; interpolation-expression tokens and branches are not measured.")
+                mask(cursor, end)
+                cursor = end
                 continue
-            cleaned.append(" ")
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == current_quote:
-                state = ScannerState.NORMAL
-            i += 1
+        if language == "cpp" and code.startswith('R"', cursor):
+            opener = code.find("(", cursor + 2, min(len(code), cursor + 19))
+            delimiter = code[cursor + 2:opener] if opener >= 0 else ""
+            if opener < 0 or any(ch.isspace() or ch in "()\\" for ch in delimiter):
+                diagnose("invalid or unsupported C++ raw delimiter")
+                mask(cursor, len(code))
+                break
+            closing = ")" + delimiter + '"'
+            end = code.find(closing, opener + 1)
+            if end < 0:
+                diagnose("unterminated C++ raw literal")
+                end = len(code)
+            else:
+                end += len(closing)
+            mask(cursor, end)
+            cursor = end
             continue
-
-        if state == ScannerState.CHAR:
-            if ch == "\n":
-                cleaned.append("\n")
-                line_no += 1
-                escaped = False
-                i += 1
-                continue
-            cleaned.append(" ")
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == "'":
-                state = ScannerState.NORMAL
-            i += 1
+        if char in "\"'":
+            start = cursor
+            quote = char
+            cursor += 1
+            escaped = False
+            closed = False
+            while cursor < len(code):
+                spliced = after_splices(cursor)
+                if spliced != cursor:
+                    cursor = spliced
+                    continue
+                char = code[cursor]
+                if char in "\r\n":
+                    break
+                cursor += 1
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    closed = True
+                    break
+            if not closed:
+                diagnose("unterminated ordinary string or character literal")
+                cursor = len(code)
+            mask(start, cursor)
             continue
-
-        if state == ScannerState.VERBATIM:
-            if ch == "\n":
-                cleaned.append("\n")
-                line_no += 1
-                i += 1
-                continue
-            cleaned.append(" ")
-            if ch == '"' and nxt == '"':
-                cleaned.append(" ")
-                i += 2
-                continue
-            if ch == '"':
-                state = ScannerState.NORMAL
-            i += 1
+        spliced = after_splices(cursor)
+        if spliced != cursor:
+            previous = code[cursor - 1:cursor]
+            following = code[spliced:spliced + 1]
+            if previous and following and not previous.isspace() and not following.isspace():
+                diagnose("code-token line splicing is outside the bounded subset")
+            mask(cursor, spliced)
+            cursor = spliced
             continue
-
-        if state == ScannerState.RAW:
-            if ch == "\n":
-                cleaned.append("\n")
-                line_no += 1
-                i += 1
-                continue
-            cleaned.append(" ")
-            closing = ")" + raw_delim + '"'
-            if code.startswith(closing, i):
-                for _ in closing[1:]:
-                    cleaned.append(" ")
-                i += len(closing)
-                state = ScannerState.NORMAL
-                raw_delim = ""
-                continue
-            i += 1
-            continue
-
-        if state == ScannerState.LINE_COMMENT:
-            if ch == "\n":
-                flush_comment()
-                state = ScannerState.NORMAL
-                cleaned.append("\n")
-                line_no += 1
-                i += 1
-                continue
-            comment_line_numbers.add(line_no)
-            comment_buffer.append(ch)
-            cleaned.append(" ")
-            i += 1
-            continue
-
-        if state == ScannerState.BLOCK_COMMENT:
-            if ch == "\n":
-                comment_line_numbers.add(line_no)
-                comment_buffer.append(ch)
-                cleaned.append("\n")
-                line_no += 1
-                i += 1
-                continue
-            comment_line_numbers.add(line_no)
-            comment_buffer.append(ch)
-            cleaned.append(" ")
-            if ch == "*" and nxt == "/":
-                comment_buffer.append(nxt)
-                cleaned.append(" ")
-                i += 2
-                flush_comment()
-                state = ScannerState.NORMAL
-                continue
-            i += 1
-            continue
-
-    flush_comment()
-    return ScanResult("".join(cleaned), comment_line_numbers, code_line_numbers, comment_texts)
+        if char == "\\":
+            if code[cursor + 1:cursor + 2] in {"u", "U"}:
+                diagnose("escaped identifiers are outside the supported Unicode spelling subset")
+            elif language == "cpp" and re.match(r"\\[ \t]+\r?\n", code[cursor:cursor + 128]):
+                diagnose("C++ whitespace-separated line splicing is outside the bounded subset")
+        elif ord(char) > 127 and not char.isspace() and not _c_identifier_continue(char):
+            diagnose("character category outside the supported Unicode identifier subset")
+        elif _c_identifier_continue(char) and not _c_identifier_start(char) and not char.isdigit():
+            if not cursor or not _c_identifier_continue(code[cursor - 1]):
+                diagnose("identifier starts with a character outside the supported Unicode start categories")
+        elif char == "@" and (language != "csharp" or not _c_identifier_start(code[cursor + 1:cursor + 2])):
+            diagnose("invalid or unsupported verbatim identifier prefix")
+        if char == "\n":
+            line += 1
+        elif not char.isspace():
+            code_lines.add(line)
+        cursor += 1
+    return ScanResult("".join(cleaned), comments, code_lines, comment_texts, error, notes)
 
 
 def scan_markdown(code: str) -> ScanResult:
@@ -2343,8 +2464,8 @@ def generic_tokens_and_identifiers(cleaned_code: str, language: str) -> Tuple[Li
         words = RE_JS_IDENTIFIERS.findall(cleaned_code)
     elif language == "bash":
         words = RE_BASH_IDENTIFIERS.findall(cleaned_code)
-    elif language == "csharp":
-        words = [item.lstrip("@") for item in RE_CSHARP_IDENTIFIER.findall(cleaned_code)]
+    elif language in {"c", "cpp", "csharp"}:
+        words = [word for word, _, _ in _c_identifier_spans(cleaned_code, language)]
     elif language == "markdown":
         words = re.findall(r"\b[A-Za-z][A-Za-z0-9_-]*\b", cleaned_code)
     else:
@@ -2951,11 +3072,12 @@ def approx_cyclomatic_from_text(text: str, language: str) -> int:
     if language == "javascript":
         count = len(re.findall(r"\b(?:if|else\s+if|for|while|catch|switch|case)\b|&&|\|\||\?\?", text))
         return max(1, count + 1)
-    if language in {"c", "cpp"}:
-        count = len(re.findall(r"\b(?:if|else\s+if|for|while|switch|case|catch)\b|&&|\|\||\?", text))
-        return max(1, count + 1)
-    if language == "csharp":
-        count = len(re.findall(r"\b(?:if|else\s+if|for|foreach|while|switch|case|catch)\b|&&|\|\||\?", text))
+    if language in {"c", "cpp", "csharp"}:
+        decisions = {"if", "for", "while", "switch", "case", "catch"}
+        if language == "csharp":
+            decisions.add("foreach")
+        count = sum(word in decisions for word, _, _ in _c_identifier_spans(text, language))
+        count += len(re.findall(r"&&|\|\||\?", text))
         return max(1, count + 1)
     if language == "bash":
         count = len(re.findall(r"\b(?:if|elif|for|while|until|case)\b|&&|\|\|", text))
@@ -3152,21 +3274,21 @@ def _range_to_function_info(lines: List[str], start_line: int, end_line: int, la
     )
 
 
-def _extract_c_like_name(signature: str) -> Optional[str]:
-    signature = re.sub(r"\s+", " ", signature.strip())
-    if not signature or "(" not in signature:
+def _extract_c_like_name(signature: str, language: str = "cpp") -> Optional[str]:
+    if "(" not in signature:
         return None
     pre = signature.split("(", 1)[0].strip()
-    pre = re.sub(r"\b(?:if|for|while|switch|catch|foreach|using|lock|return|sizeof|new|delete)\b.*$", "", pre)
-    match = re.search(r"([~A-Za-z_][A-Za-z0-9_:~]*)(?:\s*<[^<>]+>)?$", pre)
-    if not match:
+    pre = re.sub(r"\s*<[^<>]+>$", "", pre).rstrip()
+    if "=" in pre:
         return None
-    name = match.group(1)
-    short = name.split("::")[-1]
-    if short in {"if", "for", "while", "switch", "catch", "foreach", "using", "lock", "return"}:
+    words = list(_c_identifier_spans(pre, language))
+    forbidden = {"if", "for", "while", "switch", "catch", "foreach", "using", "lock", "return", "sizeof", "new", "delete", "operator"}
+    if not words or any(word in forbidden for word, _, _ in words):
         return None
-    return short
-
+    name, start, end = words[-1]
+    if end != len(pre):
+        return None
+    return ("~" if start and pre[start - 1] == "~" else "") + name
 
 
 def _prepare_c_like_signature(candidate: str) -> Tuple[str, int]:
@@ -3179,58 +3301,77 @@ def _prepare_c_like_signature(candidate: str) -> Tuple[str, int]:
     return joined.strip(), offset + leading
 
 
-def extract_c_like_functions(cleaned_code: str, lines: List[str], language: str) -> List[FunctionInfo]:
+def extract_c_like_functions(cleaned_code: str, lines: List[str], language: str,
+                             diagnostics: Optional[List[str]] = None) -> List[FunctionInfo]:
+    issues = diagnostics if diagnostics is not None else []
     functions: List[FunctionInfo] = []
-    seen: Set[Tuple[int, int, str]] = set()
-    for index, ch in enumerate(cleaned_code):
-        if ch != "{":
+    start: Optional[int] = None
+    line = 1
+    start_line = 1
+    parentheses = False
+    directive = False
+    scope_depth = 0
+    aliases: Dict[str, str] = {}
+    alias_count = 0
+    if language in {"cpp", "csharp"} and any(word == "operator" for word, _, _ in _c_identifier_spans(cleaned_code, language)):
+        issues.append("operator declarations are outside the block-function extraction subset")
+    if language == "csharp" and "=>" in cleaned_code:
+        issues.append("expression-bodied members and lambda arrows are outside the block-function extraction subset")
+    for index, char in enumerate(cleaned_code):
+        if char == "\n":
+            line += 1
+            if directive:
+                directive = False
+                start = None
+                parentheses = False
+        if directive:
             continue
-        window_start = max(0, index - 800)
-        prefix = cleaned_code[window_start:index]
-        if "(" not in prefix or ")" not in prefix or prefix.rfind(")") < prefix.rfind("("):
-            continue
-        sig_start = max(prefix.rfind(";"), prefix.rfind("}"), prefix.rfind("{"), prefix.rfind("\n\n"))
-        sig_abs_start = window_start + sig_start + 1
-        candidate = cleaned_code[sig_abs_start:index]
-        signature, relative_offset = _prepare_c_like_signature(candidate)
-        sig_abs_start += relative_offset
-        if not signature:
-            continue
-        if re.match(r"^(?:if|for|while|switch|catch|foreach|do|else|try|using|lock)\b", signature):
-            continue
-        name = _extract_c_like_name(signature)
-        if not name:
-            continue
-        end_index = _match_braces(cleaned_code, index)
-        if end_index == -1:
-            continue
-        start_line = cleaned_code.count("\n", 0, sig_abs_start) + 1
-        end_line = cleaned_code.count("\n", 0, end_index) + 1
-        key = (start_line, end_line, name)
-        if key in seen:
-            continue
-        seen.add(key)
-        snippet = cleaned_code[sig_abs_start : end_index + 1]
-        params_match = re.search(r"\((.*)\)", signature, re.S)
-        params = []
-        if params_match:
-            raw_params = params_match.group(1)
-            params = [item.strip() for item in re.split(r",(?![^<]*>)", raw_params) if item.strip()]
-        functions.append(
-            FunctionInfo(
-                name=name,
-                lineno=start_line,
-                end_lineno=end_line,
-                length=max(1, end_line - start_line + 1),
-                cyclomatic=approx_cyclomatic_from_text(snippet, language),
-                signature=signature,
-                body=snippet,
-                parameters=params,
-            )
-        )
-    return sorted(functions, key=lambda item: item.lineno)
-
-
+        if start is None and not char.isspace() and char not in ";{}":
+            start, start_line = index, line
+            directive = char == "#"
+        if char == "(":
+            parentheses = True
+        if char == ";" and scope_depth == 0 and start is not None:
+            statement = cleaned_code[start:index]
+            if statement.startswith("typedef"):
+                found = _simple_typedef(statement, language, aliases)
+                if found is None:
+                    issues.append(f"unsupported file-scope typedef at line {start_line}")
+                elif alias_count >= C_LIKE_TYPEDEF_LIMIT:
+                    issues.append(f"file-scope typedef count exceeds {C_LIKE_TYPEDEF_LIMIT}")
+                else:
+                    name, target = found
+                    aliases[name] = target
+                    alias_count += 1
+        if char == "{" and start is not None and parentheses:
+            if index - start > C_LIKE_HEADER_LIMIT:
+                issues.append(f"signature window exceeds {C_LIKE_HEADER_LIMIT} characters at line {start_line}; the candidate was omitted")
+            else:
+                signature = cleaned_code[start:index].strip()
+                name = _extract_c_like_name(signature, language)
+                end = _match_braces(cleaned_code, index) if name else -1
+                if end >= 0:
+                    end_line = line + cleaned_code.count("\n", index, end)
+                    snippet = cleaned_code[start:end + 1]
+                    params = signature[signature.find("(") + 1:signature.rfind(")")]
+                    functions.append(FunctionInfo(
+                        name=name, lineno=start_line, end_lineno=end_line,
+                        length=end_line - start_line + 1,
+                        cyclomatic=approx_cyclomatic_from_text(snippet, language),
+                        signature=signature, body=snippet,
+                        parameters=[part.strip() for part in re.split(r",(?![^<]*>)", params) if part.strip()],
+                        type_aliases=dict(aliases),
+                    ))
+                elif name:
+                    issues.append(f"unmatched function body at line {start_line}; the candidate was omitted")
+        if char in ";{}":
+            if char == "{":
+                scope_depth += 1
+            elif char == "}":
+                scope_depth = max(0, scope_depth - 1)
+            start = None
+            parentheses = False
+    return functions
 
 
 def extract_generic_functions(lines: List[str], cleaned_code: str, language: str) -> List[FunctionInfo]:
@@ -3267,37 +3408,31 @@ def _estimate_simple_type_size(type_text: str, language: str) -> int:
     return 8
 
 
-def _split_declarators(text: str) -> List[str]:
-    declarators: List[str] = []
-    current: List[str] = []
-    bracket_depth = 0
-    angle_depth = 0
-    paren_depth = 0
-    for ch in text:
-        if ch == "," and bracket_depth == 0 and angle_depth == 0 and paren_depth == 0:
-            chunk = "".join(current).strip()
-            if chunk:
-                declarators.append(chunk)
-            current = []
-            continue
-        current.append(ch)
-        if ch == "[":
-            bracket_depth += 1
-        elif ch == "]":
-            bracket_depth = max(0, bracket_depth - 1)
-        elif ch == "<":
-            angle_depth += 1
-        elif ch == ">":
-            angle_depth = max(0, angle_depth - 1)
-        elif ch == "(":
-            paren_depth += 1
-        elif ch == ")":
-            paren_depth = max(0, paren_depth - 1)
-    chunk = "".join(current).strip()
-    if chunk:
-        declarators.append(chunk)
-    return declarators
+def _declarator_spans(text: str) -> List[Tuple[str, int]]:
+    parts: List[Tuple[str, int]] = []
+    stack: List[str] = []
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    start = 0
+    for index, char in enumerate(text):
+        if char in pairs:
+            stack.append(pairs[char])
+            if len(stack) > C_LIKE_DELIMITER_LIMIT:
+                return []
+        elif char in ")]}":
+            if not stack or stack.pop() != char:
+                return []
+        elif char == "," and not stack:
+            parts.append((text[start:index], start))
+            start = index + 1
+    if stack:
+        return []
+    parts.append((text[start:], start))
+    return parts
 
+
+def _split_declarators(text: str) -> List[str]:
+    # Angle brackets in an initializer are comparisons, not nesting authority.
+    return [part.strip() for part, _ in _declarator_spans(text) if part.strip()]
 
 
 KNOWN_DECLARATION_TYPE_NAMES = {
@@ -3308,103 +3443,159 @@ KNOWN_DECLARATION_TYPE_NAMES = {
     "ushort", "uint", "ulong", "decimal", "nint", "nuint", "string", "object", "dynamic",
     "size_t", "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t", "FILE", "DIR", "var",
 }
+C_DECLARATION_QUALIFIERS = {
+    "const", "static", "register", "volatile", "mutable", "extern", "constexpr",
+    "readonly", "ref", "out", "in", "unsafe", "fixed",
+}
 
 
 def looks_like_declared_type(type_text: str, language: str) -> bool:
     raw = " ".join(type_text.split())
-    if not raw:
-        return False
     if raw in KNOWN_DECLARATION_TYPE_NAMES or raw in SCALAR_TYPE_SIZES or raw in POINTER_LIKE_TYPES:
         return True
     if raw.startswith(("struct ", "enum ", "class ", "record ")):
-        return True
-    if raw.startswith(("unsigned ", "signed ", "short ", "long ")):
-        return True
-    tail = raw.split()[-1]
-    if tail in KNOWN_DECLARATION_TYPE_NAMES or tail in SCALAR_TYPE_SIZES:
-        return True
-    if tail.endswith("_t") or tail.endswith("_type"):
-        return True
-    if any(token in tail for token in ("::", ".", "<", ">", "?")):
-        return True
-    if tail[:1].isupper():
-        return True
-    return False
+        tag = raw.split(" ", 1)[1]
+        return _c_identifier_end(tag, 0, language) == len(tag)
+    if any(char in raw for char in "=;(){}+/%!|^"):
+        return False
+    # Qualified/generic classroom types remain a lexical convention. No
+    # symbol table or complete template/type resolution is implied.
+    if " " in raw and not ("<" in raw and ">" in raw):
+        return False
+    return bool(raw) and (raw.endswith(("_t", "_type")) or raw[:1].isupper()
+                          or "::" in raw or "." in raw)
 
 
-def _parse_c_like_declaration_line(line: str, language: str) -> List[Dict[str, Any]]:
-    stripped = line.strip().rstrip(";")
-    if not stripped:
+def _parse_c_like_declaration_line(line: str, language: str,
+                                  aliases: Optional[Dict[str, str]] = None,
+                                  diagnostics: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    issues = diagnostics if diagnostics is not None else []
+    aliases = aliases or {}
+    leading = len(line) - len(line.lstrip())
+    stripped = line.strip().rstrip(";").rstrip()
+    if not stripped or stripped.startswith("#"):
         return []
-    if stripped.startswith("#"):
+    if len(stripped) > C_LIKE_DECLARATION_LIMIT:
+        issues.append(f"logical declaration exceeds {C_LIKE_DECLARATION_LIMIT} characters; no names inferred")
         return []
-    stripped = re.sub(r"^(?:return|break|continue)\b.*$", "", stripped)
-    if not stripped:
+    first_end = _c_identifier_end(stripped, 0, language)
+    first = stripped[:first_end]
+    if first in {"return", "break", "continue", "goto", "throw", "if", "while", "switch", "catch", "foreach", "using", "lock", "do", "else", "try"}:
         return []
-    if language == "csharp":
-        stripped = re.sub(r"^\[[^\]]+\]\s*", "", stripped)
-    if re.match(r"^(?:if|for|while|switch|catch|foreach|using|lock)\b", stripped):
-        inner = re.search(r"\(([^;]+);", stripped)
-        if not inner:
+    if first == "for":
+        begin = stripped.find("(")
+        end = stripped.find(";", begin + 1)
+        if begin < 0 or end < 0:
             return []
-        stripped = inner.group(1).strip()
-    if "(" in stripped and not re.search(r"\[[^\]]+\]", stripped):
-        if re.search(r"\b(?:sizeof|return|new|delete)\s*\(", stripped):
-            return []
-        if re.search(r"\)\s*$", stripped) and "=" not in stripped and language in {"c", "cpp", "csharp"}:
-            return []
-    stripped = re.sub(r"\b(?:const|static|register|volatile|mutable|inline|extern|constexpr|readonly|ref|out|in|unsafe|fixed)\b", " ", stripped)
-    stripped = re.sub(r"\s+", " ", stripped).strip()
-    tokens = stripped.split()
-    split_index = None
-    for index in range(1, len(tokens)):
-        type_candidate = " ".join(tokens[:index]).strip()
-        decl_candidate = " ".join(tokens[index:]).strip()
-        if not looks_like_declared_type(type_candidate, language):
-            continue
-        if re.match(r"^(?:[*&]+\s*)?[A-Za-z_][A-Za-z0-9_]*(?:\s*\[[^\]]*\])?(?:\s*(?:=.*|\{.*\}))?$", decl_candidate):
-            split_index = index
-            continue
-        if re.match(r"^(?:[*&]+\s*)?[A-Za-z_][A-Za-z0-9_]*(?:\s*\[[^\]]*\])?\s*,", decl_candidate):
-            split_index = index
-            continue
-    if split_index is None:
+        result = _parse_c_like_declaration_line(stripped[begin + 1:end], language, aliases, issues)
+        for item in result:
+            item["_name_offset"] += leading + begin + 1
+        return result
+    if first == "typedef":
         return []
-    type_text = " ".join(tokens[:split_index]).strip()
-    decls_text = " ".join(tokens[split_index:]).strip()
+    before_call = stripped.split("(", 1)[0].strip() if "(" in stripped else ""
+    if before_call and first not in aliases and not looks_like_declared_type(first, language):
+        call_parts = re.split(r"::|\.|->", before_call)
+        if all(part and _c_identifier_end(part, 0, language) == len(part) for part in call_parts):
+            return []
+    prefix_offset = 0
+    while first in C_DECLARATION_QUALIFIERS:
+        prefix_offset += first_end
+        stripped = stripped[first_end:]
+        space = len(stripped) - len(stripped.lstrip())
+        prefix_offset += space
+        stripped = stripped.lstrip()
+        first_end = _c_identifier_end(stripped, 0, language)
+        first = stripped[:first_end]
+    initializer = stripped.find("=")
+    boundary = len(stripped) if initializer < 0 else initializer
+    type_text = ""
+    declarator_start = 0
+    angle_depth = 0
+    previous_end = 0
+    for name, start, _ in _c_identifier_spans(stripped[:boundary], language):
+        for char in stripped[previous_end:start]:
+            if char == "<":
+                angle_depth += 1
+            elif char == ">":
+                angle_depth -= 1
+        previous_end = start
+        if angle_depth:
+            continue
+        if not start or name in LANGUAGE_KEYWORDS.get(language, set()):
+            continue
+        if not stripped[start - 1].isspace() and stripped[start - 1] not in "*&":
+            continue
+        split = start
+        while split and (stripped[split - 1].isspace() or stripped[split - 1] in "*&"):
+            split -= 1
+        candidate = " ".join(stripped[:split].split())
+        if candidate in aliases or looks_like_declared_type(candidate, language):
+            type_text, declarator_start = candidate, split
+            break
+    if not type_text:
+        # Calls/assignments alone are expressions. Ambiguous type-like forms
+        # are reported rather than converted to declarations or suffix names.
+        words = list(_c_identifier_spans(stripped[:boundary], language))
+        if len(words) >= 2 or (first and (first in aliases or looks_like_declared_type(first, language))):
+            issues.append("unrecognised type or complex declarator; no names inferred")
+        return []
+    declarators = _declarator_spans(stripped[declarator_start:])
+    if not declarators:
+        issues.append(f"unbalanced declaration or delimiter nesting exceeds {C_LIKE_DELIMITER_LIMIT}; no names inferred")
+        return []
     declarations: List[Dict[str, Any]] = []
-    for declarator in _split_declarators(decls_text):
-        array_match = re.search(r"\[([^\]]+)\]", declarator)
-        name_match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)", declarator)
-        if not name_match:
-            continue
-        name = name_match.group(1)
-        declarator_base = declarator.split("=", 1)[0].strip()
-        pointer = "*" in declarator_base or "&" in declarator_base or declarator_base.endswith("[]")
-        base_size = 8 if pointer else _estimate_simple_type_size(type_text, language)
-        count = 1
-        vla = False
-        if array_match:
-            bound = array_match.group(1).strip()
-            if bound.isdigit():
-                count = max(1, int(bound))
-            else:
-                count = 1
-                vla = True
-        size = base_size * count
-        declarations.append(
-            {
-                "name": name,
-                "type": type_text,
-                "pointer": pointer,
-                "array": bool(array_match),
-                "vla": vla,
-                "count": count,
-                "size": size,
-            }
-        )
+    for text, part_offset in declarators:
+        local_start = len(text) - len(text.lstrip())
+        cursor = local_start
+        while cursor < len(text) and (text[cursor] in "*&" or text[cursor].isspace()):
+            cursor += 1
+        name_start = cursor
+        end = _c_identifier_end(text, cursor, language)
+        if end == cursor or text[cursor:end] in LANGUAGE_KEYWORDS.get(language, set()):
+            issues.append("complex declarator is outside the supported subset; no names inferred")
+            return []
+        name = text[cursor:end]
+        pointer = any(char in "*&" for char in text[local_start:cursor])
+        tail = text[end:].lstrip()
+        array = False
+        bound = ""
+        if tail.startswith("["):
+            closing = tail.find("]")
+            if closing < 0:
+                issues.append("unclosed array declarator; no names inferred")
+                return []
+            array = True
+            bound = tail[1:closing].strip()
+            tail = tail[closing + 1:].lstrip()
+        if tail and not tail.startswith(("=", "{")):
+            issues.append("complex declarator or initializer is outside the supported subset; no names inferred")
+            return []
+        base_type = aliases.get(type_text, type_text)
+        base_size = 8 if pointer else _estimate_simple_type_size(base_type, language)
+        numeric_bound = bool(bound) and bound.isascii() and bound.isdigit() and len(bound) <= 9
+        if bound.isdigit() and not numeric_bound:
+            issues.append("array bound is outside the bounded decimal subset; no names inferred")
+            return []
+        count = max(1, int(bound)) if numeric_bound else 1
+        declarations.append({
+            "name": name, "type": type_text, "pointer": pointer,
+            "array": array, "vla": array and not numeric_bound,
+            "count": count, "size": base_size * count,
+            "_name_offset": leading + prefix_offset + declarator_start + part_offset + name_start,
+        })
     return declarations
 
+
+def _simple_typedef(statement: str, language: str, aliases: Dict[str, str]) -> Optional[Tuple[str, str]]:
+    stripped = statement.strip()
+    if not stripped.startswith("typedef ") or any(char in stripped for char in "=*&,()[]{}"):
+        return None
+    found = _parse_c_like_declaration_line(stripped[8:], language, aliases)
+    if len(found) != 1:
+        return None
+    item = found[0]
+    return item["name"], aliases.get(item["type"], item["type"])
 
 
 def function_inner_region(function: FunctionInfo) -> Tuple[str, int]:
@@ -3413,69 +3604,108 @@ def function_inner_region(function: FunctionInfo) -> Tuple[str, int]:
     end = body.rfind("}")
     if start == -1 or end == -1 or end <= start:
         return body, 0
-    inner = body[start + 1 : end]
-    line_offset = body[: start + 1].count("\n")
-    return inner, line_offset
+    return body[start + 1:end], body[:start + 1].count("\n")
 
 
 def _split_declaration_fragments(line: str) -> List[str]:
-    fragments: List[str] = []
-    current: List[str] = []
-    bracket_depth = 0
-    angle_depth = 0
-    paren_depth = 0
-    for ch in line:
-        if ch == ";" and bracket_depth == 0 and angle_depth == 0 and paren_depth == 0:
-            chunk = "".join(current).strip()
-            if chunk:
-                fragments.append(chunk)
-            current = []
-            continue
-        if ch in "{}":
-            if current and current[-1] != " ":
-                current.append(" ")
-            continue
-        current.append(ch)
-        if ch == "[":
-            bracket_depth += 1
-        elif ch == "]":
-            bracket_depth = max(0, bracket_depth - 1)
-        elif ch == "<":
-            angle_depth += 1
-        elif ch == ">":
-            angle_depth = max(0, angle_depth - 1)
-        elif ch == "(":
-            paren_depth += 1
-        elif ch == ")":
-            paren_depth = max(0, paren_depth - 1)
-    chunk = "".join(current).strip()
-    if chunk:
-        fragments.append(chunk)
-    return fragments
+    # Retained helper contract; function-wide extraction below also tracks scope.
+    return [part.strip() for part in line.split(";") if part.strip()]
 
 
-def extract_local_declarations(function: FunctionInfo, language: str) -> List[Dict[str, Any]]:
+def extract_local_declarations(function: FunctionInfo, language: str,
+                               diagnostics: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    issues = diagnostics if diagnostics is not None else []
+    inner, line_offset = function_inner_region(function)
     declarations: List[Dict[str, Any]] = []
-    inner_text, line_offset = function_inner_region(function)
-    body_lines = inner_text.split("\n")
-    for offset, line in enumerate(body_lines, start=1):
-        fragments = _split_declaration_fragments(line)
-        if not fragments:
-            continue
-        for fragment in fragments:
-            for decl in _parse_c_like_declaration_line(fragment, language):
-                decl["relative_line"] = offset
-                decl["absolute_line"] = function.lineno + line_offset + offset - 1
-                declarations.append(decl)
+    scopes: List[Dict[str, Optional[str]]] = [dict(function.type_aliases)]
+    for parameter in function.parameters:
+        names = list(_c_identifier_spans(parameter, language))
+        if names and names[-1][0] in scopes[0]:
+            scopes[0][names[-1][0]] = None
+    alias_count = 0
+    start = 0
+    stack: List[str] = []
+    pairs = {"(": ")", "[": "]", "{": "}"}
+
+    def active_aliases() -> Dict[str, str]:
+        result: Dict[str, Optional[str]] = {}
+        for scope in scopes:
+            result.update(scope)
+        return {name: target for name, target in result.items() if target is not None}
+
+    def consume(end: int) -> None:
+        nonlocal alias_count
+        statement = inner[start:end]
+        stripped = statement.strip()
+        if not stripped:
+            return
+        aliases = active_aliases()
+        if len(stripped) > C_LIKE_DECLARATION_LIMIT:
+            issues.append(f"logical declaration exceeds {C_LIKE_DECLARATION_LIMIT} characters; no names inferred")
+            return
+        if stripped.startswith("typedef"):
+            binding = _simple_typedef(statement, language, aliases)
+            if binding is None:
+                issues.append("complex local typedef is outside the supported subset")
+            elif alias_count >= C_LIKE_TYPEDEF_LIMIT:
+                issues.append(f"local typedef count exceeds {C_LIKE_TYPEDEF_LIMIT}")
+            else:
+                name, target = binding
+                scopes[-1][name] = target
+                alias_count += 1
+            return
+        found = _parse_c_like_declaration_line(statement, language, aliases, issues)
+        for item in found:
+            position = start + item.pop("_name_offset")
+            relative_line = inner.count("\n", 0, position) + 1
+            item["relative_line"] = relative_line
+            item["absolute_line"] = function.lineno + line_offset + relative_line - 1
+            declarations.append(item)
+            if item["name"] in aliases:
+                scopes[-1][item["name"]] = None
+
+    for index, char in enumerate(inner):
+        if char == "{" and not stack:
+            prefix = inner[start:index]
+            control_header = re.match(r"^\s*(?:if|for|while|switch|catch|foreach|using|lock|else|try|do)\b", prefix)
+            if control_header or ("=" not in prefix and not prefix.strip().startswith("typedef")):
+                # A lexical block opens a new alias scope. A for-init can still
+                # supply ordinary local declarations from its bounded header.
+                if len(scopes) >= C_LIKE_DELIMITER_LIMIT + 1:
+                    issues.append(f"local scope nesting exceeds {C_LIKE_DELIMITER_LIMIT}; declarations unavailable")
+                    return []
+                scopes.append({})
+                if prefix.lstrip().startswith("for"):
+                    consume(index)
+                start = index + 1
+                continue
+        if char in pairs:
+            stack.append(pairs[char])
+            if len(stack) > C_LIKE_DELIMITER_LIMIT:
+                issues.append(f"declaration delimiter nesting exceeds {C_LIKE_DELIMITER_LIMIT}; declarations unavailable")
+                return []
+        elif char == "}" and not stack:
+            if inner[start:index].strip():
+                consume(index)
+            if len(scopes) > 1:
+                scopes.pop()
+            start = index + 1
+        elif char in ")]}":
+            if not stack or stack.pop() != char:
+                issues.append("unbalanced local declaration delimiters; declarations unavailable")
+                return []
+        elif char == ";" and not stack:
+            consume(index)
+            start = index + 1
+    if stack:
+        issues.append("unbalanced local declaration delimiters; declarations unavailable")
+        return []
     return declarations
 
 
-
-
 def _identifier_occurrences(lines: Sequence[str], identifier: str) -> List[int]:
-    pattern = re.compile(rf"\b{re.escape(identifier)}\b")
-    return [index for index, line in enumerate(lines, start=1) if pattern.search(line)]
-
+    return [index for index, line in enumerate(lines, start=1)
+            if any(word == identifier for word, _, _ in _c_identifier_spans(line, "csharp"))]
 
 
 def register_pressure_profile(function: FunctionInfo, language: str) -> Dict[str, Any]:
@@ -3515,7 +3745,8 @@ def stack_frame_profile(function: FunctionInfo, language: str) -> Dict[str, Any]
     large_arrays = [item for item in declarations if item.get("array") and item.get("size", 0) >= 1024]
     vla_items = [item for item in declarations if item.get("vla")]
     inner_text, _ = function_inner_region(function)
-    recursive = bool(re.search(rf"\b{re.escape(function.name)}\s*\(", inner_text))
+    recursive = any(word == function.name and inner_text[end:].lstrip().startswith("(")
+                    for word, _, end in _c_identifier_spans(inner_text, language))
     return {
         "frame_bytes": frame_bytes,
         "large_arrays": large_arrays,
@@ -3689,6 +3920,9 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
     python_control_lines: Set[int] = set()
     token_error = ""
     markdown_info = MarkdownInfo()
+    c_family_lexically_safe = True
+    c_family_function_issues: List[str] = []
+    c_family_declaration_issues: List[str] = []
 
     if language == "python":
         scan = scan_python(normalised_code)
@@ -3712,8 +3946,20 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
         functions = extract_generic_functions(lines, scan.cleaned_code, language)
     elif language in {"c", "cpp", "csharp"}:
         scan = scan_c_like(normalised_code, language)
-        identifiers, operators, operands = generic_tokens_and_identifiers(scan.cleaned_code, language)
-        functions = extract_generic_functions(lines, scan.cleaned_code, language)
+        c_family_lexically_safe = not bool(scan.tokenizer_error)
+        notes.extend(scan.notes)
+        notes.append("C-family scope: extraction covers a bounded block-bodied function and simple declaration subset, not complete language validation; an empty function list does not prove absence of functions. Identifier spellings are retained without Unicode normalisation or escape decoding. Memory features are source-level proxies, not measured registers or stack usage.")
+        if c_family_lexically_safe:
+            identifiers, operators, operands = generic_tokens_and_identifiers(scan.cleaned_code, language)
+            functions = extract_c_like_functions(scan.cleaned_code, lines, language, c_family_function_issues)
+            for function in functions:
+                extract_local_declarations(function, language, c_family_declaration_issues)
+        else:
+            identifiers, operators, operands = [], [], []
+        c_family_function_issues = list(dict.fromkeys(c_family_function_issues))
+        c_family_declaration_issues = list(dict.fromkeys(c_family_declaration_issues))
+        notes.extend("C-family extraction warning: " + issue + "." for issue in c_family_function_issues)
+        notes.extend("C-family declaration warning: " + issue + "." for issue in c_family_declaration_issues)
     elif language == "markdown":
         scan = scan_markdown(normalised_code)
         identifiers, operators, operands = generic_tokens_and_identifiers(scan.cleaned_code, language)
@@ -3747,6 +3993,7 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
     declarative = 0
     control = 0
     executable = 0
+    masked_lines = scan.cleaned_code.split("\n")
     for index, line in enumerate(lines, start=1):
         stripped = line.strip()
         if not stripped:
@@ -3754,7 +4001,8 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
         elif index in scan.comment_line_numbers and index not in scan.code_line_numbers:
             category = "comment"
         else:
-            category = line_category(language, line)
+            category_line = masked_lines[index - 1] if language in {"c", "cpp", "csharp"} else line
+            category = line_category(language, category_line)
             if language == "python" and ast_tree is not None and re.match(r"^\s*(?:match|case)\b", line):
                 # Only complete accepted statements supply contextual control roles.
                 if index in python_control_lines:
@@ -3796,6 +4044,9 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
         imported_names=imported_names,
         used_names=used_names,
         python_import_usage=python_import_usage,
+        c_family_lexically_safe=c_family_lexically_safe,
+        c_family_function_issues=c_family_function_issues,
+        c_family_declaration_issues=c_family_declaration_issues,
         notes=notes,
         tokenizer_error=scan.tokenizer_error or token_error,
         markdown=markdown_info,
@@ -5799,7 +6050,8 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     config = merged_metric_config(profile, override, calibration_profile)
     project_fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
     engine = AnalysisEngine(config, calibration_profile=None, engine_fingerprint=project_fingerprint,
-                            require_python_ast=bool(calibration_profile.get("scoring_contract")) or bool(payload.get("require_python_ast")))
+                            require_python_ast=bool(calibration_profile.get("scoring_contract")) or bool(payload.get("require_python_ast")),
+                            require_c_family_features=bool(calibration_profile.get("scoring_contract")) or bool(payload.get("require_c_family_features")))
     warnings: List[str] = list(calibration_profile.get("warnings", []))
     if scope_warning:
         warnings.append(scope_warning + " The generic project policy was used instead.")
@@ -5872,7 +6124,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             hint = None
         report = engine.analyse(candidate.text, path, language_hint=hint, profile=profile)
         warnings.extend(f"{path}: {warning}" for warning in report.warnings
-                        if warning.startswith(("Tokenizer warning:", "AST warning:")))
+                        if warning.startswith(("Tokenizer warning:", "AST warning:", "C-family scope:", "C-family extraction warning:", "C-family declaration warning:")))
         report.intake_provenance = candidate.intake_provenance
         for warning in candidate.intake_provenance.get("warnings", []):
             report.warnings.append(f"{candidate.intake_provenance['source']} intake: {warning}")
@@ -6111,12 +6363,13 @@ def format_project_report_text(report: Dict[str, Any]) -> str:
 class AnalysisEngine:
     """Run all enabled metrics on a shared analysis context."""
 
-    def __init__(self, config: Dict[str, Dict[str, Any]], calibration_profile: Any = None, engine_fingerprint: Any = None, *, require_python_ast: bool = False) -> None:
+    def __init__(self, config: Dict[str, Dict[str, Any]], calibration_profile: Any = None, engine_fingerprint: Any = None, *, require_python_ast: bool = False, require_c_family_features: bool = False) -> None:
         self.config = config
         self.calibration_profile = normalise_calibration_profile(calibration_profile)
         self.review_policy = self.calibration_profile.get("review_policy")
         self.engine_fingerprint = effective_engine_fingerprint(engine_fingerprint)
         self.require_python_ast = require_python_ast or bool(self.calibration_profile.get("scoring_contract"))
+        self.require_c_family_features = require_c_family_features or bool(self.calibration_profile.get("scoring_contract"))
 
     def _review_policy_for_language(self, language: str) -> Dict[str, Dict[str, float]]:
         language_policies = self.calibration_profile.get("language_review_policy") or {}
@@ -6133,6 +6386,9 @@ class AnalysisEngine:
         context = build_analysis_context(code, filename, language_hint)
         if self.require_python_ast and context.language == "python" and context.ast_tree is None:
             raise ValueError("Calibrated Python analysis requires a successful AST parse on this runtime; use compatible source syntax.")
+        if self.require_c_family_features and context.language in {"c", "cpp", "csharp"} and (
+                not context.c_family_lexically_safe or context.c_family_function_issues or context.c_family_declaration_issues):
+            raise ValueError("Calibrated C-family analysis requires available lexical, function and declaration features within the bounded subset.")
         active_review_policy = self._review_policy_for_language(context.language)
         metrics: List[MetricResult] = []
         warnings: List[str] = list(context.notes)
@@ -6144,6 +6400,17 @@ class AnalysisEngine:
             if not metric.supports(context.language):
                 metrics.append(metric.not_applicable("This metric does not apply to the detected language."))
                 continue
+            if context.language in {"c", "cpp", "csharp"}:
+                unavailable = not context.c_family_lexically_safe and metric.name not in {
+                    "line_length_uniformity", "blank_line_regularity", "indentation_consistency"}
+                unavailable = unavailable or bool(context.c_family_function_issues) and metric.name in {
+                    "function_length", "cyclomatic_complexity", "function_complexity_uniformity",
+                    "register_pressure", "stack_frame_depth", "redundant_memory_access", "code_elegance"}
+                unavailable = unavailable or bool(context.c_family_declaration_issues) and metric.name in {
+                    "register_pressure", "stack_frame_depth"}
+                if unavailable:
+                    metrics.append(metric.not_applicable("C-family features required by this metric are unavailable within the bounded subset.", "See the lexical, extraction or declaration warnings; missing features are not zero-valued measurements."))
+                    continue
             try:
                 metrics.append(metric.compute(context.code, context.language, context))
             except Exception as exc:
@@ -6381,7 +6648,7 @@ def validate_analysis_payload(payload: Any, report_kind: str = "file") -> Dict[s
     _optional_text_fields(clean, ("profile", "language_hint"), report_kind)
     if clean.get("profile") not in (None, "") and clean["profile"] not in SCORING_PROFILES:
         raise ValueError("Unknown scoring profile.")
-    for key in ("include_documentation", "require_python_ast"):
+    for key in ("include_documentation", "require_python_ast", "require_c_family_features"):
         if key in clean and type(clean[key]) is not bool:
             raise ValueError(f"{key} must be true or false")
     for key in ("engine_fingerprint", "engine_integrity"):
@@ -6475,7 +6742,8 @@ def codeprobe_analyze(payload_json: str) -> str:
     config = merged_metric_config(profile, override, calibration_profile)
     fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
     engine = AnalysisEngine(config, calibration_profile=calibration_profile, engine_fingerprint=fingerprint,
-                            require_python_ast=bool(payload.get("require_python_ast")))
+                            require_python_ast=bool(payload.get("require_python_ast")),
+                            require_c_family_features=bool(payload.get("require_c_family_features")))
     report = engine.analyse(code, filename, language_hint=language_hint, profile=profile)
     provenance = validate_intake_provenance(payload.get("intake_provenance"))
     if provenance:

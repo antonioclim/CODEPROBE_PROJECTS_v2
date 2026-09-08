@@ -266,11 +266,13 @@ def analyse_sample(
             payload["profile"] = profile
             payload["config_override"] = metric_overrides
             payload["require_python_ast"] = True
+            payload["require_c_family_features"] = True
             report = engine.analyse_project_payload(payload)
         else:
             payload = {
                 "code": _read_text_file(path, root, consumed_files=consumed_files),
                 "require_python_ast": True,
+                "require_c_family_features": True,
                 "filename": path.name,
                 "profile": profile,
                 "config_override": metric_overrides,

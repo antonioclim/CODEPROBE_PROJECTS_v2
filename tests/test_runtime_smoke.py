@@ -483,5 +483,269 @@ class PythonStructuralContractTests(unittest.TestCase):
                 self.assertEqual({item.name: item.cyclomatic for item in context.functions}, expected)
 
 
+class CFamilyStructuralContractTests(unittest.TestCase):
+    """Authored source fixtures are data; no compiler or submitted code runs."""
+
+    def context(self, source, language="c"):
+        extension = {"c": "c", "cpp": "cpp", "csharp": "cs"}[language]
+        return engine.build_analysis_context(source, "fixture." + extension, language)
+
+    def assert_functions(self, context, expected):
+        self.assertEqual([(item.name, item.lineno, item.end_lineno, item.cyclomatic)
+                          for item in context.functions], expected)
+        self.assertEqual(len(context.cleaned_code), len(context.code))
+        self.assertEqual([i for i, ch in enumerate(context.cleaned_code) if ch == "\n"],
+                         [i for i, ch in enumerate(context.code) if ch == "\n"])
+
+    def test_c_and_cpp_spliced_comments_preserve_physical_coordinates(self):
+        source = "// continued " + "\\" + "\nint phantom(void) { if (1) return 1; }\nint real(void) { return 2; }\n"
+        for language in ("c", "cpp"):
+            for newline in ("\n", "\r\n"):
+                with self.subTest(language=language, newline=newline):
+                    context = self.context(source.replace("\n", newline), language)
+                    self.assert_functions(context, [("real", 3, 3, 1)])
+                    self.assertNotIn("phantom", context.identifiers)
+                    self.assertEqual(engine.scan_c_like(context.code, language).comment_line_numbers, {1, 2})
+        formed = self.context("/\\\n/ comment\nint real() { return 1; }\n", "cpp")
+        self.assert_functions(formed, [("real", 3, 3, 1)])
+        self.assertNotIn("comment", formed.identifiers)
+        ordinary = self.context("// comment\nint real(void) { return 1; }\n")
+        self.assert_functions(ordinary, [("real", 2, 2, 1)])
+
+    def test_cpp_raw_closing_delimiter_is_not_created_by_line_splicing(self):
+        source = ('const char *s = R"tag(\n)ta\\\ng"; int phantom() { if (1) return 9; }\n'
+                  ')tag";\nint real() { return 1; }\n')
+        context = self.context(source, "cpp")
+        self.assert_functions(context, [("real", 5, 5, 1)])
+        self.assertEqual(context.comment_texts, [])
+        self.assertNotIn("phantom", context.identifiers)
+
+    def test_csharp_raw_three_and_four_quotes_keep_literal_structure_inert(self):
+        sources = (
+            ('class Sample {\n string s = """\n// text with " quote\n'
+             'int Phantom() { if (true) return 9; }\n""";\n int Real() { return 1; }\n}\n', 6),
+            ('class Sample {\n string s = """"\n""" int Phantom() { if (true) return 9; } // text\n'
+             '"""";\n int Real() { return 1; }\n}\n', 5),
+        )
+        for source, line in sources:
+            with self.subTest(line=line):
+                context = self.context(source, "csharp")
+                self.assert_functions(context, [("Real", line, line, 1)])
+                self.assertEqual(context.comment_texts, [])
+                self.assertNotIn("Phantom", context.identifiers)
+                self.assertTrue(context.c_family_lexically_safe)
+        raw_source = sources[0][0]
+        for literal_text in ("if (true) { return 1; }", "class Fake { }"):
+            context = self.context(raw_source.replace('// text with " quote', literal_text), "csharp")
+            self.assertEqual(context.control_line_count, 0)
+            self.assertEqual(context.declarative_line_count, 1)
+
+    def test_csharp_nested_interpolation_and_verbatim_quotes_own_their_slashes(self):
+        literals = ('$"{F("// not a comment")}"',
+                    '$@"before {F("// inside")} after"',
+                    '@"int Phantom() { } ""quoted"" // literal"')
+        for literal in literals:
+            with self.subTest(literal=literal):
+                context = self.context('class Sample {\n string s = ' + literal + ';\n int Real() { return 1; }\n}\n', "csharp")
+                self.assert_functions(context, [("Real", 3, 3, 1)])
+                self.assertEqual(context.comment_texts, [])
+                self.assertNotIn("Phantom", context.identifiers)
+
+    def test_unclosed_csharp_literals_have_diagnostics_and_no_method_ranges(self):
+        sources = ('class Sample { string s = """\nint Phantom() { return 9; }\n',
+                   'class Sample { string s = """"\nint Phantom() { return 9; }\n""";\nint Real() { return 1; }\n}\n',
+                   'class Sample { string s = $"{F("// inner");')
+        for source in sources:
+            with self.subTest(source=source):
+                context = self.context(source, "csharp")
+                self.assert_functions(context, [])
+                self.assertFalse(context.c_family_lexically_safe)
+                self.assertTrue(context.tokenizer_error)
+                self.assertTrue(any(note.startswith("Tokenizer warning:") for note in context.notes))
+
+    def test_csharp_raw_quote_budget_has_an_explicit_endpoint(self):
+        for width in (15, 16, 17):
+            delimiter = '"' * width
+            source = ('class Sample {\n string s = ' + delimiter + '\nint Phantom() { return 9; }\n'
+                      + delimiter + ';\n int Real() { return 1; }\n}\n')
+            with self.subTest(width=width):
+                context = self.context(source, "csharp")
+                self.assert_functions(context, [("Real", 5, 5, 1)] if width <= 16 else [])
+                self.assertEqual(context.c_family_lexically_safe, width <= 16)
+                if width > 16:
+                    self.assertTrue(context.tokenizer_error)
+
+    def test_csharp_interpolation_depth_counts_active_expressions(self):
+        for depth in (15, 16, 17):
+            expression = '"// inside"'
+            for _ in range(depth):
+                expression = '$"{F(' + expression + ')}"'
+            source = 'class Sample {\n string s = ' + expression + ';\n int Real() { return 1; }\n}\n'
+            with self.subTest(depth=depth):
+                context = self.context(source, "csharp")
+                self.assert_functions(context, [("Real", 3, 3, 1)] if depth <= 16 else [])
+                self.assertEqual(context.comment_texts, [])
+                self.assertEqual(context.c_family_lexically_safe, depth <= 16)
+
+    def test_unicode_names_keep_distinct_lexical_spellings_in_all_three_languages(self):
+        for language in ("c", "cpp", "csharp"):
+            source = 'int café(int λ) { return λ; }\nint cafe\u0301(int λ) { return λ; }\n'
+            first = 1
+            if language == "csharp":
+                source = "class Sample {\n" + source + "}\n"
+                first = 2
+            with self.subTest(language=language):
+                context = self.context(source, language)
+                self.assert_functions(context, [("café", first, first, 1), ("cafe\u0301", first + 1, first + 1, 1)])
+                self.assertEqual(context.identifiers.count("λ"), 4)
+                self.assertIn("café", context.identifiers)
+                self.assertIn("cafe\u0301", context.identifiers)
+                self.assertNotIn("cafe", context.identifiers)
+                self.assertEqual([item.parameters for item in context.functions], [["int λ"], ["int λ"]])
+
+    def test_csharp_verbatim_names_are_not_reclassified_as_keywords(self):
+        context = self.context("class Sample {\n int @class() { int @return = 1; return @return; }\n}\n", "csharp")
+        self.assert_functions(context, [("@class", 2, 2, 1)])
+        self.assertEqual(context.identifiers.count("@class"), 1)
+        self.assertEqual(context.identifiers.count("@return"), 2)
+        self.assertEqual(context.tokens_operators.count("class"), 1)
+        self.assertEqual(context.tokens_operators.count("return"), 1)
+        self.assertNotIn("@class", context.tokens_operators)
+
+    def test_cpp_parameter_type_commas_preserve_the_existing_raw_parameter_contract(self):
+        context = self.context("int f(std::pair<int,int> value, const int *items) { return 0; }\n", "cpp")
+        self.assertEqual([(item.name, item.parameters) for item in context.functions],
+                         [("f", ["std::pair<int,int> value", "const int *items"])])
+
+    def test_unsupported_identifier_forms_do_not_become_partial_names(self):
+        cases = (("cpp", r"int caf\u00e9() { return 1; }"),
+                 ("csharp", "class Sample { int bad😀name() { return 1; } }"),
+                 ("csharp", "class Sample { int na\u200bme() { return 1; } }"),
+                 ("cpp", "int fo\\\no() { return 1; }"))
+        for language, source in cases:
+            with self.subTest(language=language, source=source):
+                context = self.context(source, language)
+                self.assert_functions(context, [])
+                self.assertTrue(context.tokenizer_error)
+                self.assertFalse(context.c_family_lexically_safe)
+
+    def test_known_function_omissions_are_qualified_and_keep_ordinary_methods(self):
+        cases = (("cpp", "struct Box {\n int operator+(int x) const { return x; }\n int Real() { return 1; }\n};\n", "operator"),
+                 ("csharp", "class Sample {\n int Add(int x) => x + 1;\n int Real() { return 1; }\n}\n", "expression"))
+        for language, source, marker in cases:
+            with self.subTest(language=language):
+                context = self.context(source, language)
+                self.assert_functions(context, [("Real", 3, 3, 1)])
+                self.assertTrue(context.c_family_function_issues)
+                self.assertIn(marker, " ".join(context.notes).lower())
+        long_source = "int long_signature(" + ", ".join("int p%d" % i for i in range(105)) + ") { return p0; }\n"
+        context = self.context(long_source, "cpp")
+        self.assert_functions(context, [])
+        self.assertTrue(context.c_family_function_issues)
+
+    def test_complete_function_header_limit_does_not_accept_a_truncated_prefix(self):
+        for width in (799, 800, 801):
+            left, right = "int boundary(", "int value) "
+            header = left + " " * (width - len(left) - len(right)) + right
+            self.assertEqual(len(header), width)
+            with self.subTest(width=width):
+                context = self.context(header + "{\n return value;\n}\n", "cpp")
+                self.assert_functions(context, [("boundary", 1, 3, 1)] if width <= 800 else [])
+                if width > 800:
+                    self.assertTrue(context.c_family_function_issues)
+
+    def test_comparison_initialisers_cannot_substitute_the_read_operand_for_a_local(self):
+        for expression in ("x < y", "x > y", "x <= y", "x >= y", "(x, y)", "call(x, y)"):
+            with self.subTest(expression=expression):
+                context = self.context("int f(int x, int y) {\n int a = " + expression + ", b = 2;\n return a + b;\n}\n")
+                function = context.functions[0]
+                declarations = engine.extract_local_declarations(function, "c")
+                self.assertEqual([(item["name"], item["absolute_line"], item["size"]) for item in declarations], [("a", 2, 4), ("b", 2, 4)])
+                self.assertEqual(engine.register_pressure_profile(function, "c")["locals"], 2)
+                frame = engine.stack_frame_profile(function, "c")
+                self.assertEqual((frame["locals"], frame["frame_bytes"]), (2, 8))
+
+    def test_multiline_declarations_and_simple_typedefs_are_not_object_aliases(self):
+        cases = (("int f(void) {\n int\n value = 1,\n other = 2;\n return value + other;\n}\n", ["value", "other"]),
+                 ("typedef int count;\nint f(void) {\n count value = 1;\n return value;\n}\n", ["value"]),
+                 ("int f(void) {\n typedef int count;\n count value = 1;\n return value;\n}\n", ["value"]))
+        for source, names in cases:
+            with self.subTest(source=source):
+                function = self.context(source).functions[0]
+                self.assertEqual([item["name"] for item in engine.extract_local_declarations(function, "c")], names)
+
+    def test_typedef_bindings_do_not_escape_their_scope_or_survive_an_object_shadow(self):
+        source = ("int f(int x) {\n { typedef int count; count inside = 1; }\n count * value;\n"
+                  " int after = x;\n return after;\n}\nint g(void) { count * elsewhere; return 0; }\n")
+        context = self.context(source)
+        self.assertEqual({item.name: [decl["name"] for decl in engine.extract_local_declarations(item, "c")]
+                          for item in context.functions}, {"f": ["inside", "after"], "g": []})
+        shadow = self.context("typedef int count;\nint f(void) {\n int count = 1;\n count * value;\n return count;\n}\n")
+        self.assertEqual([item["name"] for item in engine.extract_local_declarations(shadow.functions[0], "c")], ["count"])
+        separate = self.context("int f(void) { count * value; return 0; }\n")
+        self.assertEqual(engine.extract_local_declarations(separate.functions[0], "c"), [])
+
+    def test_declaration_statement_and_delimiter_limits_refuse_uncertain_names(self):
+        for width in (4095, 4096, 4097):
+            statement = "int value =" + " " * (width - len("int value =") - 1) + "1"
+            with self.subTest(width=width):
+                context = self.context("int f(void) {\n " + statement + ";\n return value;\n}\n")
+                names = [item["name"] for item in engine.extract_local_declarations(context.functions[0], "c")]
+                self.assertEqual(names, ["value"] if width <= 4096 else [])
+                if width > 4096:
+                    self.assertTrue(context.c_family_declaration_issues)
+        for depth in (31, 32, 33):
+            with self.subTest(depth=depth):
+                context = self.context("int f(void) { int value = " + "(" * depth + "1" + ")" * depth + "; return value; }\n")
+                names = [item["name"] for item in engine.extract_local_declarations(context.functions[0], "c")]
+                self.assertEqual(names, ["value"] if depth <= 32 else [])
+                if depth > 32:
+                    self.assertTrue(context.c_family_declaration_issues)
+
+    def test_typedef_budget_counts_bindings_without_counting_them_as_memory(self):
+        for aliases in (63, 64, 65):
+            source = ("int f(void) {\n" + "\n".join(" typedef int t%d;" % i for i in range(aliases))
+                      + "\n t%d value = 1;\n return value;\n}\n" % (aliases - 1))
+            with self.subTest(aliases=aliases):
+                context = self.context(source)
+                names = [item["name"] for item in engine.extract_local_declarations(context.functions[0], "c")]
+                if aliases <= 64:
+                    self.assertEqual(names, ["value"])
+                else:
+                    self.assertTrue(context.c_family_declaration_issues)
+                    self.assertFalse(set(names).intersection("t%d" % i for i in range(aliases)))
+
+    def test_complex_declarators_are_qualified_without_fabricated_type_names(self):
+        context = self.context("int f(void) {\n int (*callback)(int), ordinary = 1;\n return ordinary;\n}\n")
+        self.assertTrue(context.c_family_declaration_issues)
+        self.assertNotIn("int", [item["name"] for item in engine.extract_local_declarations(context.functions[0], "c")])
+
+    def test_c_family_diagnostics_reach_file_api_project_and_text(self):
+        cases = (("csharp", 'class Sample {\n string s = """\nint Phantom() { return 9; }\n'),
+                 ("cpp", "struct Box { int operator+(int x) const { return x; } };\n"),
+                 ("csharp", "class Sample { int Add(int x) => x + 1; }\n"),
+                 ("c", "int f(void) { int (*callback)(int); return 0; }\n"))
+        for language, source in cases:
+            context = self.context(source, language)
+            self.assertTrue(context.notes)
+            payload = {"code": source, "filename": context.filename, "language_hint": language}
+            with self.subTest(language=language, source=source):
+                for entry in (api.analyse_file, lambda item: json.loads(engine.codeprobe_analyze(json.dumps(item)))):
+                    output = entry(payload)
+                    for note in context.notes:
+                        self.assertIn(note, output["report"]["warnings"])
+                        self.assertIn(note, output["text"])
+                    if not context.c_family_lexically_safe:
+                        metrics = {item["name"]: item for item in output["report"]["metrics"]}
+                        for name in ("cyclomatic_complexity", "halstead_difficulty", "stack_frame_depth"):
+                            self.assertFalse(metrics[name]["applicable"])
+                output = api.analyse_project({"files": [{"path": context.filename, "content": source}]})
+                member = output["report"]["included_files"][0]
+                for note in context.notes:
+                    self.assertIn(note, member["warnings"])
+                    self.assertTrue(any(note in warning for warning in output["report"]["warnings"]))
+                    self.assertIn(note, output["text"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1440,6 +1440,237 @@ for name, code, expected in cases:
     qualification:"Six internal context oracles ran in the owned authenticated worker interpreter; main file/main project/compact project used actual File/DOM, public worker transport and JSON/text downloads. Bound invalid cases followed valid same-kind profile controls. Comment-mask equivalence is not a browser complexity benchmark; type-alias syntax remains unsupported on pinned Python 3.11.3."}));
 }
 
+// C-family context metadata has no public worker operation. Fixed lexical
+// oracles inspect the owned authenticated interpreter; warning/export cases
+// separately exercise the existing public UI and worker transport.
+async function testCLikeStructureContracts(cdp, baseUrl, downloads, fixtureState, engineDigest) {
+  const deadline = Date.now() + 300000;
+  const observations = [];
+  async function withinCase(name, findings, boundary, operation) {
+    const remaining = Math.min(60000, deadline - Date.now());
+    assert(remaining > 0, "C-family browser group exceeded its 300-second budget");
+    const started = Date.now();
+    let timer;
+    try {
+      const observed = await Promise.race([operation(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`C-family browser case timed out: ${name}`)), remaining);
+      })]);
+      const row = {case:name, findings, boundary, result:"PASS", elapsed_ms:Date.now() - started, observed};
+      observations.push(row);
+      console.log("[PASS] browser-cfamily-i08-case: " + JSON.stringify(row));
+    } finally { clearTimeout(timer); }
+  }
+  const directCases = [
+    {name:"c-cpp-spliced-comment-and-raw-control", finding:"A02-F003", script:`
+code = '// continued comment \\\\\\nint phantom(void) { return 1; }\\nint real(void) { return 2; }\\n'
+observed = []
+for language, filename in [('c', 'spliced.c'), ('cpp', 'spliced.cpp')]:
+    context = module.build_analysis_context(code, filename, language)
+    actual = [[f.name, f.lineno, f.end_lineno, f.cyclomatic] for f in context.functions]
+    assert actual == [['real', 3, 3, 1]] and 'phantom' not in context.identifiers
+    assert len(context.cleaned_code) == len(code)
+    assert [i for i, ch in enumerate(context.cleaned_code) if ch == '\\n'] == [i for i, ch in enumerate(code) if ch == '\\n']
+    observed.append(dict(language=language, functions=actual, physical_coordinates_preserved=True))
+raw = 'const char *text = R"tag(// literal \\\\\\nint phantom(void) { return 1; }\\n)tag";\\nint real(void) { return 2; }\\n'
+context = module.build_analysis_context(raw, 'raw.cpp', 'cpp')
+assert [[f.name, f.lineno, f.end_lineno] for f in context.functions] == [['real', 4, 4]]
+assert not context.comment_texts and 'phantom' not in context.identifiers
+observed.append(dict(language='cpp', case='raw-splice-control', functions=[[f.name, f.lineno, f.end_lineno] for f in context.functions], comments=context.comment_texts))
+`},
+    {name:"csharp-raw-interpolation-and-unsafe-diagnostic", finding:"A02-F004", script:`
+observed = []
+for quote_count in (3, 4):
+    quotes = '"' * quote_count
+    code = 'class Demo {\\n string text = ' + quotes + '\\n int Phantom() { if (true) return 1; }\\n ' + quotes + ';\\n int Real() { return 0; }\\n}\\n'
+    context = module.build_analysis_context(code, 'raw.cs', 'csharp')
+    actual = [[f.name, f.lineno, f.end_lineno, f.cyclomatic] for f in context.functions]
+    assert actual == [['Real', 5, 5, 1]] and 'Phantom' not in context.identifiers and not context.comment_texts
+    assert context.c_family_lexically_safe
+    observed.append(dict(case='raw-' + str(quote_count), functions=actual, lexical_safe=True))
+for label, literal in [('interpolation', '$"{format(\\"//\\")}"'), ('verbatim', '@"quoted ""//"" text"')]:
+    code = 'class Demo { string text = ' + literal + '; int Real() { return 0; } }\\n'
+    context = module.build_analysis_context(code, label + '.cs', 'csharp')
+    assert [f.name for f in context.functions] == ['Real'] and not context.comment_texts and context.c_family_lexically_safe
+    observed.append(dict(case=label, functions=[f.name for f in context.functions], comments=context.comment_texts))
+code = 'class Demo {\\n string text = """unterminated\\n int Phantom() { return 1; }\\n}\\n'
+context = module.build_analysis_context(code, 'unsafe.cs', 'csharp')
+assert not context.c_family_lexically_safe and not context.functions
+assert any(note.startswith('Tokenizer warning: C-family ') for note in context.notes)
+observed.append(dict(case='unterminated-raw', lexical_safe=context.c_family_lexically_safe, functions=[], notes=context.notes))
+`},
+    {name:"c-family-unicode-and-csharp-verbatim-spelling", finding:"A02-F005", script:`
+observed = []
+for language, filename in [('c', 'names.c'), ('cpp', 'names.cpp'), ('csharp', 'names.cs')]:
+    code = 'int café(int λ) { return λ; }\\nint cafe\\u0301(int λ) { return λ; }\\n'
+    if language == 'csharp':
+        code = 'class Demo {\\n' + code + '}\\n'
+    context = module.build_analysis_context(code, filename, language)
+    assert [f.name for f in context.functions] == ['café', 'cafe\\u0301']
+    assert all(f.parameters == ['int λ'] for f in context.functions)
+    assert context.identifiers.count('café') == 1 and context.identifiers.count('cafe\\u0301') == 1 and context.identifiers.count('λ') == 4
+    observed.append(dict(language=language, names=[f.name for f in context.functions], parameters=[f.parameters for f in context.functions], identifiers=context.identifiers))
+code = 'class Demo { int @class(int @return) { return @return; } }\\n'
+context = module.build_analysis_context(code, 'verbatim.cs', 'csharp')
+assert [f.name for f in context.functions] == ['@class'] and context.functions[0].parameters == ['int @return']
+assert context.identifiers.count('@class') == 1 and context.identifiers.count('@return') == 2
+assert '@class' not in context.tokens_operators and '@return' not in context.tokens_operators
+observed.append(dict(language='csharp', case='verbatim', names=[f.name for f in context.functions], identifiers=context.identifiers))
+`},
+    {name:"c-family-explicit-extraction-subset-and-header-bound", finding:"A02-F006", script:`
+observed = []
+cases = [
+    ('operator', 'cpp', 'operator.cpp', 'struct Number { Number operator+(const Number& other) const { return other; }\\n int Real() { return 0; }\\n};\\n'),
+    ('expression-body', 'csharp', 'expression.cs', 'class Demo { int Hidden() => 1;\\n int Real() { return 0; }\\n}\\n'),
+]
+for name, language, filename, code in cases:
+    context = module.build_analysis_context(code, filename, language)
+    assert [f.name for f in context.functions] == ['Real']
+    assert context.c_family_function_issues and any(note.startswith('C-family extraction warning:') for note in context.notes)
+    observed.append(dict(case=name, functions=[f.name for f in context.functions], issues=context.c_family_function_issues, notes=context.notes))
+for length in (799, 800, 801):
+    prefix, suffix = 'int long_header(', 'int value)'
+    header = prefix + ' ' * (length - len(prefix) - len(suffix)) + suffix
+    assert len(header) == length
+    code = header + '{ return value; }\\n'
+    context = module.build_analysis_context(code, 'header.c', 'c')
+    if length <= 800:
+        assert [[f.name, f.lineno, f.end_lineno] for f in context.functions] == [['long_header', 1, 1]]
+    else:
+        assert not context.functions and context.c_family_function_issues
+        assert any(note.startswith('C-family extraction warning:') for note in context.notes)
+    observed.append(dict(case='header-' + str(length), functions=[[f.name, f.lineno, f.end_lineno] for f in context.functions], issues=context.c_family_function_issues))
+`},
+    {name:"c-family-declarator-initialiser-separation-and-proxies", finding:"A02-F007", script:`
+observed = []
+for expression in ('x < y', 'x > y', 'x <= y', '(x, y)'):
+    code = 'int f(int x,int y) {\\n int a=' + expression + ',b=2;\\n return a+b;\\n}\\n'
+    context = module.build_analysis_context(code, 'declarations.c', 'c')
+    assert len(context.functions) == 1 and context.functions[0].name == 'f'
+    function = context.functions[0]
+    declarations = module.extract_local_declarations(function, 'c')
+    assert [[d['name'], d['size'], d['absolute_line']] for d in declarations] == [['a', 4, 2], ['b', 4, 2]]
+    pressure = module.register_pressure_profile(function, 'c')
+    frame = module.stack_frame_profile(function, 'c')
+    assert pressure['locals'] == 2 and frame['locals'] == 2 and frame['frame_bytes'] == 8
+    observed.append(dict(case=expression, declarations=declarations, pressure=pressure, frame=frame))
+code = 'int f(void) {\\n typedef int count_t;\\n count_t a = 1,\\n b = 2;\\n return a+b;\\n}\\n'
+context = module.build_analysis_context(code, 'multiline.c', 'c')
+declarations = module.extract_local_declarations(context.functions[0], 'c')
+assert [d['name'] for d in declarations] == ['a', 'b'] and [d['size'] for d in declarations] == [4, 4]
+observed.append(dict(case='multiline-local-typedef', declarations=declarations, qualification='Fixed type-size and lexical lifetime proxies; no actual register or stack measurement.'))
+`}
+  ];
+  fixtureState.reset();
+  const pageUrl = `${baseUrl}/app/index.html?cfamily-i08=1`;
+  let session = null, workerSession = null, ownership = null, actualRuntime = null;
+  try {
+    await withinCase("cfamily-owned-worker", [], "authenticated-worker-ownership", async () => {
+      await cdp.send("Target.setDiscoverTargets", {discover:true});
+      const previous = new Set((await cdp.send("Target.getTargets")).targetInfos.map(item => item.targetId));
+      session = await createSession(cdp, pageUrl);
+      await waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()", 60000);
+      assertSingleVerifiedRequests(fixtureState);
+      await cdp.send("Target.setAutoAttach", {autoAttach:true, waitForDebuggerOnStart:false, flatten:true,
+        filter:[{type:"worker"}, {exclude:true}]}, session.sessionId);
+      const discoveryDeadline = Date.now() + 5000;
+      let workers = [], attachments = [];
+      do {
+        workers = (await cdp.send("Target.getTargets")).targetInfos.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.parentId === session.targetId);
+        attachments = [...cdp.attachedTargets.entries()].filter(([, item]) => item.parentSessionId === session.sessionId && workers.some(worker => worker.targetId === item.targetInfo.targetId));
+        if (workers.length && attachments.length) break;
+        await delay(100);
+      } while (Date.now() < discoveryDeadline);
+      assert(workers.length === 1 && attachments.length === 1, "C-family oracle did not locate exactly one owned worker channel");
+      const worker = workers[0];
+      if (worker.openerId) assert(worker.openerId === session.targetId, "C-family oracle worker opener differs from its owned page");
+      assert(attachments[0][1].targetInfo.type === "worker" && attachments[0][1].targetInfo.parentId === session.targetId, "C-family oracle attachment differs from its owned worker");
+      [workerSession] = attachments[0];
+      await cdp.send("Runtime.enable", {}, workerSession);
+      const workerBase = await evaluate(cdp, workerSession, "self.CODEPROBE_BASE_URL");
+      assert(workerBase === pageUrl, "C-family oracle worker bootstrap URL differs from its owned page");
+      ownership = {page_target_id:session.targetId, worker_target_id:worker.targetId, worker_parent_id:worker.parentId, bootstrap_url:workerBase};
+      return ownership;
+    });
+    for (const item of directCases) {
+      await withinCase(item.name, [item.finding], "context-in-authenticated-worker", async () => {
+        const script = "def _codeprobe_cfamily_i08_fixture():\n    import json, sys\n    module = sys.modules['codeprobe_runtime']\n" +
+          item.script.trim().split("\n").map(line => "    " + line).join("\n") +
+          "\n    metadata = json.loads(module.codeprobe_engine_metadata('{}'))\n    return json.dumps(dict(observed=observed, runtime=metadata['python_runtime'], measured_sha256=metadata['engine_fingerprint']['value']), allow_nan=False)\n_codeprobe_cfamily_i08_fixture()\n";
+        const result = await evaluate(cdp, workerSession, `(async () => {
+          const runtime = await self.CodeProbeRuntime.loadVerifiedPyodide();
+          try { return JSON.parse(runtime.runPython(${JSON.stringify(script)})); }
+          finally { runtime.globals.delete('_codeprobe_cfamily_i08_fixture'); }
+        })()`);
+        assert(result.runtime.platform === "emscripten" && result.runtime.version === "3.11.3", "C-family context oracle used an unexpected interpreter");
+        assert(result.measured_sha256 === engineDigest, "C-family context oracle used different engine bytes");
+        actualRuntime = result.runtime;
+        assertSingleVerifiedRequests(fixtureState);
+        return {...result, oracle_sha256:crypto.createHash("sha256").update(script).digest("hex")};
+      });
+    }
+  } finally {
+    if (workerSession) await cdp.send("Target.detachFromTarget", {sessionId:workerSession}, session.sessionId);
+    if (session) await closeSession(cdp, session);
+    await cdp.send("Target.setDiscoverTargets", {discover:false});
+  }
+
+  const warningCases = [
+    {name:"unsafe-raw", finding:"A02-F004", prefix:"Tokenizer warning: C-family ", code:'class Demo {\n string text = """unterminated\n int Phantom() { return 1; }\n}\n'},
+    {name:"expression-body", finding:"A02-F006", prefix:"C-family extraction warning:", code:'class Demo { int Hidden() => 1;\n int Real() { return 0; }\n}\n'},
+  ];
+  for (const mode of ["main-file", "main-project", "compact-project"]) {
+    const compact = mode.startsWith("compact"), kind = mode.endsWith("file") ? "file" : "project";
+    fixtureState.reset();
+    let page = null, id = null;
+    const active = compact ? "state" : "appState";
+    const button = compact ? "analyseBtn" : "analyzeBtn", status = compact ? "status" : "statusText";
+    const exportName = kind === "file" ? "bounded" : compact ? "cfamily" : "selected-files";
+    try {
+      for (const item of warningCases) {
+        await withinCase(`${mode}-${item.name}-json-text-downloads`, [item.finding], "public-ui-worker-report-exports", async () => {
+          if (!page) {
+            page = await createSession(cdp, `${baseUrl}/app/${compact ? "project" : "index"}.html?cfamily-i08-${mode}=1`);
+            id = page.sessionId;
+            if (!compact) await waitForExpression(cdp, id, "appState.workerSession?.isReady()", 60000);
+          }
+          await evaluate(cdp, id, `(() => {
+            const transfer = new DataTransfer();
+            const file = new File([${JSON.stringify(item.code)}], 'bounded.cs', {type:'text/plain'});
+            if (${kind === "project"}) Object.defineProperty(file, '_codeprobeRelativePath', {value:'cfamily/bounded.cs'});
+            transfer.items.add(file);
+            const input = document.getElementById('${kind === "file" ? "fileInput" : "folderInput"}');
+            input.files = transfer.files; input.dispatchEvent(new Event('change', {bubbles:true}));
+          })()`);
+          await waitForExpression(cdp, id, `${active}.loadingInput === false && !document.getElementById('${button}').disabled`, 60000);
+          await evaluate(cdp, id, `document.getElementById('${button}').click()`);
+          await waitForExpression(cdp, id, `document.getElementById('${status}').textContent === '${kind === "file" ? "Analysis completed." : "Project analysis completed."}'`, 60000);
+          const result = await evaluate(cdp, id, `({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value,
+            warnings:document.getElementById('${compact ? "reviewPanel" : "warningsList"}').textContent})`);
+          assert(result.report.report_kind === kind && result.report.engine_fingerprint.value === engineDigest, "C-family UI report identity differs");
+          assert(result.report.engine_fingerprint.source === "packaged-verified", "C-family UI report lost authenticated engine provenance");
+          assert(result.report.warnings.some(value => value.includes(item.prefix)), "C-family diagnostic report lost its warning");
+          assert(result.text.includes(item.prefix) && result.warnings.includes(item.prefix), "C-family diagnostic text or rendered warning is absent");
+          if (kind === "project") {
+            assert(result.report.included_file_count === 1 && result.report.included_files[0].warnings.some(value => value.includes(item.prefix)), "C-family project lost its member or child warning");
+            assert(result.report.warnings.some(value => value.includes("bounded.cs") && value.includes(item.prefix)), "C-family project warning lacks its member path");
+          }
+          fs.rmSync(downloads, {recursive:true, force:true}); fs.mkdirSync(downloads, {recursive:true});
+          await cdp.send("Browser.setDownloadBehavior", {behavior:"allow", downloadPath:downloads});
+          await evaluate(cdp, id, "document.getElementById('exportJsonBtn').click(); document.getElementById('exportTextBtn').click()");
+          const jsonPath = path.join(downloads, `${exportName}.json`), textPath = path.join(downloads, `${exportName}.txt`);
+          await Promise.all([waitForFile(jsonPath, 60000), waitForFile(textPath, 60000)]);
+          assert(JSON.stringify(JSON.parse(fs.readFileSync(jsonPath, "utf8"))) === JSON.stringify(result.report), "C-family JSON download differs from accepted report");
+          assert(fs.readFileSync(textPath, "utf8") === result.text, "C-family text download differs from accepted report");
+          assertSingleVerifiedRequests(fixtureState);
+          return {warnings:result.report.warnings, source_sha256:crypto.createHash("sha256").update(item.code).digest("hex"), engine_sha256:engineDigest, export_name:exportName};
+        });
+      }
+    } finally { if (page) await closeSession(cdp, page); }
+  }
+  console.log("[PASS] browser-cfamily-i08: " + JSON.stringify({engine_sha256:engineDigest, runtime:actualRuntime, ownership, observations,
+    qualification:"Five finite C-family context groups ran in the owned authenticated worker interpreter; main file/main project/compact project used actual File/DOM, public worker transport and JSON/text downloads for lexical and extraction warnings. The supported subset is bounded; these fixtures do not establish full compiler semantics or real register/stack measurements."}));
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -1507,6 +1738,7 @@ async function main() {
     await testIntakeContracts(cdp, baseUrl, downloads, state, false, engineDigest);
     await testIntakeContracts(cdp, baseUrl, downloads, state, true, engineDigest);
     await testPythonStructureContracts(cdp, baseUrl, downloads, state, engineDigest, parserFixtures);
+    await testCLikeStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);
