@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
 
 import codeprobe_runtime as engine  # noqa: E402
-from codeprobe_engine import project_io  # noqa: E402
+from codeprobe_engine import api, project_io  # noqa: E402
 import analyze_project  # noqa: E402
 
 
@@ -900,6 +900,56 @@ class CoherentProjectIntakeTests(unittest.TestCase):
                 with self.assertRaisesRegex(project_io.ProjectInputError, "Unicode/case-equivalent"):
                     project_io.project_payload_from_path(root)
                 read.assert_not_called()
+
+
+class PythonProjectDiagnosticTests(unittest.TestCase):
+    INVALID = "def broken():\n    if True:\n        return 1\n  return 0\n"
+    VALID = "def add(left, right):\n    result = left + right\n    return result\n\ndef subtract(left, right):\n    return left - right\n"
+
+    def test_member_diagnostics_reach_project_json_text_and_python_api(self):
+        payload = {"project_name": "parser-fixture", "files": [
+            {"path": "broken.py", "content": self.INVALID},
+            {"path": "valid.py", "content": self.VALID},
+        ]}
+        for entry in (api.analyse_project, lambda item: json.loads(engine.codeprobe_analyze_project(json.dumps(item)))):
+            result = entry(payload)
+            report = result["project_report"]
+            self.assertEqual(result["report"], report)
+            self.assertEqual([item["path"] for item in report["files"]], ["broken.py", "valid.py"])
+            broken = next(item for item in report["files"] if item["path"] == "broken.py")
+            warnings = broken["warnings"]
+            self.assertTrue(any("IndentationError at line 4," in item for item in warnings))
+            qualified = [item for item in report["warnings"] if "broken.py" in item and "IndentationError at line 4," in item]
+            self.assertTrue(qualified)
+            for diagnostic in qualified:
+                self.assertIn(diagnostic, result["text"])
+            self.assertEqual(report["included_file_count"], 2)
+            with self.assertRaisesRegex(ValueError, "requires a successful AST parse"):
+                entry({**payload, "require_python_ast": True})
+
+    def test_project_cli_reports_unbound_errors_and_preserves_outputs_on_bound_refusal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project"
+            project.mkdir()
+            source = project / "broken.py"
+            source.write_text(self.INVALID, encoding="utf-8")
+            json_out, text_out = root / "report.json", root / "report.txt"
+            args = ["--folder", str(project), "--json-out", str(json_out), "--text-out", str(text_out)]
+            self.assertEqual(analyze_project.main(args), 0)
+            report = json.loads(json_out.read_text(encoding="utf-8"))
+            self.assertTrue(any("broken.py" in item and "IndentationError" in item for item in report["warnings"]))
+            self.assertIn("IndentationError", text_out.read_text(encoding="utf-8"))
+            profile_path = root / "bound-profile.json"
+            profile = {"profile_id": "owned-parser-contract", "scoring_contract": engine.scoring_contract("default", engine.merged_metric_config("default"))}
+            profile_path.write_text(json.dumps(profile), encoding="utf-8")
+            before = {path: path.read_bytes() for path in (source, profile_path, json_out, text_out)}
+            with contextlib.redirect_stderr(io.StringIO()) as stderr:
+                status = analyze_project.main([*args, "--calibration-profile", str(profile_path)])
+            self.assertEqual(status, 2)
+            self.assertIn("requires a successful AST parse", stderr.getvalue())
+            self.assertEqual({path: path.read_bytes() for path in before}, before)
+            self.assertEqual(list(root.glob(".codeprobe-report-*")), [])
 
 
 if __name__ == "__main__":

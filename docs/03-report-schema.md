@@ -169,3 +169,144 @@ Bound calibrated Python analysis requires a successful AST parse, including
 project members. Calibration sample scoring enforces the same condition.
 Unbound diagnostic analysis retains its warning-bearing fallback. Runtime
 metadata are observations, not a universal cross-version equivalence guarantee.
+
+## Python diagnostics and structural metadata
+
+The Python API wrappers return the existing JSON envelope: `report` and `text`
+for a file, with the additional `project_report` alias for a project. A returned
+diagnostic report does not certify that the source is valid Python.
+
+Unbound analysis catches Python tokenisation and indentation errors explicitly.
+The context retains `tokenizer_error` and `ast_error`; reports expose the
+corresponding `Tokenizer warning:` and `AST warning:` strings in `warnings`.
+Each diagnostic identifies the exception class, line and column when available.
+The underlying message is supplied by the actual interpreter and can differ
+between Python versions. An unsuccessful parse retains a qualified lexical
+fallback, rather than an invented AST. File JSON and text retain these warnings.
+Project JSON retains member warnings in `included_files` and promotes parser
+diagnostics to path-qualified project warnings, which also appear in project
+text and both browser interfaces.
+
+With `require_python_ast: true` or an applied bound calibration profile, an
+included Python file must produce an AST. Otherwise analysis raises
+`ValueError`; the Python wrappers propagate the refusal and no complete report
+envelope is returned. The project CLI reports failure before writing reports.
+Calibration sample analysis records an error and aborts profile preparation.
+The browser reports a failed operation and accepts no replacement report.
+Unbound diagnostic fallback must not be used as evidence that a bound profile
+can evaluate the same input.
+
+Python soft keywords are classified by their syntactic role in an accepted AST.
+Ordinary identifiers named `match`, `case` or `type` retain their source spelling;
+the same words in supported keyword roles are operators. Strings and comments
+do not create identifiers. Syntax unsupported by the active interpreter remains
+diagnosed; the absence of an AST does not justify discarding every identifier
+with a soft-keyword spelling.
+The language specification describes these roles in
+[Python's soft-keyword rules](https://docs.python.org/3/reference/lexical_analysis.html#soft-keywords).
+
+`FunctionInfo.parameters` is internal structural metadata, ordered as
+positional-only parameters, ordinary positional parameters, the variadic
+positional parameter, keyword-only parameters then the variadic keyword
+parameter. The `/` and bare `*` separators are not parameter names. This restores
+signature fidelity without adding a public parameter field or establishing an
+effect on an existing score.
+The corresponding fields are defined in
+[the Python AST argument reference](https://docs.python.org/3/library/ast.html#ast.arguments).
+
+## Python used-import ratio
+
+The public metric remains `used_import_ratio`. For Python its denominator counts
+explicit import-binding occurrences, including repeated imports and bindings in
+different scopes. Its numerator counts those occurrences with a statically
+associated read. Repeated reads of one binding count once. An alias is tracked
+under its bound name. A plain assignment target or deletion does not itself
+read that binding; augmented assignment can read it before rebinding. A
+parameter or another local binding can shadow an outer import. Import, read and
+rebinding order matters within a scope.
+
+Function and generator bodies can associate a free-name read with a stable
+enclosing import. If that enclosing name is rebound, unknown call or generator
+consumption order makes the metric unavailable. A generator's first iterable
+is evaluated immediately; its body is deferred. Conditional rebinding in
+statements, short-circuit expressions or chained comparisons also requires
+unavailable status rather than treating all branches as sequential execution.
+
+The metric's `detail` and `explanation` describe the bounded static analysis.
+Where supported scope and ordering rules cannot establish the association, the
+metric is unavailable (`applicable: false`), with the limitation recorded. In
+particular, recognised direct namespace-access calls, wildcard imports and
+unresolved `global`/`nonlocal` interactions must not be presented as resolved
+import use.
+This is neither a Python interpreter nor a complete name resolver: it does not
+prove that an import succeeds, a callable runs or a branch is reachable.
+Annotation and type-parameter scopes also require qualification: their evaluation
+rules differ across supported interpreter versions, including deferred
+annotations in Python 3.14. They cannot automatically be treated as ordinary
+immediate reads. See [Python's execution model](https://docs.python.org/3/reference/executionmodel.html).
+The current conservative rule makes this metric unavailable for the whole file
+when such a scope limitation is found, including an explicit AST annotation or type
+parameter even if it appears unrelated to an import. It does not track aliases
+of dynamic namespace operations or arbitrary effects of called code.
+
+The internal `AnalysisContext.python_import_usage` record carries `status`,
+`imported`, `used`, per-occurrence `bindings` and `limitations`. Compatibility
+fields `imported_names` and `used_names` remain available, but their flattened
+names are not the metric's denominator or binding-resolution result. The raw
+binding inventory is not added to public JSON. Consumers should read the
+existing metric applicability, value, detail and explanation fields together.
+File text includes these metric fields; project JSON retains them for each
+included file.
+
+## Python function complexity and signatures
+
+For Python, `cyclomatic_complexity` reports the mean of CodeProbe's AST decision
+counts for inventoried functions. Each function starts at one. Existing node
+weights remain: `if`, loops, `with`, `assert`, conditional expressions and
+exception handlers add one; a Boolean operation adds the number of operands
+minus one; a comprehension adds one plus its filters; non-default match cases
+add one. These rules define this implementation's structural count. They do not
+establish equivalence to every control-flow graph definition of McCabe
+complexity.
+
+Each function's count covers its own body. Bodies of nested functions, lambdas
+and classes are excluded from that count. Expressions in nested defaults,
+decorators and class bases that are evaluated while defining the nested object
+belong to the enclosing callable's count. The function's own defaults and
+decorators do not belong to its body count. Nested functions remain separately
+inventoried, including asynchronous functions; their source ranges continue to
+include decorators. The class-body exclusion is an explicit structural boundary,
+even though executing a class definition also executes its class body. It is
+not a claim that class construction has no runtime work.
+
+`function_complexity_uniformity` consumes these per-function values.
+`FunctionInfo.ast_signature` remains a separate full-subtree node inventory,
+including nested structures. Its use by `structural_self_similarity` is not
+silently changed to the complexity visitor's scope. Lambdas are excluded from
+enclosing complexity bodies but are not added to the named-function inventory.
+These features remain qualified structural descriptions, not evidence of
+authorship or a demonstrated improvement in detection accuracy.
+
+Python comment masking precomputes line offsets and reuses them for token
+coordinates, instead of repeatedly splitting and summing the whole source.
+Masking preserves character positions, line classifications and comment text;
+normal context construction first normalises newlines. The bounded operation
+count concerns this offset work and does not establish a wall-clock guarantee
+for the whole parser or browser. Invalid input remains diagnostic fallback;
+[the tokenizer documentation](https://docs.python.org/3/library/tokenize.html)
+does not promise stable tokenisation of syntactically invalid Python.
+
+## Re-fitting after an engine change
+
+Parser changes alter the measured engine SHA-256 and can alter extracted
+features. Updated metric-contract notes can also alter `metric_config_digest`.
+An existing bound profile with a different engine or configuration identity is
+therefore refused. Changing its digest fields would not establish that its
+samples were analysed with the new extraction rules.
+
+Re-fitting requires the original curated samples, declared groups and
+fit/evaluation design to be scored with the new engine, followed by review of
+the resulting profile and evaluation. Synthetic regression fixtures establish
+software behaviour only; they are not a replacement empirical corpus. No
+profile migration, new labelled corpus or authorship-validity claim follows
+from these structural corrections.

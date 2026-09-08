@@ -88,5 +88,92 @@ if __name__ == "__main__":
             engine.merged_metric_config("default", {"line_length_uniformity": {"thresholds": {"ai_low": "small"}}})
 
 
+class PythonImportBindingTests(unittest.TestCase):
+    def metric(self, source):
+        report = engine.AnalysisEngine(engine.merged_metric_config("default")).analyse(source, "imports.py", "python")
+        return next(item for item in report.metrics if item.name == "used_import_ratio")
+
+    def test_import_reads_are_distinct_from_writes_deletes_and_rebinding(self):
+        cases = (
+            ("import os\nos.getcwd()\n", 1.0),
+            ("import os as system\nsystem.getcwd()\n", 1.0),
+            ("from os import getcwd as current\ncurrent()\n", 1.0),
+            ("import os.path\nos.path.join('a', 'b')\n", 1.0),
+            ("import os\nos = os.getcwd()\n", 1.0),
+            ("import os\nos += 1\n", 1.0),
+            ("import os\nos.value += (os := replacement)\n", 1.0),
+            ("import os\ndata = {'first': (os := 3), os: 0}\n", 0.0),
+            ("import os\nos = 3\n", 0.0),
+            ("import os\ndel os\n", 0.0),
+            ("import os\nos = 3\nprint(os)\n", 0.0),
+            ("import os\nos.getcwd()\nos = 3\n", 1.0),
+            ('import os\n# os.getcwd()\nlabel = "os"\n', 0.0),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                metric = self.metric(source)
+                self.assertTrue(metric.applicable, metric.detail)
+                self.assertEqual(metric.value, expected)
+                self.assertEqual(metric.group, "quality")
+                self.assertFalse(metric.contributes_to_overall)
+        context = engine.build_analysis_context("import os\nos = 3\ndel os\n", "writes.py", "python")
+        self.assertNotIn("os", context.used_names)
+
+    def test_scope_shadowing_does_not_attribute_a_local_read_to_an_outer_import(self):
+        cases = (
+            ("import os\ndef read():\n    return os.getcwd()\n", 1.0),
+            ("def read():\n    return os.getcwd()\nimport os\n", 1.0),
+            ("import os\ndef read(os):\n    return os.getcwd()\n", 0.0),
+            ("import os\ndef read():\n    os = 3\n    return os\n", 0.0),
+            ("import os\ndef read():\n    result = os\n    os = 3\n    return result\n", 0.0),
+            ("import os\ndef read():\n    import sys as os\n    return os.version\n", 0.5),
+            ("def outer():\n    import os\n    def inner():\n        return os.getcwd()\n    return inner\n", 1.0),
+            ("import os\ngen = (item for item in os.listdir('.'))\nos = 3\n", 1.0),
+            ("import os\ngen = (os.getcwd() for item in items)\n", 1.0),
+            ("import os\ngen = (os for os in items)\n", 0.0),
+            ("import os\nvalues = [os.getcwd() for item in items]\nos = 3\n", 1.0),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                metric = self.metric(source)
+                self.assertTrue(metric.applicable, metric.detail)
+                self.assertEqual(metric.value, expected)
+
+    def test_each_import_binding_keeps_its_own_usage_denominator(self):
+        cases = (
+            ("import os, sys\nos.getcwd()\n", 0.5),
+            ("import os as item\nitem.getcwd()\nimport sys as item\n", 0.5),
+            ("import os as item\nitem.getcwd()\nimport sys as item\nitem.version\n", 1.0),
+            ("import os as item\nimport sys as item\nitem.version\n", 0.5),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                metric = self.metric(source)
+                self.assertTrue(metric.applicable, metric.detail)
+                self.assertEqual(metric.value, expected)
+
+    def test_dynamic_and_ambiguous_import_resolution_is_explicitly_unavailable(self):
+        cases = (
+            "import os\ndef read():\n    global os\n    return os.getcwd()\n",
+            "def outer():\n    import os\n    def inner():\n        nonlocal os\n        return os.getcwd()\n    return inner\n",
+            "from os import *\ngetcwd()\n",
+            "import os\nexec('os = 3')\nos.getcwd()\n",
+            "import os\nvalue = globals()['os']\n",
+            "import os\ndef read():\n    return os.getcwd()\nos = 3\n",
+            "import os\ngen = (os.getcwd() for item in items)\nos = 3\n",
+            "import os\nvalue = flag and (os := replacement)\nresult = os.getcwd()\n",
+            "import os\nvalue = (os := replacement) if flag else fallback\nresult = os.getcwd()\n",
+            "import os\nvalue = 0 < flag < (os := 3)\nlater = os\n",
+            "import os\nassert (os := replacement)\nresult = os.getcwd()\n",
+            "import os\nassert flag, (os := replacement)\nresult = os.getcwd()\n",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                metric = self.metric(source)
+                self.assertFalse(metric.applicable)
+                self.assertIsNone(metric.value)
+                self.assertRegex(metric.explanation + " " + metric.detail, "(?i)unavailable|ambiguous|dynamic|conservative")
+
+
 if __name__ == "__main__":
     unittest.main()

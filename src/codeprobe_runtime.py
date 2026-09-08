@@ -312,7 +312,6 @@ DEFAULT_PROJECT_IGNORE_PATTERNS = (
     "*.zip", "*.gz", "*.tar", "*.jar", "*.class", "*.pyc", "*.o", "*.obj", "*.exe", "*.dll", "*.so",
 )
 
-SOFT_KEYWORDS_PYTHON = {"match", "case"}
 PYTHON_CONTROL_KEYWORDS = {
     "if", "elif", "else", "for", "while", "try", "except", "finally", "with", "match", "case",
 }
@@ -351,7 +350,7 @@ CSHARP_DECLARATIVE_KEYWORDS = {
 }
 
 LANGUAGE_KEYWORDS: Dict[str, Set[str]] = {
-    "python": set(keyword.kwlist) | SOFT_KEYWORDS_PYTHON,
+    "python": set(keyword.kwlist),
     "javascript": JAVASCRIPT_CONTROL_KEYWORDS | JAVASCRIPT_DECLARATIVE_KEYWORDS | {
         "return", "new", "await", "async", "throw", "break", "continue", "default",
         "typeof", "instanceof", "delete", "yield", "null", "undefined", "true", "false",
@@ -516,7 +515,7 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.05,
         "thresholds": {"ai_low": 1.5, "ai_high": 4.5, "density_high": 2.6},
-        "notes": "Exact AST-based McCabe for Python and approximate counting elsewhere.",
+        "notes": "Python AST decision counts per callable body with explicit nested-scope boundaries; approximate counting elsewhere.",
     },
     "halstead_difficulty": {
         "enabled": True,
@@ -582,7 +581,7 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.04,
         "thresholds": {"ai_low": 0.80, "ai_high": 1.00},
-        "notes": "Refines the original dead-code idea with actual import-use analysis where feasible.",
+        "notes": "Python import binding occurrences with conservatively associated static reads; uncertain binding resolution is unavailable.",
     },
     "structural_self_similarity": {
         "enabled": True,
@@ -890,6 +889,7 @@ class AnalysisContext:
     tokenizer_error: str = ""
     markdown: MarkdownInfo = field(default_factory=MarkdownInfo)
     file_extension: str = ""
+    python_import_usage: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def loc(self) -> int:
@@ -1699,12 +1699,8 @@ class ScannerState:
     BLOCK_COMMENT = "block_comment"
 
 
-def _absolute_offset(text: str, line_no: int, column: int) -> int:
-    if line_no <= 1:
-        return column
-    lines = text.split("\n")
-    offset = sum(len(line) + 1 for line in lines[: line_no - 1])
-    return offset + column
+def _absolute_offset(line_offsets: Sequence[int], line_no: int, column: int) -> int:
+    return line_offsets[max(0, line_no - 1)] + column
 
 
 JS_REGEX_PREFIX_CHARS = set("([{=,:;!&|?+-*~^<>%")
@@ -2187,6 +2183,17 @@ def scan_markdown(code: str) -> ScanResult:
     return ScanResult(code, set(), code_line_numbers, [], "")
 
 
+def _python_diagnostic(exc: SyntaxError | tokenize.TokenError) -> str:
+    """Keep the exception category and one-based source location explicit."""
+    if isinstance(exc, tokenize.TokenError):
+        message, (line, column) = exc.args
+        column += 1
+    else:
+        message = exc.msg
+        line, column = exc.lineno or 1, exc.offset or 1
+    return f"{type(exc).__name__} at line {line}, column {column}: {message}"
+
+
 def scan_python(code: str) -> ScanResult:
     comment_line_numbers: Set[int] = set()
     code_line_numbers: Set[int] = set()
@@ -2195,8 +2202,8 @@ def scan_python(code: str) -> ScanResult:
 
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(code).readline))
-    except tokenize.TokenError as exc:
-        tokenizer_error = str(exc)
+    except (tokenize.TokenError, IndentationError) as exc:
+        tokenizer_error = _python_diagnostic(exc)
         lines = code.split("\n")
         for index, line in enumerate(lines, start=1):
             stripped = line.strip()
@@ -2212,6 +2219,8 @@ def scan_python(code: str) -> ScanResult:
     line_has_code: Dict[int, bool] = defaultdict(bool)
     line_has_comment: Dict[int, bool] = defaultdict(bool)
     char_buffer = list(code)
+    line_offsets = [0]
+    line_offsets.extend(index + 1 for index, char in enumerate(code) if char == "\n")
 
     for token in tokens:
         token_type = token.type
@@ -2223,8 +2232,8 @@ def scan_python(code: str) -> ScanResult:
             comment_texts.append(token_text)
             comment_line_numbers.add(start_line)
             if start_line == end_line:
-                absolute_start = _absolute_offset(code, start_line, start_col)
-                absolute_end = _absolute_offset(code, end_line, end_col)
+                absolute_start = _absolute_offset(line_offsets, start_line, start_col)
+                absolute_end = _absolute_offset(line_offsets, end_line, end_col)
                 for offset in range(absolute_start, absolute_end):
                     if offset < len(char_buffer):
                         char_buffer[offset] = " "
@@ -2246,40 +2255,83 @@ def scan_python(code: str) -> ScanResult:
     return ScanResult("".join(char_buffer), comment_line_numbers, code_line_numbers, comment_texts, tokenizer_error)
 
 
-def python_tokens_and_identifiers(code: str) -> Tuple[List[str], List[str], List[str], str]:
+def _python_soft_keyword_positions(tree: Optional[ast.AST], tokens: Sequence[tokenize.TokenInfo], code: str) -> Set[Tuple[int, int]]:
+    """Classify only keyword tokens whose grammatical role an accepted AST fixes."""
+    if tree is None:
+        return set()
+    lines = code.split("\n")
+    indices = {token.start: index for index, token in enumerate(tokens)}
+    positions: Set[Tuple[int, int]] = set()
+
+    def position(node: ast.AST) -> Tuple[int, int]:
+        line = node.lineno
+        # AST columns count UTF-8 bytes; tokenize columns count characters.
+        column = len(lines[line - 1].encode("utf-8")[:node.col_offset].decode("utf-8"))
+        return line, column
+
+    for node in ast.walk(tree):
+        if node.__class__.__name__ in {"Match", "TypeAlias"}:
+            positions.add(position(node))
+        if node.__class__.__name__ == "Match":
+            for case in node.cases:
+                index = indices.get(position(case.pattern))
+                if index is None:
+                    continue
+                # Parenthesised patterns may start on a later physical line.
+                # Their header's case token precedes the first AST pattern token.
+                for previous in range(index - 1, -1, -1):
+                    token = tokens[previous]
+                    if token.type == tokenize.NAME and token.string == "case":
+                        positions.add(token.start)
+                        break
+                    if token.type == tokenize.NEWLINE:
+                        break
+        elif node.__class__.__name__ == "MatchAs" and node.pattern is None and node.name is None:
+            positions.add(position(node))
+    return positions
+
+
+def python_tokens_and_identifiers(code: str, tree: Optional[ast.AST] = None, *, control_lines: Optional[Set[int]] = None) -> Tuple[List[str], List[str], List[str], str]:
     identifiers: List[str] = []
     operators: List[str] = []
     operands: List[str] = []
     tokenizer_error = ""
+    tokens: List[tokenize.TokenInfo] = []
     try:
-        tokens = tokenize.generate_tokens(io.StringIO(code).readline)
-        for token in tokens:
-            token_type = token.type
-            token_text = token.string
-            if token_type in {
-                tokenize.ENCODING,
-                tokenize.NL,
-                tokenize.NEWLINE,
-                tokenize.INDENT,
-                tokenize.DEDENT,
-                tokenize.ENDMARKER,
-                tokenize.COMMENT,
-            }:
-                continue
-            if token_type == tokenize.OP:
+        tokens.extend(tokenize.generate_tokens(io.StringIO(code).readline))
+    except (tokenize.TokenError, IndentationError) as exc:
+        tokenizer_error = _python_diagnostic(exc)
+    if tree is None:
+        tree, _, _ = python_parse(code)
+    soft_positions = _python_soft_keyword_positions(tree, tokens, code)
+    if control_lines is not None:
+        control_lines.update(token.start[0] for token in tokens
+                             if token.start in soft_positions and token.string in {"match", "case"})
+    for token in tokens:
+        token_type = token.type
+        token_text = token.string
+        if token_type in {
+            tokenize.ENCODING,
+            tokenize.NL,
+            tokenize.NEWLINE,
+            tokenize.INDENT,
+            tokenize.DEDENT,
+            tokenize.ENDMARKER,
+            tokenize.COMMENT,
+        }:
+            continue
+        if token_type == tokenize.OP:
+            operators.append(token_text)
+            continue
+        if token_type == tokenize.NAME:
+            if keyword.iskeyword(token_text) or token.start in soft_positions:
                 operators.append(token_text)
-                continue
-            if token_type == tokenize.NAME:
-                if keyword.iskeyword(token_text) or token_text in SOFT_KEYWORDS_PYTHON:
-                    operators.append(token_text)
-                else:
-                    identifiers.append(token_text)
-                    operands.append(token_text)
-                continue
-            if token_type in {tokenize.NUMBER, tokenize.STRING}:
+            else:
+                identifiers.append(token_text)
                 operands.append(token_text)
-    except tokenize.TokenError as exc:
-        tokenizer_error = str(exc)
+            continue
+        if token_type in {tokenize.NUMBER, tokenize.STRING}:
+            operands.append(token_text)
     return identifiers, operators, operands, tokenizer_error
 
 
@@ -2321,7 +2373,7 @@ def python_parse(code: str) -> Tuple[Optional[ast.AST], str, List[str]]:
     try:
         return ast.parse(code, type_comments=True), "", warnings
     except SyntaxError as exc:
-        message = str(exc)
+        message = _python_diagnostic(exc)
         if re.search(r"(^|\n)\s*match\s+", code):
             warnings.append("Pattern matching was detected. AST parsing may be limited when the runtime parser is older than the source syntax.")
         if ":=" in code:
@@ -2351,6 +2403,14 @@ class PythonCyclomaticVisitor(ast.NodeVisitor):
     def __init__(self) -> None:
         self.complexity = 1
 
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        for expression in _python_definition_expressions(node):
+            self.visit(expression)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+    visit_ClassDef = visit_FunctionDef
+    visit_Lambda = visit_FunctionDef
+
     def generic_visit(self, node: ast.AST) -> None:
         if isinstance(node, ast.If):
             self.complexity += 1
@@ -2373,6 +2433,259 @@ class PythonCyclomaticVisitor(ast.NodeVisitor):
                 if not is_default:
                     self.complexity += 1
         super().generic_visit(node)
+
+
+def _python_definition_expressions(node: ast.AST) -> List[ast.AST]:
+    """Expressions evaluated in a definition's enclosing scope."""
+    values = list(getattr(node, "decorator_list", []))
+    if isinstance(node, ast.ClassDef):
+        return values + list(node.bases) + [item.value for item in node.keywords]
+    arguments = node.args
+    values.extend(arguments.defaults)
+    values.extend(value for value in arguments.kw_defaults if value is not None)
+    return values
+
+
+class _PythonScopeBindings(ast.NodeVisitor):
+    """Collect local declarations without entering a child lexical scope."""
+
+    def __init__(self) -> None:
+        self.events: Dict[str, List[Optional[ast.alias]]] = defaultdict(list)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.events[node.id].append(None)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            if alias.name != "*":
+                self.events[alias.asname or alias.name.split(".", 1)[0]].append(alias)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name != "*":
+                self.events[alias.asname or alias.name].append(alias)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.events[node.name].append(None)
+        for expression in _python_definition_expressions(node):
+            self.visit(expression)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+    visit_ClassDef = visit_FunctionDef
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for expression in _python_definition_expressions(node):
+            self.visit(expression)
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self.visit(node.generators[0].iter)
+
+    visit_SetComp = visit_ListComp
+    visit_DictComp = visit_ListComp
+    visit_GeneratorExp = visit_ListComp
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name:
+            self.events[node.name].append(None)
+        self.generic_visit(node)
+
+    def visit_MatchAs(self, node: ast.AST) -> None:
+        if node.name:
+            self.events[node.name].append(None)
+        self.generic_visit(node)
+
+    visit_MatchStar = visit_MatchAs
+
+    def visit_MatchMapping(self, node: ast.AST) -> None:
+        if node.rest:
+            self.events[node.rest].append(None)
+        self.generic_visit(node)
+
+
+class _PythonImportUsage(ast.NodeVisitor):
+    """Associate bounded static reads with import occurrences, not execution.
+
+    Local declarations prevent accidental outer-scope attribution. Deferred
+    bodies can use a stable enclosing import, but an enclosing rebinding or
+    unsupported dynamic operation makes the metric explicitly unavailable.
+    """
+
+    def __init__(self, tree: ast.AST) -> None:
+        self.bindings: List[Dict[str, Any]] = []
+        self.aliases: Dict[int, int] = {}
+        self.scopes: List[Dict[str, Any]] = []
+        self.limitations: Set[str] = set()
+        imports = sorted((node for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))), key=lambda node: (node.lineno, node.col_offset))
+        for node in imports:
+            for alias in node.names:
+                if alias.name == "*":
+                    self.limitations.add("Wildcard imports do not expose explicit local bindings.")
+                    continue
+                name = alias.asname or (alias.name.split(".", 1)[0] if isinstance(node, ast.Import) else alias.name)
+                module = alias.name if isinstance(node, ast.Import) else "." * node.level + ".".join(filter(None, (node.module, alias.name)))
+                self.aliases[id(alias)] = len(self.bindings)
+                self.bindings.append({"name": name, "module": module, "line": node.lineno, "column": node.col_offset + 1, "scope": "", "used": False})
+        self.import_names = {item["name"] for item in self.bindings}
+
+    def _scope(self, node: ast.AST, body: Sequence[ast.AST], kind: str, parameters: Sequence[str] = ()) -> None:
+        declarations = _PythonScopeBindings()
+        for parameter in parameters:
+            declarations.events[parameter].append(None)
+        for statement in body:
+            declarations.visit(statement)
+        events = declarations.events
+        stable = {name: self.aliases[id(items[0])] if len(items) == 1 and items[0] is not None else None for name, items in events.items()}
+        label = "/".join([scope["label"].split("/")[-1] for scope in self.scopes] + [f"{kind}:{getattr(node, 'name', '<module>')}@{getattr(node, 'lineno', 1)}"])
+        self.scopes.append({"kind": kind, "label": label, "events": events, "stable": stable,
+                            "current": {name: None for name in events} if kind in {"function", "comprehension", "generator"} else {}})
+        for statement in body:
+            self.visit(statement)
+        self.scopes.pop()
+
+    def _read(self, name: str) -> None:
+        current = self.scopes[-1]
+        if name in current["current"]:
+            binding = current["current"][name]
+        else:
+            binding = None
+            deferred = current["kind"] in {"function", "generator"}
+            for scope in reversed(self.scopes[:-1]):
+                if scope["kind"] == "class":
+                    continue
+                available = scope["stable"] if deferred else scope["current"]
+                if name in available:
+                    binding = available[name]
+                    if deferred and binding is None and any(item is not None for item in scope["events"][name]):
+                        self.limitations.add(f"Deferred read of '{name}' has an enclosing import and rebinding; call order is unknown.")
+                    break
+                deferred = deferred or scope["kind"] in {"function", "generator"}
+        if binding is not None:
+            self.bindings[binding]["used"] = True
+
+    def visit_Module(self, node: ast.Module) -> None:
+        self._scope(node, node.body, "module")
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            index = self.aliases.get(id(alias))
+            if index is not None:
+                item = self.bindings[index]
+                item["scope"] = self.scopes[-1]["label"]
+                self.scopes[-1]["current"][item["name"]] = index
+
+    visit_ImportFrom = visit_Import
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Load):
+            self._read(node.id)
+        elif isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.scopes[-1]["current"][node.id] = None
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self.visit(node.value)
+        for target in node.targets:
+            self.visit(target)
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        for key, value in zip(node.keys, node.values):
+            if key is not None:
+                self.visit(key)
+            self.visit(value)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self.visit(node.value)
+            self.visit(node.target)
+        self.limitations.add("Annotation evaluation depends on the Python version and annotation policy.")
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        if isinstance(node.target, ast.Name):
+            self._read(node.target.id)
+        else:
+            self.visit(node.target)
+        self.visit(node.value)
+        if isinstance(node.target, ast.Name):
+            self.visit(node.target)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self.visit(node.value)
+        self.visit(node.target)
+        if self.scopes[-1]["kind"] in {"comprehension", "generator"}:
+            self.limitations.add("Assignment expressions across comprehension scopes are not resolved.")
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        for expression in _python_definition_expressions(node):
+            self.visit(expression)
+        parameters = list(node.args.posonlyargs) + list(node.args.args) + list(node.args.kwonlyargs)
+        parameters += [item for item in (node.args.vararg, node.args.kwarg) if item is not None]
+        if node.returns is not None or any(item.annotation is not None for item in parameters) or getattr(node, "type_params", []):
+            self.limitations.add("Annotation evaluation depends on the Python version and annotation policy.")
+        self.scopes[-1]["current"][node.name] = None
+        self._scope(node, node.body, "function", [item.arg for item in parameters])
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for expression in _python_definition_expressions(node):
+            self.visit(expression)
+        parameters = list(node.args.posonlyargs) + list(node.args.args) + list(node.args.kwonlyargs)
+        parameters += [item for item in (node.args.vararg, node.args.kwarg) if item is not None]
+        self._scope(node, [node.body], "function", [item.arg for item in parameters])
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for expression in _python_definition_expressions(node):
+            self.visit(expression)
+        if getattr(node, "type_params", []):
+            self.limitations.add("Type parameters use a version-dependent annotation scope.")
+        self._scope(node, node.body, "class")
+        self.scopes[-1]["current"][node.name] = None
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self.visit(node.generators[0].iter)
+        targets = [generator.target for generator in node.generators]
+        names = [child.id for target in targets for child in ast.walk(target) if isinstance(child, ast.Name)]
+        body: List[ast.AST] = []
+        for index, generator in enumerate(node.generators):
+            if index:
+                body.append(generator.iter)
+            body.append(generator.target)
+            body.extend(generator.ifs)
+        body.extend([node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt])
+        self._scope(node, body, "generator" if isinstance(node, ast.GeneratorExp) else "comprehension", names)
+
+    visit_SetComp = visit_ListComp
+    visit_DictComp = visit_ListComp
+    visit_GeneratorExp = visit_ListComp
+
+    def visit_Global(self, node: ast.Global) -> None:
+        self.limitations.add("global/nonlocal declarations require binding analysis beyond this bounded model.")
+
+    visit_Nonlocal = visit_Global
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if isinstance(node.func, ast.Name) and node.func.id in {"eval", "exec", "globals", "locals", "vars", "__import__"}:
+            self.limitations.add("Dynamic namespace access is not resolved.")
+        self.generic_visit(node)
+
+    def generic_visit(self, node: ast.AST) -> None:
+        if isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.ExceptHandler,
+                             ast.BoolOp, ast.IfExp, ast.Compare, ast.Assert)) or node.__class__.__name__ in {"TryStar", "Match"}:
+            declarations = _PythonScopeBindings()
+            declarations.visit(node)
+            if self.import_names.intersection(declarations.events):
+                self.limitations.add("Conditional import bindings or rebinding require path-sensitive analysis.")
+        if node.__class__.__name__ == "TypeAlias":
+            self.limitations.add("Type-alias evaluation uses a version-dependent annotation scope.")
+        super().generic_visit(node)
+
+
+def _python_import_usage(tree: ast.AST) -> Dict[str, Any]:
+    visitor = _PythonImportUsage(tree)
+    visitor.visit(tree)
+    return {"status": "unavailable" if visitor.limitations else "bounded-static",
+            "imported": len(visitor.bindings), "used": sum(item["used"] for item in visitor.bindings),
+            "bindings": visitor.bindings, "limitations": sorted(visitor.limitations)}
 
 
 class PythonStructureCollector(ast.NodeVisitor):
@@ -2398,7 +2711,8 @@ class PythonStructureCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
-        self.used_names.add(node.id)
+        if isinstance(node.ctx, ast.Load):
+            self.used_names.add(node.id)
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -2411,7 +2725,8 @@ class PythonStructureCollector(ast.NodeVisitor):
 
     def _function_info(self, node: ast.AST) -> FunctionInfo:
         complexity_visitor = PythonCyclomaticVisitor()
-        complexity_visitor.visit(node)
+        for statement in getattr(node, "body", []):
+            complexity_visitor.visit(statement)
         decorators = getattr(node, "decorator_list", []) or []
         decorator_lines = [getattr(dec, "lineno", None) for dec in decorators if getattr(dec, "lineno", None)]
         start_lineno = min([getattr(node, "lineno", 1)] + [int(line) for line in decorator_lines if line is not None])
@@ -2421,9 +2736,10 @@ class PythonStructureCollector(ast.NodeVisitor):
         has_docstring = bool(raw_doc)
         has_type_hints = False
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            arguments = list(node.args.posonlyargs) + list(node.args.args) + list(node.args.kwonlyargs)
+            arguments = list(node.args.posonlyargs) + list(node.args.args)
             if node.args.vararg is not None:
                 arguments.append(node.args.vararg)
+            arguments.extend(node.args.kwonlyargs)
             if node.args.kwarg is not None:
                 arguments.append(node.args.kwarg)
             has_type_hints = bool(node.returns) or any(arg.annotation is not None for arg in arguments)
@@ -2458,7 +2774,7 @@ def line_category(language: str, line: str) -> str:
             return "declarative"
         if re.match(r"^(?:async\s+def|def|class|import|from|global|nonlocal)\b", stripped):
             return "declarative"
-        if re.match(r"^(?:if|elif|else|for|while|try|except|finally|with|match|case)\b", stripped):
+        if re.match(r"^(?:if|elif|else|for|while|try|except|finally|with)\b", stripped):
             return "control"
         return "executable"
     if language == "javascript":
@@ -3369,13 +3685,15 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
     functions: List[FunctionInfo] = []
     imported_names: Dict[str, str] = {}
     used_names: Set[str] = set()
+    python_import_usage: Dict[str, Any] = {}
+    python_control_lines: Set[int] = set()
     token_error = ""
     markdown_info = MarkdownInfo()
 
     if language == "python":
         scan = scan_python(normalised_code)
-        identifiers, operators, operands, token_error = python_tokens_and_identifiers(normalised_code)
         ast_tree, ast_error, parse_warnings = python_parse(normalised_code)
+        identifiers, operators, operands, token_error = python_tokens_and_identifiers(normalised_code, ast_tree, control_lines=python_control_lines)
         notes.extend(parse_warnings)
         if ast_tree is not None:
             collector = PythonStructureCollector(lines)
@@ -3383,6 +3701,7 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
             functions = sorted(collector.functions, key=lambda item: item.lineno)
             imported_names = collector.imported_names
             used_names = collector.used_names
+            python_import_usage = _python_import_usage(ast_tree)
     elif language == "javascript":
         scan = scan_javascript(normalised_code)
         identifiers, operators, operands = generic_tokens_and_identifiers(scan.cleaned_code, language)
@@ -3406,10 +3725,11 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
 
     if scan.tokenizer_error:
         notes.append(f"Tokenizer warning: {scan.tokenizer_error}")
-    if token_error:
+    if token_error and token_error != scan.tokenizer_error:
         notes.append(f"Tokenizer warning: {token_error}")
     if ast_error:
         notes.append(f"AST warning: {ast_error}")
+        notes.append("Python structural analysis is unavailable; the lexical fallback is partial and does not establish valid Python syntax.")
 
     non_blank_lines = [line for line in lines if line.strip()]
     comment_lines = [
@@ -3435,6 +3755,10 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
             category = "comment"
         else:
             category = line_category(language, line)
+            if language == "python" and ast_tree is not None and re.match(r"^\s*(?:match|case)\b", line):
+                # Only complete accepted statements supply contextual control roles.
+                if index in python_control_lines:
+                    category = "control"
         line_categories[index] = category
         if category == "declarative":
             declarative += 1
@@ -3471,6 +3795,7 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
         functions=functions,
         imported_names=imported_names,
         used_names=used_names,
+        python_import_usage=python_import_usage,
         notes=notes,
         tokenizer_error=scan.tokenizer_error or token_error,
         markdown=markdown_info,
@@ -3921,12 +4246,12 @@ class CyclomaticComplexityMetric(BaseMetric):
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
         if lang == "python":
             if not context.functions:
-                return self.not_applicable("No parsable Python functions are available for exact complexity.")
+                return self.not_applicable("No parsable Python functions are available for per-callable decision counts.")
             values = [item.cyclomatic for item in context.functions]
             mean_value = statistics.mean(values)
             score = band_score(mean_value, float(self.threshold("ai_low", 1.5)), float(self.threshold("ai_high", 4.5)), softness=1.5)
             detail = f"functions={len(values)}, mean_complexity={mean_value:.2f}, values={values}"
-            return self.result(mean_value, score, "McCabe complexity is reported as structural context; neither low nor moderate values prove authorship.", detail)
+            return self.result(mean_value, score, "AST decision counts are scoped to each callable body. Nested callable/class bodies are excluded; definition-time defaults and decorators remain in their enclosing callable. This structural convention is not a complete control-flow graph or authorship proof.", detail)
         if context.functions:
             values = [item.cyclomatic for item in context.functions]
             mean_value = statistics.mean(values)
@@ -4173,19 +4498,21 @@ class UsedImportRatioMetric(BaseMetric):
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
         if lang == "python":
-            if not context.imported_names:
+            usage = context.python_import_usage
+            if not usage or usage.get("status") != "bounded-static":
+                return self.not_applicable("Python import binding use is unavailable.", "; ".join(usage.get("limitations", ["A successful AST parse is required."])))
+            if not usage["imported"]:
                 return self.not_applicable("There are no explicit Python imports.")
-            imported = set(context.imported_names)
-            used = imported & context.used_names
-            ratio = safe_div(len(used), len(imported))
-            detail = f"imported={len(imported)}, used={len(used)}"
+            ratio = safe_div(usage["used"], usage["imported"])
+            detail = f"imported={usage['imported']}, used={usage['used']}; bounded static binding reads; execution and reachability are not established"
         else:
             ratio = approx_js_import_use_ratio(context)
             if ratio is None:
                 return self.not_applicable("There are no JavaScript imports with explicit bindings.")
             detail = f"usage_ratio={ratio:.3f}"
         score = high_ratio_score(float(ratio), float(self.threshold("ai_low", 0.80)), float(self.threshold("ai_high", 1.00)))
-        return self.result(ratio, score, "Using nearly all imported symbols suggests a tidier draft with less experimental residue.", detail)
+        explanation = "The fraction of explicit import binding occurrences with an associated static read is quality feedback, not proof that an import executes." if lang == "python" else "Using nearly all imported symbols suggests a tidier draft with less experimental residue."
+        return self.result(ratio, score, explanation, detail)
 
 
 @MetricRegistry.register
@@ -5544,6 +5871,8 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         if hint in {"markdown", "unknown"}:
             hint = None
         report = engine.analyse(candidate.text, path, language_hint=hint, profile=profile)
+        warnings.extend(f"{path}: {warning}" for warning in report.warnings
+                        if warning.startswith(("Tokenizer warning:", "AST warning:")))
         report.intake_provenance = candidate.intake_provenance
         for warning in candidate.intake_provenance.get("warnings", []):
             report.warnings.append(f"{candidate.intake_provenance['source']} intake: {warning}")

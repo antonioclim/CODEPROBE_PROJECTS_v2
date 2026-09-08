@@ -865,6 +865,7 @@ async function testParserReplayBoundary(cdp, baseUrl, fixtureState) {
       observations.push({syntax:item.syntax, kind:item.kind, source_sha256:item.source_sha256, native_score:item.decision_score, wasm_score:report.decision_score, runtime, measured_sha256:provenance.measured_sha256});
     }
     console.log("[PASS] parser-replay-boundary: " + JSON.stringify({native_python:expected.native_python, observations}));
+    return expected;
   } finally { await closeSession(cdp, session); }
 }
 
@@ -1216,6 +1217,229 @@ async function testIntakeContracts(cdp, baseUrl, downloads, fixtureState, compac
   } finally { await closeSession(cdp, session); }
 }
 
+// Context metadata has no public worker operation. These finite audit oracles
+// inspect the already authenticated interpreter in the page's owned worker;
+// the separate UI cases below exercise the unchanged public transport.
+async function testPythonStructureContracts(cdp, baseUrl, downloads, fixtureState, engineDigest, parserFixtures) {
+  const deadline = Date.now() + 300000;
+  const observations = [];
+  async function withinCase(name, findings, boundary, operation) {
+    const remaining = Math.min(60000, deadline - Date.now());
+    assert(remaining > 0, "Python browser group exceeded its 300-second budget");
+    const started = Date.now();
+    let timer;
+    try {
+      const observed = await Promise.race([operation(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Python browser case timed out: ${name}`)), remaining);
+      })]);
+      const row = {case:name, findings, boundary, result:"PASS", elapsed_ms:Date.now() - started, observed};
+      observations.push(row);
+      console.log("[PASS] browser-python-i07-case: " + JSON.stringify(row));
+    } finally { clearTimeout(timer); }
+  }
+  const invalidCode = "if True:\n    value = 1\n  value = 2\n";
+  const directCases = [
+    {name:"python-lexical-diagnostics", finding:"A02-F001", script:`
+code = ${JSON.stringify(invalidCode)}
+context = module.build_analysis_context(code, 'broken.py', 'python')
+assert context.ast_tree is None and 'IndentationError at line 3' in context.tokenizer_error
+assert any(item.startswith('Tokenizer warning:') for item in context.notes)
+assert any(item.startswith('AST warning:') for item in context.notes)
+unfinished = module.build_analysis_context('value = (1\\n', 'unfinished.py', 'python')
+assert unfinished.ast_tree is None and 'TokenError' in unfinished.tokenizer_error
+observed = dict(tokenizer_error=context.tokenizer_error, ast_error=context.ast_error,
+                unfinished_tokenizer_error=unfinished.tokenizer_error, notes=context.notes)
+`},
+    {name:"python-contextual-soft-keywords", finding:"A02-F002", script:`
+ordinary = module.build_analysis_context('match = 1\\ncase = match + 1\\n', 'ordinary.py', 'python')
+assert ordinary.identifiers == ['match', 'case', 'match'] and not ordinary.ast_error
+roles = module.build_analysis_context('match match:\\n    case case:\\n        value = case\\n', 'roles.py', 'python')
+assert roles.identifiers.count('match') == 1 and roles.identifiers.count('case') == 2
+assert roles.tokens_operators.count('match') == 1 and roles.tokens_operators.count('case') == 1
+literal = module.build_analysis_context("value = 'match case'\\n# match case\\n", 'literal.py', 'python')
+assert literal.identifiers == ['value']
+modern = module.build_analysis_context('type Alias = int\\n', 'modern.py', 'python')
+assert modern.ast_tree is None and modern.ast_error and 'type' in modern.identifiers
+observed = dict(ordinary=ordinary.identifiers, mixed_identifiers=roles.identifiers,
+                mixed_operators=roles.tokens_operators, literal_identifiers=literal.identifiers,
+                unsupported_type_ast_error=modern.ast_error)
+`},
+    {name:"python-import-binding-reads", finding:"A02-F008", script:`
+cases = [
+    ('direct-read', 'import os\\nos.getcwd()\\n', 1),
+    ('rebound', 'import os\\nos = 3\\n', 0),
+    ('deleted', 'import os\\ndel os\\n', 0),
+    ('parameter-shadow', 'import os\\ndef f(os):\\n    return os\\n', 0),
+    ('alias-read', 'import os as system\\nsystem.getcwd()\\n', 1),
+    ('closure-read', 'import os\\ndef f():\\n    return os.getcwd()\\n', 1),
+]
+observed = []
+for name, code, used in cases:
+    context = module.build_analysis_context(code, 'imports.py', 'python')
+    usage = context.python_import_usage
+    metric = module.UsedImportRatioMetric({}).compute(code, 'python', context)
+    assert usage['status'] == 'bounded-static' and usage['imported'] == 1 and usage['used'] == used
+    assert metric.applicable and metric.value == float(used)
+    observed.append(dict(case=name, usage=usage, metric_value=metric.value, detail=metric.detail))
+code = 'import os\\ndef f():\\n    global os\\n    return os.getcwd()\\n'
+context = module.build_analysis_context(code, 'ambiguous.py', 'python')
+metric = module.UsedImportRatioMetric({}).compute(code, 'python', context)
+assert context.python_import_usage['status'] == 'unavailable' and context.python_import_usage['limitations']
+assert not metric.applicable and metric.value is None
+observed.append(dict(case='global-ambiguity', usage=context.python_import_usage, metric_value=metric.value,
+                     applicable=metric.applicable, explanation=metric.explanation, detail=metric.detail))
+`},
+    {name:"python-parameter-source-order", finding:"A02-F009", script:`
+code = 'def order(a, /, b, *args, c, **kwargs):\\n    return a\\n\\nasync def simple(value):\\n    return value\\n'
+context = module.build_analysis_context(code, 'parameters.py', 'python')
+actual = [[f.name, f.parameters, f.lineno, f.end_lineno] for f in context.functions]
+assert actual == [['order', ['a', 'b', 'args', 'c', 'kwargs'], 1, 2], ['simple', ['value'], 4, 5]]
+observed = actual
+`},
+    {name:"python-comment-mask-coordinates", finding:"A02-F010", script:`
+code = '# α\\r\\nλ=1 # z\\r\\n\\r\\n# fin'
+scan = module.scan_python(code)
+actual = dict(cleaned_code=scan.cleaned_code, comments=scan.comment_texts,
+              comment_lines=sorted(scan.comment_line_numbers), code_lines=sorted(scan.code_line_numbers))
+assert actual == dict(cleaned_code='   \\r\\nλ=1    \\r\\n\\r\\n     ', comments=['# α', '# z', '# fin'],
+                      comment_lines=[1, 2, 4], code_lines=[2]) and not scan.tokenizer_error
+observed = actual
+`},
+    {name:"python-per-callable-complexity", finding:"A02-F011", script:`
+cases = [
+    ('inner-only', 'def outer(x):\\n    def inner(y):\\n        if y:\\n            return 1\\n        return 0\\n    return inner(x)\\n',
+     [['outer', 1, 6, 1], ['inner', 2, 5, 2]]),
+    ('outer-only', 'def outer(x):\\n    def inner(y):\\n        return y\\n    if x:\\n        return inner(x)\\n    return 0\\n',
+     [['outer', 1, 6, 2], ['inner', 2, 3, 1]]),
+    ('nested-default', 'def outer(flag):\\n    def inner(value=1 if flag else 0):\\n        return value\\n    return inner()\\n',
+     [['outer', 1, 4, 2], ['inner', 2, 3, 1]]),
+]
+observed = []
+for name, code, expected in cases:
+    context = module.build_analysis_context(code, 'callables.py', 'python')
+    actual = [[f.name, f.lineno, f.end_lineno, f.cyclomatic] for f in context.functions]
+    assert actual == expected
+    tree = ast.parse(code)
+    source_functions = sorted((node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))), key=lambda node: node.lineno)
+    assert [f.ast_signature for f in context.functions] == [Counter(type(child).__name__ for child in ast.walk(node)) for node in source_functions]
+    observed.append(dict(case=name, functions=actual, whole_ast_signatures_preserved=True))
+`},
+  ];
+  fixtureState.reset();
+  const pageUrl = `${baseUrl}/app/index.html?python-i07=1`;
+  let session = null, workerSession = null, ownership = null, actualRuntime = null;
+  try {
+    await withinCase("python-owned-worker", [], "authenticated-worker-ownership", async () => {
+      await cdp.send("Target.setDiscoverTargets", {discover:true});
+      const previous = new Set((await cdp.send("Target.getTargets")).targetInfos.map(item => item.targetId));
+      session = await createSession(cdp, pageUrl);
+      await waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()", 60000);
+      assertSingleVerifiedRequests(fixtureState);
+      await cdp.send("Target.setAutoAttach", {autoAttach:true, waitForDebuggerOnStart:false, flatten:true,
+        filter:[{type:"worker"}, {exclude:true}]}, session.sessionId);
+      const discoveryDeadline = Date.now() + 5000;
+      let workers = [], attachments = [];
+      do {
+        workers = (await cdp.send("Target.getTargets")).targetInfos.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.parentId === session.targetId);
+        attachments = [...cdp.attachedTargets.entries()].filter(([, item]) => item.parentSessionId === session.sessionId && workers.some(worker => worker.targetId === item.targetInfo.targetId));
+        if (workers.length && attachments.length) break;
+        await delay(100);
+      } while (Date.now() < discoveryDeadline);
+      assert(workers.length === 1 && attachments.length === 1, "Python oracle did not locate exactly one owned worker channel");
+      const worker = workers[0];
+      if (worker.openerId) assert(worker.openerId === session.targetId, "Python oracle worker opener differs from its owned page");
+      assert(attachments[0][1].targetInfo.type === "worker" && attachments[0][1].targetInfo.parentId === session.targetId, "Python oracle attachment differs from its owned worker");
+      [workerSession] = attachments[0];
+      await cdp.send("Runtime.enable", {}, workerSession);
+      const workerBase = await evaluate(cdp, workerSession, "self.CODEPROBE_BASE_URL");
+      assert(workerBase === pageUrl, "Python oracle worker bootstrap URL differs from its owned page");
+      ownership = {page_target_id:session.targetId, worker_target_id:worker.targetId, worker_parent_id:worker.parentId, bootstrap_url:workerBase};
+      return ownership;
+    });
+    for (const item of directCases) {
+      await withinCase(item.name, [item.finding], "context-in-authenticated-worker", async () => {
+        const script = "def _codeprobe_python_i07_fixture():\n    import ast, json, sys\n    from collections import Counter\n    module = sys.modules['codeprobe_runtime']\n" +
+          item.script.trim().split("\n").map(line => "    " + line).join("\n") +
+          "\n    metadata = json.loads(module.codeprobe_engine_metadata('{}'))\n    return json.dumps(dict(observed=observed, runtime=metadata['python_runtime'], measured_sha256=metadata['engine_fingerprint']['value']), allow_nan=False)\n_codeprobe_python_i07_fixture()\n";
+        const result = await evaluate(cdp, workerSession, `(async () => {
+          const runtime = await self.CodeProbeRuntime.loadVerifiedPyodide();
+          try { return JSON.parse(runtime.runPython(${JSON.stringify(script)})); }
+          finally { runtime.globals.delete('_codeprobe_python_i07_fixture'); }
+        })()`);
+        assert(result.runtime.platform === "emscripten" && result.runtime.version === "3.11.3", "Python context oracle used an unexpected interpreter");
+        assert(result.measured_sha256 === engineDigest, "Python context oracle used different engine bytes");
+        actualRuntime = result.runtime;
+        assertSingleVerifiedRequests(fixtureState);
+        return {...result, oracle_sha256:crypto.createHash("sha256").update(script).digest("hex")};
+      });
+    }
+  } finally {
+    if (workerSession) await cdp.send("Target.detachFromTarget", {sessionId:workerSession}, session.sessionId);
+    if (session) await closeSession(cdp, session);
+    await cdp.send("Target.setDiscoverTargets", {discover:false});
+  }
+  for (const mode of ["main-file", "main-project", "compact-project"]) {
+    const compact = mode.startsWith("compact"), kind = mode.endsWith("file") ? "file" : "project";
+    const fitted = parserFixtures.cases.find(item => item.syntax === "common" && item.kind === kind);
+    assert(fitted, `missing current-engine common-syntax ${kind} profile control`);
+    fixtureState.reset();
+    let page = null, id = null;
+    const active = compact ? "state" : "appState";
+    const button = compact ? "analyseBtn" : "analyzeBtn", status = compact ? "status" : "statusText";
+    const exportName = kind === "file" ? "broken" : compact ? "parser" : "selected-files";
+    try {
+      await withinCase(`${mode}-diagnostic-json-text-downloads`, ["A02-F001"], "public-ui-worker-report-exports", async () => {
+        page = await createSession(cdp, `${baseUrl}/app/${compact ? "project" : "index"}.html?python-i07-${mode}=1`);
+        id = page.sessionId;
+        if (!compact) await waitForExpression(cdp, id, "appState.workerSession?.isReady()", 60000);
+        await evaluate(cdp, id, `(() => {
+          const transfer = new DataTransfer();
+          const file = new File([${JSON.stringify(invalidCode)}], 'broken.py', {type:'text/x-python'});
+          if (${kind === "project"}) Object.defineProperty(file, '_codeprobeRelativePath', {value:'parser/broken.py'});
+          transfer.items.add(file);
+          const input = document.getElementById('${kind === "file" ? "fileInput" : "folderInput"}');
+          input.files = transfer.files; input.dispatchEvent(new Event('change', {bubbles:true}));
+        })()`);
+        await waitForExpression(cdp, id, `${active}.loadingInput === false && !document.getElementById('${button}').disabled`, 60000);
+        await evaluate(cdp, id, `document.getElementById('${button}').click()`);
+        await waitForExpression(cdp, id, `document.getElementById('${status}').textContent === '${kind === "file" ? "Analysis completed." : "Project analysis completed."}'`, 60000);
+        const result = await evaluate(cdp, id, `({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value,
+          warnings:document.getElementById('${compact ? "reviewPanel" : "warningsList"}').textContent})`);
+        assert(result.report.report_kind === kind && result.report.engine_fingerprint.value === engineDigest, "diagnostic UI report identity differs");
+        assert(result.report.warnings.some(value => value.includes("Tokenizer warning: IndentationError at line 3")) && result.report.warnings.some(value => value.includes("AST warning:")), "diagnostic report lost tokenizer or AST warning");
+        assert(result.text.includes("Tokenizer warning: IndentationError at line 3") && result.warnings.includes("Tokenizer warning: IndentationError at line 3"), "diagnostic text or rendered warning is absent");
+        if (kind === "project") {
+          assert(result.report.included_file_count === 1 && result.report.included_files[0].warnings.some(value => value.includes("AST warning:")), "diagnostic project lost its member or child warning");
+          assert(result.report.warnings.some(value => value.includes("broken.py") && value.includes("AST warning:")), "project warning lacks its member path");
+        }
+        fs.rmSync(downloads, {recursive:true, force:true}); fs.mkdirSync(downloads, {recursive:true});
+        await cdp.send("Browser.setDownloadBehavior", {behavior:"allow", downloadPath:downloads});
+        await evaluate(cdp, id, "document.getElementById('exportJsonBtn').click(); document.getElementById('exportTextBtn').click()");
+        const jsonPath = path.join(downloads, `${exportName}.json`), textPath = path.join(downloads, `${exportName}.txt`);
+        await Promise.all([waitForFile(jsonPath, 60000), waitForFile(textPath, 60000)]);
+        assert(JSON.stringify(JSON.parse(fs.readFileSync(jsonPath, "utf8"))) === JSON.stringify(result.report), "diagnostic JSON download differs from accepted report");
+        assert(fs.readFileSync(textPath, "utf8") === result.text, "diagnostic text download differs from accepted report");
+        assertSingleVerifiedRequests(fixtureState);
+        return {warnings:result.report.warnings, source_sha256:crypto.createHash("sha256").update(invalidCode).digest("hex"), engine_sha256:engineDigest, export_name:exportName};
+      });
+      await withinCase(`${mode}-bound-invalid-refused`, ["A02-F001"], "public-ui-profile-worker-refusal", async () => {
+        const positive = await evaluate(cdp, id, `${active}.workerSession.analyse(${JSON.stringify(kind)}, ${JSON.stringify(fitted.payload)})`);
+        assert(positive.report.engine_fingerprint.value === engineDigest && positive.report.calibration_profile_id === fitted.payload.calibration_profile.profile_id, "valid same-kind profile control was not accepted");
+        await evaluate(cdp, id, `(() => {
+          const profile = document.getElementById('calibrationProfile'); profile.value = ${JSON.stringify(JSON.stringify(fitted.payload.calibration_profile))};
+          profile.dispatchEvent(new Event('input', {bubbles:true}));
+          document.getElementById('${button}').click();
+        })()`);
+        await waitForExpression(cdp, id, `${active}.busy === false && document.getElementById('${status}').textContent.includes('failed; no report was accepted')`, 60000);
+        assert(await evaluate(cdp, id, `!${active}.workerSession.isReady() && document.getElementById('exportJsonBtn').disabled && document.getElementById('exportTextBtn').disabled && ${compact ? "state.json === ''" : "appState.currentReport === null"}`), "invalid bound source retained a reusable worker or accepted report");
+        return {valid_same_kind_control:"PASS", invalid_source:"REFUSED", exports_disabled:true, worker_disposed:true, profile_id:fitted.payload.calibration_profile.profile_id};
+      });
+    } finally { if (page) await closeSession(cdp, page); }
+  }
+  console.log("[PASS] browser-python-i07: " + JSON.stringify({engine_sha256:engineDigest, runtime:actualRuntime, ownership, observations,
+    qualification:"Six internal context oracles ran in the owned authenticated worker interpreter; main file/main project/compact project used actual File/DOM, public worker transport and JSON/text downloads. Bound invalid cases followed valid same-kind profile controls. Comment-mask equivalence is not a browser complexity benchmark; type-alias syntax remains unsupported on pinned Python 3.11.3."}));
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -1278,10 +1502,11 @@ async function main() {
     await testInputReportContracts(cdp, baseUrl, downloads, state, true);
     await testPrivacyStorageFailures(cdp, baseUrl, state);
     await testNativeBrowserReplay(cdp, baseUrl, state);
-    await testParserReplayBoundary(cdp, baseUrl, state);
+    const parserFixtures = await testParserReplayBoundary(cdp, baseUrl, state);
     await testStrictJsonContracts(cdp, baseUrl, state, engineDigest);
     await testIntakeContracts(cdp, baseUrl, downloads, state, false, engineDigest);
     await testIntakeContracts(cdp, baseUrl, downloads, state, true, engineDigest);
+    await testPythonStructureContracts(cdp, baseUrl, downloads, state, engineDigest, parserFixtures);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);

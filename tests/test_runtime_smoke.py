@@ -5,6 +5,7 @@ import io
 import json
 import math
 import sys
+import tokenize
 import unittest
 import zipfile
 from contextlib import ExitStack
@@ -16,6 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
 
 import codeprobe_runtime as engine  # noqa: E402
+from codeprobe_engine import api  # noqa: E402
 
 
 class PhaseOneSmokeTests(unittest.TestCase):
@@ -334,6 +336,151 @@ class RuntimeInputContractTests(unittest.TestCase):
         profile["scoring_contract"]["engine_sha256"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "engine identity.*recalibrate"):
             engine.codeprobe_analyze(json.dumps(payload))
+
+
+class PythonStructuralContractTests(unittest.TestCase):
+    """Finite source fixtures are inspected, never executed."""
+
+    def assert_tokenizer_diagnostic(self, source, actual):
+        # Invalid-source locations belong to the installed Python tokenizer.
+        with self.assertRaises(tokenize.TokenError) as raised:
+            list(tokenize.generate_tokens(io.StringIO(source).readline))
+        message, (line, column) = raised.exception.args
+        self.assertEqual(actual, f"TokenError at line {line}, column {column + 1}: {message}")
+
+    def test_lexical_dedent_errors_are_controlled_by_both_tokenisers(self):
+        source = "def broken():\n    if True:\n        return 1\n  return 0\n"
+        scan = engine.scan_python(source)
+        identifiers, operators, operands, diagnostic = engine.python_tokens_and_identifiers(source)
+        self.assertRegex(scan.tokenizer_error, r"^IndentationError at line 4, column [1-9][0-9]*:")
+        self.assertEqual(scan.tokenizer_error, diagnostic)
+        self.assertIn("broken", identifiers)
+        self.assertIn("def", operators)
+        self.assertIn("1", operands)
+        context = engine.build_analysis_context(source, "broken.py", "python")
+        self.assertIsNone(context.ast_tree)
+        self.assertEqual(context.functions, [])
+        self.assertEqual(context.tokenizer_error, diagnostic)
+        self.assertRegex(context.ast_error, r"^IndentationError at line 4,")
+        self.assertEqual(context.notes.count("Tokenizer warning: " + diagnostic), 1)
+
+    def test_invalid_python_diagnostics_reach_json_text_and_python_api(self):
+        cases = (
+            ("if True:\n\tpass\n        pass\n", "TabError", 3),
+            ("value = (\n    1,\n", "SyntaxError", 1),
+        )
+        for source, category, line in cases:
+            with self.subTest(category=category):
+                context = engine.build_analysis_context(source, "invalid.py", "python")
+                self.assertIsNone(context.ast_tree)
+                self.assertRegex(context.ast_error, rf"^{category} at line {line}, column [1-9][0-9]*:")
+                if category == "SyntaxError":
+                    self.assert_tokenizer_diagnostic(source, context.tokenizer_error)
+                payload = {"code": source, "filename": "invalid.py", "language_hint": "python"}
+                for entry in (api.analyse_file, lambda item: json.loads(engine.codeprobe_analyze(json.dumps(item)))):
+                    result = entry(payload)
+                    diagnostic = "AST warning: " + context.ast_error
+                    self.assertIn(diagnostic, result["report"]["warnings"])
+                    self.assertIn(diagnostic, result["text"])
+                    self.assertFalse(result["report"]["overall_applicable"])
+                    with self.assertRaisesRegex(ValueError, "requires a successful AST parse"):
+                        entry({**payload, "require_python_ast": True})
+
+    def test_soft_keyword_identifiers_and_lexical_noise_are_distinguished(self):
+        source = 'match = 1\ncase = 2\ntype = 3\nvalue = match + case + type\n# match case type\nlabel = "match case type"\n'
+        context = engine.build_analysis_context(source, "names.py", "python")
+        self.assertIsNotNone(context.ast_tree)
+        for name in ("match", "case", "type"):
+            self.assertEqual(context.identifiers.count(name), 2)
+            self.assertNotIn(name, context.tokens_operators)
+        self.assertEqual(context.identifiers, ["match", "case", "type", "value", "match", "case", "type", "label"])
+        unfinished = "match = (\ncase = type\n"
+        invalid = engine.build_analysis_context(unfinished, "unfinished.py", "python")
+        self.assertIsNone(invalid.ast_tree)
+        self.assertEqual(invalid.identifiers, ["match", "case", "type"])
+        self.assert_tokenizer_diagnostic(unfinished, invalid.tokenizer_error)
+
+    def test_pattern_keywords_and_capture_names_keep_their_source_roles(self):
+        source = 'match caf\u00e9:\n    case {"\u00e9": match}:\n        case = match\n    case _:\n        case = 0\n'
+        context = engine.build_analysis_context(source, "patterns.py", "python")
+        self.assertIsNotNone(context.ast_tree)
+        self.assertEqual(context.identifiers.count("match"), 2)
+        self.assertEqual(context.identifiers.count("case"), 2)
+        self.assertEqual(context.identifiers.count("caf\u00e9"), 1)
+        self.assertEqual(context.tokens_operators.count("match"), 1)
+        self.assertEqual(context.tokens_operators.count("case"), 2)
+
+    def test_type_alias_keyword_tracks_the_actual_interpreter_grammar(self):
+        context = engine.build_analysis_context("type Alias = tuple[int, str]\n", "alias.py", "python")
+        if sys.version_info >= (3, 12):
+            self.assertIsNotNone(context.ast_tree)
+            self.assertNotIn("type", context.identifiers)
+            self.assertEqual(context.tokens_operators.count("type"), 1)
+        else:
+            self.assertIsNone(context.ast_tree)
+            self.assertRegex(context.ast_error, r"^SyntaxError at line 1,")
+            self.assertIn("type", context.identifiers)
+        self.assertIn("Alias", context.identifiers)
+
+    def test_parameter_order_and_decorated_async_ranges_are_source_faithful(self):
+        source = ('@decorator\n'
+                  'async def work(first: int, /, second: str = "x", *items: float, flag: bool = False, **options: int) -> int:\n'
+                  '    return first\n\n'
+                  'def simple(left, *, right):\n    return left + right\n')
+        context = engine.build_analysis_context(source, "parameters.py", "python")
+        self.assertEqual([item.name for item in context.functions], ["work", "simple"])
+        work, simple = context.functions
+        self.assertEqual(work.parameters, ["first", "second", "items", "flag", "options"])
+        self.assertEqual(simple.parameters, ["left", "right"])
+        self.assertEqual((work.lineno, work.end_lineno, work.length), (1, 3, 3))
+        self.assertEqual((simple.lineno, simple.end_lineno, simple.length), (5, 6, 2))
+        self.assertTrue(work.has_type_hints)
+        self.assertFalse(simple.has_type_hints)
+        self.assertEqual([item.cyclomatic for item in context.functions], [1, 1])
+
+    def test_comment_masks_preserve_unicode_crlf_and_last_line_coordinates(self):
+        cases = (
+            ('# first\r\n\r\ncaf\u00e9 = "# literal"  # tail\r\n# last',
+             '       \r\n\r\ncaf\u00e9 = "# literal"        \r\n      ', {1, 3, 4}, {3}, ['# first', '# tail', '# last']),
+            ('\u03c0 = 1 # \u03a9\n\n# eof', '\u03c0 = 1    \n\n     ', {1, 3}, {1}, ['# \u03a9', '# eof']),
+        )
+        for source, masked, comment_lines, code_lines, comments in cases:
+            with self.subTest(source=source):
+                scan = engine.scan_python(source)
+                self.assertEqual(scan.cleaned_code, masked)
+                self.assertEqual(scan.comment_line_numbers, comment_lines)
+                self.assertEqual(scan.code_line_numbers, code_lines)
+                self.assertEqual(scan.comment_texts, comments)
+                self.assertEqual(len(scan.cleaned_code), len(source))
+                context = engine.build_analysis_context(source, "comments.py", "python")
+                self.assertEqual(context.cleaned_code, masked.replace("\r\n", "\n"))
+
+    def test_nested_callable_complexity_is_separate_from_structural_signature(self):
+        source = ('def outer():\n    def inner(flag):\n        if flag:\n            return 1\n'
+                  '        return 0\n    return inner\n')
+        functions = engine.build_analysis_context(source, "nested.py", "python").functions
+        self.assertEqual([(item.name, item.cyclomatic) for item in functions], [("outer", 1), ("inner", 2)])
+        self.assertEqual(dict(functions[0].ast_signature), {
+            "FunctionDef": 2, "arguments": 2, "arg": 1, "If": 1,
+            "Name": 2, "Load": 2, "Return": 3, "Constant": 2,
+        })
+        inverse = 'def outer(flag):\n    if flag:\n        return 1\n    def inner():\n        return 0\n    return inner\n'
+        self.assertEqual([(item.name, item.cyclomatic) for item in engine.build_analysis_context(inverse, "inverse.py").functions], [("outer", 2), ("inner", 1)])
+
+    def test_definition_time_expressions_belong_to_the_enclosing_callable(self):
+        cases = (
+            ('def outer(value=1 if flag else 0):\n    return value\n', {"outer": 1}),
+            ('def outer(flag):\n    def inner(value=1 if flag else 0):\n        return value\n    return inner\n', {"outer": 2, "inner": 1}),
+            ('def outer(flag):\n    @decorate(1 if flag else 0)\n    def inner():\n        return 1\n    return inner\n', {"outer": 2, "inner": 1}),
+            ('def outer(flag):\n    return lambda value: 1 if value else 0\n', {"outer": 1}),
+            ('def outer(flag):\n    return lambda value=(1 if flag else 0): value\n', {"outer": 2}),
+            ('def outer(flag):\n    class Inner:\n        if flag:\n            value = 1\n    return Inner\n', {"outer": 1}),
+            ('def outer(flag):\n    class Inner(Left if flag else Right):\n        pass\n    return Inner\n', {"outer": 2}),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                context = engine.build_analysis_context(source, "definitions.py", "python")
+                self.assertEqual({item.name: item.cyclomatic for item in context.functions}, expected)
 
 
 if __name__ == "__main__":

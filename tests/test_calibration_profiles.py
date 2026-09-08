@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import calibrate_corpus  # noqa: E402
 import calibrate_profile  # noqa: E402
 import codeprobe_runtime as engine  # noqa: E402
-from codeprobe_engine import project_io  # noqa: E402
+from codeprobe_engine import api, project_io  # noqa: E402
 
 
 SAMPLE_CODE = """
@@ -1042,6 +1042,59 @@ class CalibrationPublicationTests(unittest.TestCase):
                     else:
                         self.assertIn("CodeProbe calibration summary", content.decode("utf-8"))
                 self._no_staging(root)
+
+    def test_invalid_python_calibration_samples_preserve_every_existing_output(self):
+        invalid = "def broken():\n    if True:\n        return 1\n  return 0\n"
+        for kind in ("file", "project", "zip"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args, inputs, outputs, manifest = self._fixture(root, kind=kind)
+                if kind == "zip":
+                    with zipfile.ZipFile(inputs[0], "w") as archive:
+                        archive.writestr("broken.py", invalid)
+                else:
+                    inputs[0].write_text(invalid, encoding="utf-8")
+                before = self._bytes([*inputs, *outputs.values()])
+                record = manifest["samples"][0]
+                sample = Path(args.root) / record["path"]
+                result = calibrate_profile.analyse_sample(sample, record, "default", base_dir=Path(args.root))
+                self.assertEqual(result.verdict_class, "error")
+                self.assertFalse(result.applicable)
+                self.assertIsNone(result.score)
+                self.assertIsNone(result.scoring_contract)
+                self.assertIn("requires a successful AST parse", result.warning)
+                with self.assertRaisesRegex(ValueError, "sample analysis failed"):
+                    calibrate_profile.run_calibration(args)
+                self.assertEqual(self._bytes(before), before)
+                self._no_staging(root)
+
+
+class BoundPythonParserTests(unittest.TestCase):
+    def test_current_engine_bound_profiles_refuse_invalid_ast_at_each_public_entry(self):
+        profile = {"profile_id": "owned-python-binding",
+                   "scoring_contract": engine.scoring_contract("default", engine.merged_metric_config("default"))}
+        invalid_sources = (
+            "def broken():\n    if True:\n        return 1\n  return 0\n",
+            "if True:\n\tpass\n        pass\n",
+            "value = (\n    1,\n",
+        )
+        entries = (
+            (api.analyse_file, lambda source: {"filename": "sample.py", "code": source}),
+            (api.analyse_project, lambda source: {"files": [{"path": "sample.py", "content": source}]}),
+            (lambda payload: json.loads(engine.codeprobe_analyze(json.dumps(payload))), lambda source: {"filename": "sample.py", "code": source}),
+            (lambda payload: json.loads(engine.codeprobe_analyze_project(json.dumps(payload))), lambda source: {"files": [{"path": "sample.py", "content": source}]}),
+        )
+        for entry, payload_for in entries:
+            valid = entry({**payload_for(SAMPLE_CODE), "calibration_profile": profile})["report"]
+            self.assertEqual(valid["calibration_profile_id"], "owned-python-binding")
+            self.assertTrue(valid["overall_applicable"])
+            for source in invalid_sources:
+                with self.subTest(entry=entry, source=source), self.assertRaisesRegex(ValueError, "requires a successful AST parse"):
+                    entry({**payload_for(source), "calibration_profile": profile})
+            incompatible = json.loads(json.dumps(profile))
+            incompatible["scoring_contract"]["engine_sha256"] = "0" * 64
+            with self.assertRaisesRegex(ValueError, "engine identity.*recalibrate"):
+                entry({**payload_for(SAMPLE_CODE), "calibration_profile": incompatible})
 
 
 if __name__ == "__main__":
