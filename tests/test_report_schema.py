@@ -169,5 +169,44 @@ class ScriptDiagnosticReportTests(unittest.TestCase):
                     self.assertEqual(project["included_file_count"], 1)
 
 
+class CyclomaticMethodSchemaTests(unittest.TestCase):
+    def test_three_cyclomatic_methods_keep_their_values_and_export_exact_units(self):
+        cases = (
+            ("def first():\n    return 0\n\ndef second(a, b):\n    if a:\n        return 1\n    if b:\n        return 2\n    return 0\n", "fixture.py", 2, 1.0,
+             "python_ast_function_mean", "decisions_per_function", "recognised_functions"),
+            ("int first(void) {\n    return 0;\n}\nint second(int a, int b) {\n    if (a) a++;\n    if (b) b++;\n    return a + b;\n}\n", "fixture.c", 2, 1.0,
+             "lexical_function_mean", "decisions_per_function", "recognised_functions"),
+            ("if (a) ready();\nif (b) ready();\n" + "ready();\n" * 8, "fixture.js", 4, 51/121,
+             "lexical_branch_density", "branches_per_20_code_lines", "cleaned_file_code"),
+        )
+        for source, filename, value, score, method, unit, domain in cases:
+            for operation, payload, project in (
+                (engine.codeprobe_analyze, {"code": source, "filename": filename}, False),
+                (engine.codeprobe_analyze_project, {"files": [{"path": filename, "content": source}]}, True),
+            ):
+                with self.subTest(method=method, project=project):
+                    bundle = json.loads(operation(json.dumps(payload)))
+                    report = bundle["report"]["files"][0] if project else bundle["report"]
+                    result = next(item for item in report["metrics"] if item["name"] == "cyclomatic_complexity")
+                    self.assertEqual(result["value"], value)
+                    self.assertAlmostEqual(result["score"], round(score, 4))
+                    self.assertEqual((result["method"], result["unit"], result["domain"]), (method, unit, domain))
+                    self.assertEqual(result["group"], "context")
+                    self.assertFalse(result["contributes_to_overall"])
+                    for label, text in (("method", method), ("unit", unit), ("domain", domain)):
+                        self.assertIn(label + "=" + text, result["detail"])
+                        self.assertIn(text, bundle["text"])
+
+    def test_unavailable_cyclomatic_metrics_do_not_claim_a_measurement_method(self):
+        for source, filename in (("value = 1\n", "fixture.py"), ('const value = "unterminated\n', "fixture.js")):
+            bundle = json.loads(engine.codeprobe_analyze(json.dumps({"code": source, "filename": filename})))
+            result = next(item for item in bundle["report"]["metrics"] if item["name"] == "cyclomatic_complexity")
+            self.assertFalse(result["applicable"])
+            self.assertIsNone(result["value"])
+            self.assertTrue(result["explanation"])
+            for key in ("method", "unit", "domain"):
+                self.assertFalse(result.get(key))
+
+
 if __name__ == "__main__":
     unittest.main()

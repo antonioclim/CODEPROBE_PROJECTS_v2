@@ -394,7 +394,7 @@ RE_JS_IDENTIFIERS = re.compile(r"\b[A-Za-z_$][A-Za-z0-9_$]*\b")
 RE_BASH_IDENTIFIERS = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 RE_GENERIC_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 RE_CSHARP_IDENTIFIER = re.compile(r"\b@?[A-Za-z_][A-Za-z0-9_]*\b")
-RE_NUMBER = re.compile(r"(?<![A-Za-z_])[-+]?(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)(?![A-Za-z_])")
+RE_NUMBER = re.compile(r"[+-]?(?:0[xX][0-9A-Fa-f]+|(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)")
 RE_PY_FUNCTION_LINE = re.compile(r"^\s*(?:async\s+def|def)\s+")
 JS_CONTROL_WORDS = {
     "if", "for", "while", "switch", "catch", "with", "else", "do", "try",
@@ -785,6 +785,9 @@ class MetricResult:
     references: List[str] = field(default_factory=list)
     group: str = "stylometry"
     contributes_to_overall: bool = True
+    method: str = ""
+    unit: str = ""
+    domain: str = ""
 
 
 @dataclass
@@ -861,6 +864,9 @@ class AnalysisContext:
     script_lexically_safe: bool = True
     script_feature_issues: List[str] = field(default_factory=list)
     script_function_issues: List[str] = field(default_factory=list)
+    numeric_literals: Optional[List[str]] = None
+    numeric_literal_issues: List[str] = field(default_factory=list)
+    script_observations: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def loc(self) -> int:
@@ -1156,6 +1162,7 @@ def runtime_metadata(config: Optional[Dict[str, Dict[str, Any]]] = None, fingerp
         "scoring_profiles": sorted(SCORING_PROFILES.keys()),
         "metric_config_digest": metric_config_digest(active),
         "metric_role_summary": metric_role_summary(active),
+        "inactive_thresholds": list(INACTIVE_THRESHOLDS),
     }
 
 
@@ -1202,6 +1209,25 @@ def finite_config_number(value: Any, label: str) -> float:
     if not math.isfinite(number):
         raise ValueError(f"{label} must be finite.")
     return number
+
+
+INACTIVE_THRESHOLDS = (
+    "identifier_style.ai_low", "identifier_style.ai_high",
+    "line_length_uniformity.ai_high", "halstead_difficulty.mi_high",
+)
+INACTIVE_THRESHOLD_NOTE = (
+    "Inactive/deprecated thresholds: " + ", ".join(INACTIVE_THRESHOLDS)
+    + ". Their values are retained in configuration and its digest but do not affect metric formulas."
+)
+
+
+def register_pressure_anchors(config: Dict[str, Dict[str, Any]]) -> Tuple[float, float]:
+    thresholds = config.get("register_pressure", {}).get("thresholds", {})
+    low = finite_config_number(thresholds.get("low", 0.50), "register_pressure.low")
+    moderate = finite_config_number(thresholds.get("moderate", 0.85), "register_pressure.moderate")
+    if not 0.0 <= low < moderate < 1.25:
+        raise ValueError("register_pressure thresholds must satisfy 0 <= low < moderate < 1.25.")
+    return low, moderate
 
 
 def validate_metric_config_override(external_override: Optional[Dict[str, Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
@@ -1478,6 +1504,7 @@ def merged_metric_config(
         raise ValueError("Calibration profile is non-operational: " + calibration.get("operational_reason", "draft"))
     apply_metric_override(merged, calibration.get("metric_overrides"))
     apply_metric_override(merged, external_override)
+    register_pressure_anchors(merged)
     contract = calibration.get("scoring_contract")
     if contract:
         # Caller-supplied report metadata is not an authority for engine identity.
@@ -1690,6 +1717,7 @@ class ScanResult:
 
     notes: List[str] = field(default_factory=list)
     excluded_spans: List[Tuple[int, int]] = field(default_factory=list)
+    observations: Dict[str, Any] = field(default_factory=dict)
 
 class ScannerState:
     NORMAL = "normal"
@@ -1723,6 +1751,7 @@ BASH_SUBSTITUTION_LIMIT = 16
 BASH_HEREDOC_QUEUE_LIMIT = 16
 BASH_HEREDOC_DELIMITER_LIMIT = 128
 BASH_HEREDOC_PAYLOAD_LIMIT = 65536
+BASH_BLOCK_LIMIT = 32
 
 
 def _js_identifier_start(char: str) -> bool:
@@ -1759,6 +1788,7 @@ class _ScriptMask:
         self.comment_texts: List[str] = []
         self.notes: List[str] = []
         self.excluded_spans: List[Tuple[int, int]] = []
+        self.observations: Dict[str, Any] = {}
         self.error = ""
 
     def line(self, offset: int) -> int:
@@ -1785,12 +1815,13 @@ class _ScriptMask:
     def result(self) -> ScanResult:
         cleaned = "".join(self.cleaned)
         self.code_lines.update(index for index, line in enumerate(cleaned.split("\n"), 1) if line.strip())
-        return ScanResult(cleaned, self.comments, self.code_lines, self.comment_texts, self.error, self.notes, self.excluded_spans)
+        return ScanResult(cleaned, self.comments, self.code_lines, self.comment_texts, self.error, self.notes, self.excluded_spans, self.observations)
 
 
 def scan_javascript(code: str) -> ScanResult:
     """Lex a finite JavaScript subset; templates retain executable substitutions."""
     scan = _ScriptMask(code, "JavaScript")
+    scan.observations["interpolated_templates"] = 0
     length = len(code)
     active_delimiters = 0
 
@@ -1893,6 +1924,7 @@ def scan_javascript(code: str) -> ScanResult:
             scan.mask(start, length)
             return length
         cursor, segment = start + 1, start
+        interpolated = False
         while cursor < length:
             if code[cursor] == "\\":
                 cursor += 2
@@ -1900,6 +1932,9 @@ def scan_javascript(code: str) -> ScanResult:
                 scan.mask(segment, cursor + 1)
                 return cursor + 1
             elif code.startswith("${", cursor):
+                if not interpolated:
+                    scan.observations["interpolated_templates"] += 1
+                    interpolated = True
                 scan.mask(segment, cursor + 2)
                 cursor = executable(cursor + 2, "}", nesting)
                 segment = cursor
@@ -2014,8 +2049,18 @@ def scan_bash(code: str) -> ScanResult:
     """Mask shell data while retaining the finite executable substitution subset."""
     scan = _ScriptMask(code, "Bash")
     length = len(code)
+    scan.observations.update(bash_references=0, bash_double_quoted=0)
+    scan.observations.update(bash_nesting=0, bash_nesting_issues=[])
+    simple_parameter = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*")
+    shell_word = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    active_blocks = 0
 
-    def parameter(start: int) -> int:
+    def block_issue(offset: int, message: str) -> None:
+        issues = scan.observations["bash_nesting_issues"]
+        if not issues:
+            issues.append(f"Bash block structure at line {scan.line(offset)}: {message}")
+
+    def parameter(start: int, double_quoted: bool = False) -> int:
         end, braces = start + 2, 1
         while end < length and braces:
             if code[end] == "\\":
@@ -2038,6 +2083,9 @@ def scan_bash(code: str) -> ScanResult:
         content = code[start + 2:end]
         if not re.fullmatch(r"#?[A-Za-z_][A-Za-z0-9_]*(?:(?:##?|%%?)[^${}`\\]*)?", content):
             scan.issue("BASH_UNSUPPORTED_EXPANSION", start, "complex parameter expansion is outside the executable subset")
+        else:
+            scan.observations["bash_references"] += 1
+            scan.observations["bash_double_quoted"] += int(double_quoted)
         scan.mask(start, end + 1)
         return end + 1
 
@@ -2055,8 +2103,12 @@ def scan_bash(code: str) -> ScanResult:
                 segment = cursor
             elif quote == '"' and code.startswith("${", cursor):
                 scan.mask(segment, cursor)
-                cursor = parameter(cursor)
+                cursor = parameter(cursor, True)
                 segment = cursor
+            elif quote == '"' and simple_parameter.match(code, cursor):
+                scan.observations["bash_references"] += 1
+                scan.observations["bash_double_quoted"] += 1
+                cursor = simple_parameter.match(code, cursor).end()
             elif quote == '"' and code.startswith("$((", cursor):
                 scan.issue("BASH_UNSUPPORTED_EXPANSION", cursor, "arithmetic expansion is outside the retained executable subset")
                 end = code.find("))", cursor + 3)
@@ -2151,12 +2203,52 @@ def scan_bash(code: str) -> ScanResult:
         return cursor
 
     def executable(start: int, depth: int = 0, substitution: bool = False) -> int:
+        nonlocal active_blocks
         if depth > BASH_SUBSTITUTION_LIMIT:
             scan.issue("BASH_SUBSTITUTION_LIMIT", start, f"command-substitution nesting exceeds {BASH_SUBSTITUTION_LIMIT}", lexical=True)
             scan.mask(start, length)
             return length
         cursor, parentheses, word_start = start, 0, True
+        command_start = True
+        blocks: List[Tuple[str, str]] = []
+        initial_blocks = active_blocks
         queue: List[Tuple[str, bool, bool, int]] = []
+
+        def control(word: str, offset: int) -> bool:
+            nonlocal active_blocks
+            if word in {"if", "for", "while", "until", "select", "case"}:
+                if active_blocks >= BASH_BLOCK_LIMIT:
+                    block_issue(offset, f"nesting exceeds {BASH_BLOCK_LIMIT}")
+                    return False
+                kind = "if" if word == "if" else "case" if word == "case" else "loop"
+                blocks.append((kind, "header"))
+                active_blocks += 1
+                scan.observations["bash_nesting"] = max(scan.observations["bash_nesting"], active_blocks)
+                return word in {"if", "while", "until"}
+            if word in {"then", "do", "elif", "else"}:
+                kind, state = blocks[-1] if blocks else ("", "")
+                expected = "loop" if word == "do" else "if"
+                allowed = state == "header" if word in {"then", "do"} else state == "body"
+                if kind != expected or not allowed:
+                    block_issue(offset, f"misplaced {word}")
+                else:
+                    blocks[-1] = (kind, "header" if word == "elif" else "else" if word == "else" else "body")
+                return True
+            if word in {"fi", "done", "esac"}:
+                kind, state = blocks[-1] if blocks else ("", "")
+                if kind != {"fi": "if", "done": "loop", "esac": "case"}[word] or state == "header":
+                    block_issue(offset, f"unmatched or premature {word}")
+                else:
+                    blocks.pop()
+                    active_blocks -= 1
+            return False
+
+        def finish_blocks(offset: int) -> None:
+            nonlocal active_blocks
+            if blocks:
+                block_issue(offset, "control block is not closed within its command context")
+            active_blocks = initial_blocks
+
         while cursor < length:
             char = code[cursor]
             if char == "\n":
@@ -2164,6 +2256,7 @@ def scan_bash(code: str) -> ScanResult:
                 if queue:
                     cursor = heredoc_payload(cursor, queue)
                 word_start = True
+                command_start = True
                 continue
             if char.isspace():
                 word_start = True
@@ -2182,14 +2275,23 @@ def scan_bash(code: str) -> ScanResult:
                 cursor += 2
                 if not continuation:
                     word_start = False
+                    command_start = False
                 continue
             if char in "\"'":
                 cursor = quoted(cursor, depth)
                 word_start = False
+                command_start = False
                 continue
             if code.startswith("${", cursor):
                 cursor = parameter(cursor)
                 word_start = False
+                command_start = False
+                continue
+            if char == "$" and simple_parameter.match(code, cursor):
+                scan.observations["bash_references"] += 1
+                cursor = simple_parameter.match(code, cursor).end()
+                word_start = False
+                command_start = False
                 continue
             if code.startswith("$((", cursor) or code.startswith("((", cursor):
                 end = code.find("))", cursor + 2)
@@ -2205,6 +2307,7 @@ def scan_bash(code: str) -> ScanResult:
                 scan.mask(cursor, cursor + 2)
                 cursor = executable(cursor + 2, depth + 1, True)
                 word_start = False
+                command_start = False
                 continue
             if char == "`":
                 scan.issue("BASH_UNSUPPORTED_EXPANSION", cursor, "backtick substitution is outside the retained executable subset")
@@ -2229,6 +2332,25 @@ def scan_bash(code: str) -> ScanResult:
                 cursor = heredoc_header(cursor, queue)
                 word_start = True
                 continue
+            word = shell_word.match(code, cursor) if word_start else None
+            if word:
+                token = word.group(0)
+                if blocks and blocks[-1] == ("case", "header") and token == "in":
+                    blocks[-1] = ("case", "pattern")
+                    command_start = True
+                elif blocks and blocks[-1] == ("case", "pattern") and token != "esac":
+                    command_start = False
+                elif command_start:
+                    # A word joined to more shell-word characters is not a
+                    # reserved word: if=value, if-suffix and if$part are data.
+                    following = code[word.end():word.end() + 1]
+                    standalone = not following or following.isspace() or following in ";|&(){}<>"
+                    command_start = control(token, cursor) if standalone else False
+                cursor = word.end()
+                word_start = False
+                continue
+            if code.startswith(";;", cursor) and blocks and blocks[-1][0] == "case":
+                blocks[-1] = ("case", "pattern")
             if char == "(":
                 parentheses += 1
             elif char == ")":
@@ -2236,14 +2358,22 @@ def scan_bash(code: str) -> ScanResult:
                     if queue:
                         scan.issue("BASH_UNSUPPORTED_HEREDOC", cursor, "pending heredoc crosses a command-substitution boundary", lexical=True)
                     scan.mask(cursor, cursor + 1)
+                    finish_blocks(cursor)
                     return cursor + 1
                 parentheses = max(0, parentheses - 1)
+                if blocks and blocks[-1] == ("case", "pattern"):
+                    blocks[-1] = ("case", "body")
+            if char in ";|&(){}":
+                command_start = True
+            elif not char.isspace():
+                command_start = False
             word_start = char in ";|&<>()"
             cursor += 1
         if queue:
             scan.issue("BASH_UNTERMINATED_HEREDOC", queue[0][3], "heredoc delimiter is still pending at EOF", lexical=True)
         if substitution:
             scan.issue("BASH_UNTERMINATED_SUBSTITUTION", start, "command substitution has no closing parenthesis", lexical=True)
+        finish_blocks(length)
         return length
 
     executable(0)
@@ -2417,14 +2547,16 @@ def scan_c_like(code: str, language: str) -> ScanResult:
     error = ""
     cursor = 0
     line = 1
+    directive_prefix = True
+    active_directive = False
 
     def diagnose(message: str) -> None:
         nonlocal error
         if not error:
             error = f"C-family at line {line}: {message}; lexical and structural features are unavailable."
 
-    def mask(start: int, end: int, comment: bool = False) -> None:
-        nonlocal line
+    def mask(start: int, end: int, comment: bool = False, *, splice: bool = False) -> None:
+        nonlocal line, directive_prefix, active_directive
         for index in range(start, end):
             if comment:
                 comments.add(line)
@@ -2432,8 +2564,13 @@ def scan_c_like(code: str, language: str) -> ScanResult:
                 code_lines.add(line)
             if code[index] == "\n":
                 line += 1
+                if not (language in {"c", "cpp"} and code[max(0, index - 2):index].endswith(("\\", "\\\r"))):
+                    active_directive = False
+                    directive_prefix = True
             elif code[index] != "\r":
                 cleaned[index] = " "
+                if not comment and not splice and not code[index].isspace():
+                    directive_prefix = False
 
     def after_splices(index: int) -> int:
         while language in {"c", "cpp"} and index < len(code) and code[index] == "\\":
@@ -2449,6 +2586,8 @@ def scan_c_like(code: str, language: str) -> ScanResult:
 
     while cursor < len(code):
         char = code[cursor]
+        if language in {"c", "cpp"} and char == "#" and directive_prefix:
+            active_directive = True
         next_index = after_splices(cursor + 1)
         following = code[next_index:next_index + 1]
         if char == "/" and following in {"/", "*"}:
@@ -2532,9 +2671,9 @@ def scan_c_like(code: str, language: str) -> ScanResult:
         if spliced != cursor:
             previous = code[cursor - 1:cursor]
             following = code[spliced:spliced + 1]
-            if previous and following and not previous.isspace() and not following.isspace():
+            if previous and following and not previous.isspace() and not following.isspace() and not active_directive:
                 diagnose("code-token line splicing is outside the bounded subset")
-            mask(cursor, spliced)
+            mask(cursor, spliced, splice=True)
             cursor = spliced
             continue
         if char == "\\":
@@ -2551,8 +2690,11 @@ def scan_c_like(code: str, language: str) -> ScanResult:
             diagnose("invalid or unsupported verbatim identifier prefix")
         if char == "\n":
             line += 1
+            directive_prefix = True
+            active_directive = False
         elif not char.isspace():
             code_lines.add(line)
+            directive_prefix = False
         cursor += 1
     return ScanResult("".join(cleaned), comments, code_lines, comment_texts, error, notes)
 
@@ -2744,8 +2886,76 @@ def generic_tokens_and_identifiers(cleaned_code: str, language: str) -> Tuple[Li
         operators.extend(re.findall(r"\|\||&&|;;|[|&;><(){}$!]", cleaned_code))
     else:
         operators.extend(re.findall(r"[+\-*/%=<>!&|^~?:;,.()\[\]{}]", cleaned_code))
-    operands.extend(match.group(0) for match in RE_NUMBER.finditer(cleaned_code))
+    operands.extend(_generic_numeric_literals(cleaned_code)[0])
     return identifiers, operators, operands
+
+
+def _generic_numeric_literals(text: str) -> Tuple[List[str], List[str]]:
+    """Read whole decimal/scientific/hex candidates from an already masked view.
+
+    Suffixes, numeric separators, prefixed binary/octal and hexadecimal floats
+    are outside this finite vocabulary. A rejected word supplies no partial
+    number. Attached signs retain the earlier operand spelling convention.
+    """
+    numbers: List[str] = []
+    issues: List[str] = []
+    cursor = 0
+    while cursor < len(text):
+        char = text[cursor]
+        if char in "0123456789" or (char == "." and cursor + 1 < len(text) and text[cursor + 1] in "0123456789"):
+            end = cursor + 1
+            while end < len(text):
+                following = text[end]
+                if _js_identifier_continue(following) or following == ".":
+                    end += 1
+                elif following in "+-" and text[end - 1] in "eEpP":
+                    end += 1
+                else:
+                    break
+            if not cursor or not (_js_identifier_continue(text[cursor - 1]) or text[cursor - 1] == "."):
+                start = cursor - 1 if cursor and text[cursor - 1] in "+-" else cursor
+                token = text[start:end]
+                if RE_NUMBER.fullmatch(token):
+                    numbers.append(token)
+                elif not issues:
+                    issues.append("Unsupported numeric token; decimal/scientific and hexadecimal forms are the finite generic subset.")
+            cursor = end
+        elif _js_identifier_continue(char):
+            cursor += 1
+            while cursor < len(text) and _js_identifier_continue(text[cursor]):
+                cursor += 1
+        else:
+            cursor += 1
+    return numbers, issues
+
+
+def _python_numeric_literals(code: str, tree: Optional[ast.AST]) -> Tuple[List[str], List[str]]:
+    """Use real numeric AST spans, including executable f-string expressions."""
+    if tree is None:
+        return [], ["Python numeric literals require a successful AST parse."]
+    lines = [line.encode("utf-8") for line in code.split("\n")]
+    numbers: List[Tuple[int, int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or type(node.value) not in {int, float, complex}:
+            continue
+        if isinstance(node.value, complex):
+            return [], ["Complex/imaginary literals are outside the real-number feedback subset."]
+        if node.lineno != node.end_lineno:
+            return [], ["A numeric source span crosses physical lines outside the supported subset."]
+        line = lines[node.lineno - 1]
+        start = node.col_offset
+        if start and line[start - 1:start] in {b"+", b"-"}:
+            start -= 1
+        numbers.append((node.lineno, start, line[start:node.end_col_offset].decode("utf-8")))
+    return [text for _, _, text in sorted(numbers)], []
+
+
+def _context_numeric_literals(context: AnalysisContext) -> Tuple[List[str], List[str]]:
+    if context.numeric_literals is not None:
+        return context.numeric_literals, context.numeric_literal_issues
+    if context.language == "python":
+        return _python_numeric_literals(context.code, context.ast_tree)
+    return _generic_numeric_literals(context.cleaned_code)
 
 
 def python_parse(code: str) -> Tuple[Optional[ast.AST], str, List[str]]:
@@ -3432,19 +3642,9 @@ def approx_brace_nesting(cleaned_code: str) -> int:
     return best
 
 
-def approx_bash_nesting(lines: Sequence[str]) -> int:
-    depth = 0
-    best = 0
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if re.match(r"^(?:if|for|while|until|case|select|do|then)\b", stripped):
-            depth += 1
-            best = max(best, depth)
-        if re.match(r"^(?:fi|done|esac)\b", stripped):
-            depth = max(0, depth - 1)
-    return best
+def approx_bash_nesting(lines: Sequence[str]) -> Optional[int]:
+    observations = scan_bash("\n".join(lines)).observations
+    return None if observations["bash_nesting_issues"] else observations["bash_nesting"]
 
 
 def python_max_nesting(tree: Optional[ast.AST]) -> int:
@@ -3491,9 +3691,10 @@ def python_guard_count(tree: Optional[ast.AST]) -> int:
             if isinstance(func, ast.Name) and func.id in {"isinstance", "issubclass", "len", "all", "any"}:
                 count += 1
         elif isinstance(node, ast.Compare):
-            text = ast.unparse(node) if hasattr(ast, "unparse") else ""
-            if "None" in text:
-                count += 1
+            count += int(any(isinstance(value, ast.Constant) and value.value is None
+                             for value in [node.left, *node.comparators]))
+        elif isinstance(node, ast.If) and isinstance(node.test, ast.UnaryOp) and isinstance(node.test.op, ast.Not):
+            count += 1
     return count
 
 
@@ -3507,32 +3708,142 @@ def python_error_count(tree: Optional[ast.AST]) -> int:
     )
 
 
-def approx_js_import_use_ratio(context: AnalysisContext) -> Optional[float]:
+def approx_js_import_use_ratio(context: AnalysisContext, diagnostics: Optional[List[str]] = None) -> Optional[float]:
+    """Associate finite static import bindings with executable lexical reads.
+
+    This excludes member names and ordinary property keys, and refuses known
+    rebinding/parameter ambiguity. It does not resolve modules or execution.
+    """
+    issues = diagnostics if diagnostics is not None else []
+    text, original = context.cleaned_code, context.code
+    pairs = _script_pairs(text)
     bindings: Set[str] = set()
-    for line in context.lines:
-        stripped = line.strip()
-        if not stripped.startswith("import "):
-            continue
-        brace_match = re.search(r"\{([^}]*)\}", stripped)
-        if brace_match:
-            for chunk in brace_match.group(1).split(","):
-                chunk = chunk.strip()
-                if not chunk:
+    declarations: List[Tuple[int, int]] = []
+    module_literal = re.compile(r"""\s*(?:"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')""")
+
+    def fail(message: str) -> Optional[float]:
+        issues.append(message)
+        return None
+
+    def identifier(word: str) -> bool:
+        return list(_js_identifier_spans(word)) == [(word, 0, len(word))] and word not in LANGUAGE_KEYWORDS["javascript"]
+
+    for opening in re.finditer(r"(?:^|[;\n])[ \t\r\f\v]*import\b", text):
+        start, cursor = opening.start(), opening.end()
+        limit = min(len(text), cursor + JS_FUNCTION_HEADER_LIMIT)
+        while cursor < limit and text[cursor].isspace():
+            cursor += 1
+        if text[cursor:cursor + 1] in {"(", "."}:
+            continue  # Dynamic import/import.meta creates no static binding.
+        destination = module_literal.match(original, opening.end())
+        clause = ""
+        if not destination:
+            cursor = opening.end()
+            from_end = None
+            while cursor < limit and text[cursor] != ";":
+                if text[cursor] == "{":
+                    closing = pairs.get(cursor)
+                    if closing is None or closing >= limit:
+                        return fail("The static import clause exceeds the bounded balanced subset.")
+                    cursor = closing + 1
                     continue
-                if " as " in chunk:
-                    bindings.add(chunk.split(" as ")[-1].strip())
-                else:
-                    bindings.add(chunk)
-        namespace_match = re.search(r"\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)", stripped)
-        if namespace_match:
-            bindings.add(namespace_match.group(1))
-        default_match = re.match(r"import\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:,|from)", stripped)
-        if default_match and "from" in stripped:
-            bindings.add(default_match.group(1))
+                if text.startswith("from", cursor) and (cursor == opening.end() or not _js_identifier_continue(text[cursor - 1])) and not _js_identifier_continue(text[cursor + 4:cursor + 5]):
+                    clause, from_end = text[opening.end():cursor].strip(), cursor + 4
+                    break
+                cursor += 1
+            if from_end is None:
+                return fail("A static import requires a literal module and a supported binding clause.")
+            destination = module_literal.match(original, from_end)
+            if not destination or destination.end() > limit:
+                return fail("Comments/attributes or a long module clause are outside the finite static import subset.")
+        end = destination.end()
+        tail = end
+        while tail < len(text) and text[tail] != "\n" and text[tail].isspace():
+            tail += 1
+        if tail < len(text) and text[tail] not in ";\n":
+            return fail("Import attributes or trailing syntax are outside the finite static import subset.")
+        declarations.append((start, end))
+        if not clause:
+            continue
+        local_names: List[str] = []
+        parts = _split_declarators(clause)
+        if not parts or len(parts) > 2:
+            return fail("The static import binding clause is unsupported.")
+        for part in parts:
+            if part.startswith("{") and part.endswith("}"):
+                entries = part[1:-1].split(",")
+                for index, entry in enumerate(entries):
+                    words = entry.split()
+                    if not words and index == len(entries) - 1:
+                        continue
+                    if len(words) == 1 and identifier(words[0]):
+                        local_names.append(words[0])
+                    elif len(words) == 3 and words[1] == "as" and list(_js_identifier_spans(words[0])) == [(words[0], 0, len(words[0]))] and identifier(words[2]):
+                        local_names.append(words[2])
+                    else:
+                        return fail("Only identifier-named static imports and aliases are supported.")
+            elif part.startswith("*"):
+                words = part.split()
+                if len(words) != 3 or words[:2] != ["*", "as"] or not identifier(words[2]):
+                    return fail("The namespace import binding is unsupported.")
+                local_names.append(words[2])
+            elif identifier(part):
+                local_names.append(part)
+            else:
+                return fail("The default import binding is unsupported.")
+        if len(local_names) != len(set(local_names)) or bindings.intersection(local_names):
+            return fail("Repeated import bindings require semantic resolution outside this subset.")
+        bindings.update(local_names)
     if not bindings:
         return None
-    code_without_imports = "\n".join(line for line in context.lines if not line.strip().startswith("import "))
-    used = set(RE_JS_IDENTIFIERS.findall(code_without_imports))
+    view = list(text)
+    for start, end in declarations:
+        for index in range(start, end):
+            if view[index] != "\n":
+                view[index] = " "
+    executable = "".join(view)
+    words = list(_js_identifier_spans(executable))
+    pairs = _script_pairs(executable)
+    following_token = re.compile(r"\s*(=>|[{}():=.,;]|[^\s])")
+    write_operator = re.compile(r"\s*(?:\+\+|--|(?:[+\-*/%&|^]|<<|>>>?|&&|\|\||\?\?)?=(?!=|>))")
+    previous_end = 0
+    previous_word = ""
+    used: Set[str] = set()
+    for word, start, end in words:
+        before = executable[previous_end:start].rstrip()
+        next_match = following_token.match(executable, end)
+        after = next_match.group(1) if next_match else ""
+        if word in bindings:
+            property_name = before.endswith(".") or after == ":" and (not before.strip() or before.endswith(("{", ",", ";", "}")))
+            if after == "(" and before.endswith(("{", ",")) and next_match:
+                closing = pairs.get(next_match.end() - 1)
+                tail = following_token.match(executable, closing + 1) if closing is not None else None
+                property_name = property_name or bool(tail and tail.group(1) == "{")
+            if not property_name:
+                if (previous_word in {"const", "let", "var", "function", "class"} and not before.strip()
+                        or write_operator.match(executable, end) or before.endswith(("++", "--"))):
+                    return fail("An imported binding is redeclared or assigned; static use is unavailable.")
+                if after == "=>":
+                    return fail("An imported name is also an arrow parameter; static use is unavailable.")
+                used.add(word)
+        previous_end, previous_word = end, word
+    # Parameter lists and declaration patterns can introduce lexical shadows.
+    # A conservative refusal avoids treating a read of the shadow as the import.
+    for opening, closing in pairs.items():
+        if executable[opening] != "(":
+            continue
+        tail = following_token.match(executable, closing + 1)
+        if not tail or tail.group(1) not in {"{", "=>"}:
+            continue
+        prefix = executable[max(0, opening - JS_FUNCTION_HEADER_LIMIT):opening]
+        previous = list(_js_identifier_spans(prefix))
+        if previous and previous[-1][0] in {"if", "while", "for", "switch", "with"}:
+            continue
+        if bindings.intersection(word for word, _, _ in _js_identifier_spans(executable[opening + 1:closing])):
+            return fail("A parameter/header may shadow an imported name; static use is unavailable.")
+    for declaration in re.finditer(r"\b(?:const|let|var)\s+([^=;\n]+)", executable):
+        if bindings.intersection(word for word, _, _ in _js_identifier_spans(declaration.group(1))):
+            return fail("A declaration pattern may shadow an imported name; static use is unavailable.")
     return safe_div(len(bindings & used), len(bindings), default=0.0)
 
 
@@ -4254,103 +4565,105 @@ def redundant_memory_profile(function: FunctionInfo, language: str) -> Dict[str,
 
 
 def preprocessor_profile(context: AnalysisContext) -> Dict[str, Any]:
+    # Join only physical continuations; active directive tokens must survive
+    # the existing comment/literal masks before original include text is used.
+    logical: List[Tuple[str, str]] = []
+    masked_parts: List[str] = []
+    original_parts: List[str] = []
+    for original, masked in zip(context.lines, context.cleaned_code.split("\n")):
+        continued = original.endswith("\\")
+        masked_parts.append(masked[:-1] if continued else masked)
+        original_parts.append(original[:-1] if continued else original)
+        if not continued:
+            logical.append(("".join(masked_parts).strip(), "".join(original_parts).strip()))
+            masked_parts.clear()
+            original_parts.clear()
+    if masked_parts:
+        logical.append(("".join(masked_parts).strip(), "".join(original_parts).strip()))
+    active = [(text, original) for text, original in logical if text]
     include_lines: List[str] = []
     macro_lines: List[str] = []
-    conditional_depth = 0
+    stack: List[bool] = []  # Whether each conditional has already used #else.
     max_conditional_depth = 0
-    for line in context.lines:
-        stripped = line.strip()
-        if re.match(r"^#\s*include\b", stripped):
-            include_lines.append(stripped)
-        elif re.match(r"^#\s*define\b", stripped):
-            macro_lines.append(stripped)
-        elif re.match(r"^#\s*(?:if|ifdef|ifndef)\b", stripped):
-            conditional_depth += 1
-            max_conditional_depth = max(max_conditional_depth, conditional_depth)
-        elif re.match(r"^#\s*endif\b", stripped):
-            conditional_depth = max(0, conditional_depth - 1)
-
+    balanced = True
+    outer_close = -1
+    pragma_once = False
+    guard_name = ""
+    guard_defined = False
+    for index, (text, original) in enumerate(active):
+        directive = re.match(r"^#\s*([A-Za-z_][A-Za-z0-9_]*)\b(.*)$", text)
+        if not directive:
+            continue
+        name, argument = directive.groups()
+        argument = argument.strip()
+        if name == "include":
+            include_lines.append(original)
+        elif name == "define":
+            macro_lines.append(text)
+            defined = re.match(r"([A-Za-z_][A-Za-z0-9_]*)(?=\s|$)", argument)
+            if index == 1 and guard_name and defined and defined.group(1) == guard_name:
+                guard_defined = True
+        elif name in {"if", "ifdef", "ifndef"}:
+            if index == 0 and name == "ifndef" and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", argument):
+                guard_name = argument
+            stack.append(False)
+            max_conditional_depth = max(max_conditional_depth, len(stack))
+        elif name in {"else", "elif"}:
+            if not stack or stack[-1] or len(stack) == 1 and guard_name or name == "else" and argument:
+                balanced = False
+            if stack and name == "else":
+                stack[-1] = True
+        elif name == "endif":
+            if argument or not stack:
+                balanced = False
+            else:
+                stack.pop()
+                if not stack and outer_close < 0:
+                    outer_close = index
+        elif name == "pragma" and argument == "once" and not stack:
+            pragma_once = True
     system_before_project = True
     seen_project = False
     for line in include_lines:
-        is_system = "<" in line and ">" in line
-        is_project = '"' in line
+        destination = re.sub(r"^#\s*include\s*", "", line)
+        is_project = destination.startswith('"')
         if is_project:
             seen_project = True
-        elif is_system and seen_project:
+        elif destination.startswith("<") and seen_project:
             system_before_project = False
-
-    macro_abuse = 0
-    for line in macro_lines:
-        if re.match(r"^#\s*define\s+[A-Za-z_][A-Za-z0-9_]*\s*\(", line):
-            macro_abuse += 1
-        elif re.match(r"^#\s*define\s+[A-Z_][A-Z0-9_]*\s+\d", line):
-            macro_abuse += 1
-
-    has_guard = False
-    ext = context.file_extension.lower()
-    if ext in {"h", "hpp", "hxx", "hh"}:
-        joined = "\n".join(context.lines[:20])
-        has_guard = bool(re.search(r"#\s*pragma\s+once\b", joined))
-        has_guard = has_guard or bool(re.search(r"#\s*ifndef\b.*\n\s*#\s*define\b", joined))
-    else:
-        has_guard = True
-
+    macro_abuse = sum(bool(re.match(r"^#\s*define\s+[A-Za-z_][A-Za-z0-9_]*\s*\(", line)
+                           or re.match(r"^#\s*define\s+[A-Z_][A-Z0-9_]*\s+\d", line))
+                      for line in macro_lines)
+    is_header = context.file_extension.lower() in {"h", "hpp", "hxx", "hh"}
+    enclosed = bool(guard_name and guard_defined and balanced and not stack and outer_close == len(active) - 1)
     return {
         "include_count": len(include_lines),
         "macro_abuse": macro_abuse,
         "conditional_depth": max_conditional_depth,
         "system_before_project": system_before_project,
-        "has_guard": has_guard,
+        "has_guard": not is_header or pragma_once or enclosed,
     }
 
-
 def import_organisation_score(context: AnalysisContext) -> Optional[Tuple[float, str]]:
-    if context.language != "python":
+    if context.language != "python" or context.ast_tree is None:
         return None
-    import_lines: List[Tuple[int, str]] = []
-    for index, line in enumerate(context.lines, start=1):
-        stripped = line.strip()
-        if re.match(r"^(?:import|from)\b", stripped):
-            import_lines.append((index, stripped))
-    if len(import_lines) < 2:
+    statements = list(getattr(context.ast_tree, "body", []))
+    if statements and isinstance(statements[0], ast.Expr) and isinstance(statements[0].value, ast.Constant) and isinstance(statements[0].value.value, str):
+        statements = statements[1:]
+    imports = [node for node in statements if isinstance(node, (ast.Import, ast.ImportFrom))]
+    if len(imports) < 2:
         return None
-
-    first_real_code = None
-    in_module_docstring = False
-    triple_quote = None
-    for index, line in enumerate(context.lines, start=1):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        opening = stripped[:3]
-        if index == 1 and opening in {'"' * 3, "'" * 3}:
-            if stripped.count(opening) < 2:
-                in_module_docstring = True
-                triple_quote = opening
-            continue
-        if in_module_docstring:
-            if triple_quote and triple_quote in stripped:
-                in_module_docstring = False
-                triple_quote = None
-            continue
-        first_real_code = index
-        break
-
-    top_aligned = True
-    if first_real_code is not None:
-        top_aligned = not any(index > first_real_code for index, _ in import_lines)
-
-    import_names = []
-    for _, stripped in import_lines:
-        if stripped.startswith("import "):
-            import_names.append(stripped.replace("import ", "", 1).split(" as ")[0].strip())
-        elif stripped.startswith("from "):
-            import_names.append(stripped.split()[1])
+    first_non_import = next((index for index, node in enumerate(statements)
+                             if not isinstance(node, (ast.Import, ast.ImportFrom))), len(statements))
+    top_aligned = all(isinstance(node, (ast.Import, ast.ImportFrom))
+                      for node in statements[:len(imports)]) and first_non_import >= len(imports)
+    import_names = [", ".join(alias.name for alias in node.names) if isinstance(node, ast.Import)
+                    else "." * node.level + (node.module or "") for node in imports]
     sorted_ok = import_names == sorted(import_names, key=str.lower)
-    grouped = any(import_lines[i + 1][0] - import_lines[i][0] > 1 for i in range(len(import_lines) - 1))
-    score = statistics.mean([1.0 if top_aligned else 0.0, 1.0 if sorted_ok else 0.0, 1.0 if grouped else 0.0])
-    detail = f"top_aligned={top_aligned}, sorted={sorted_ok}, grouped={grouped}, imports={len(import_lines)}"
+    grouped = any(right.lineno - node_end_lineno(left, left.lineno) > 1
+                  for left, right in zip(imports, imports[1:]))
+    score = statistics.mean([float(top_aligned), float(sorted_ok), float(grouped)])
+    detail = f"top_aligned={top_aligned}, sorted={sorted_ok}, grouped={grouped}, imports={len(imports)}"
     return score, detail
 
 def build_analysis_context(code: str, filename: str, language_hint: Optional[str] = None) -> AnalysisContext:
@@ -4393,6 +4706,7 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
         script_lexically_safe = not bool(scan.tokenizer_error)
         script_feature_issues = list(scan.notes)
         notes.extend(scan.notes)
+        notes.extend("Bash nesting warning: " + issue for issue in scan.observations.get("bash_nesting_issues", []))
         label = LANGUAGE_LABELS[language]
         notes.append(f"{label} scope: lexical analysis and block-function extraction cover a finite subset, not complete syntax validation. Complexity uses exact cleaned character spans; original function body and signature evidence retain physical-line scope.")
         identifiers, operators, operands = generic_tokens_and_identifiers(scan.cleaned_code, language)
@@ -4472,6 +4786,10 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
             executable += 1
 
     indentation_widths, indentation_kinds = indentation_profile(lines)
+    numbers, numeric_issues = (_python_numeric_literals(normalised_code, ast_tree) if language == "python"
+                              else _generic_numeric_literals(scan.cleaned_code) if language in code_languages()
+                              else ([], []))
+    notes.extend("Numeric literal warning: " + issue for issue in numeric_issues)
 
     return AnalysisContext(
         filename=filename,
@@ -4506,6 +4824,9 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
         script_lexically_safe=script_lexically_safe,
         script_feature_issues=script_feature_issues,
         script_function_issues=script_function_issues,
+        numeric_literals=numbers,
+        numeric_literal_issues=numeric_issues,
+        script_observations=scan.observations,
         notes=notes,
         tokenizer_error=scan.tokenizer_error or token_error,
         markdown=markdown_info,
@@ -4580,12 +4901,20 @@ class BaseMetric(ABC):
         detail: str = "",
         applicable: bool = True,
         digits: int = 3,
+        *,
+        method: str = "",
+        unit: str = "",
+        domain: str = "",
     ) -> MetricResult:
+        unit_label = {"decisions_per_function": "decisions/function",
+                      "branches_per_20_code_lines": "branches/20 code lines"}.get(unit, "")
+        if method:
+            detail += f"; method={method}, unit={unit}, domain={domain}"
         return MetricResult(
             name=self.name,
             display_name=self.display_name,
             value=value,
-            value_display=format_float(value, digits=digits),
+            value_display=format_float(value, digits=digits) + (f" {unit_label}" if unit_label else ""),
             score=clamp(score),
             weight=self.weight,
             applicable=applicable,
@@ -4594,6 +4923,9 @@ class BaseMetric(ABC):
             references=list(self.references),
             group=self.metric_group,
             contributes_to_overall=self.effective_contributes_to_overall,
+            method=method,
+            unit=unit,
+            domain=domain,
         )
 
     def not_applicable(self, explanation: str, detail: str = "") -> MetricResult:
@@ -4617,11 +4949,25 @@ def boilerplate_indicators(code: str, lang: str, context: AnalysisContext) -> Tu
     total = 0
     if lang == "python":
         total = 5
-        indicators += int(bool(re.search(r"if\s+__name__\s*==\s*['\"]__main__['\"]", code)))
-        indicators += int(bool(re.search(r"^#!\/usr\/bin\/env\s+python", code)))
-        indicators += int(bool(re.search(r"from\s+__future__\s+import", code)))
+        statements = getattr(context.ast_tree, "body", [])
+        main_guard = False
+        for node in statements:
+            if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
+                continue
+            test = node.test
+            if len(test.ops) != 1 or not isinstance(test.ops[0], ast.Eq):
+                continue
+            operands = [test.left, test.comparators[0]]
+            main_guard = main_guard or (
+                any(isinstance(value, ast.Name) and value.id == "__name__" for value in operands)
+                and any(isinstance(value, ast.Constant) and value.value == "__main__" for value in operands)
+            )
+        indicators += int(main_guard)
+        indicators += int(_shebang_language(code) == "python")
+        indicators += int(any(isinstance(node, ast.ImportFrom) and node.module == "__future__" and not node.level for node in statements))
         indicators += int(bool(context.ast_tree is not None and ast.get_docstring(context.ast_tree, clean=False)))
-        indicators += int(bool(re.search(r"^#.*coding[:=]\s*(?:utf-8|ascii)", code, re.M)))
+        indicators += int(any(re.match(r"^[ \t]*#.*coding[:=]\s*(?:utf-8|ascii)\b", line)
+                              for line in context.lines[:2]))
     elif lang == "javascript":
         total = 5
         indicators += int(bool(re.search(r"['\"]use strict['\"]", code)))
@@ -4826,6 +5172,8 @@ class LexicalEntropyMetric(BaseMetric):
     references = [REFERENCE_LIBRARY["rahman_detection"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
+        if lang != "python" and context.numeric_literal_issues:
+            return self.not_applicable("The generic operand vocabulary contains an unsupported numeric form.", "; ".join(context.numeric_literal_issues))
         tokens = context.identifiers + context.tokens_operators + context.tokens_operands
         if len(tokens) < 20:
             return self.not_applicable("Too few tokens for a stable entropy estimate.")
@@ -4880,6 +5228,8 @@ class BoilerplatePresenceMetric(BaseMetric):
     references = [REFERENCE_LIBRARY["pep8"], REFERENCE_LIBRARY["c99"], REFERENCE_LIBRARY["csharp_spec"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
+        if lang == "python" and context.ast_tree is None:
+            return self.not_applicable("Python boilerplate structure requires a successful AST parse.")
         indicators, total = boilerplate_indicators(code, lang, context)
         if total == 0:
             return self.not_applicable("No language-specific boilerplate profile is defined for this language.")
@@ -4961,19 +5311,22 @@ class CyclomaticComplexityMetric(BaseMetric):
             mean_value = statistics.mean(values)
             score = band_score(mean_value, float(self.threshold("ai_low", 1.5)), float(self.threshold("ai_high", 4.5)), softness=1.5)
             detail = f"functions={len(values)}, mean_complexity={mean_value:.2f}, values={values}"
-            return self.result(mean_value, score, "AST decision counts are scoped to each callable body. Nested callable/class bodies are excluded; definition-time defaults and decorators remain in their enclosing callable. This structural convention is not a complete control-flow graph or authorship proof.", detail)
+            return self.result(mean_value, score, "AST decision counts are scoped to each callable body. Nested callable/class bodies are excluded; definition-time defaults and decorators remain in their enclosing callable. This structural convention is not a complete control-flow graph or authorship proof.", detail,
+                               method="python_ast_function_mean", unit="decisions_per_function", domain="recognised_functions")
         if context.functions:
             values = [item.cyclomatic for item in context.functions]
             mean_value = statistics.mean(values)
             score = band_score(mean_value, float(self.threshold("ai_low", 1.5)), float(self.threshold("ai_high", 4.5)), softness=1.5)
             detail = f"functions={len(values)}, mean_complexity={mean_value:.2f}, values={values}"
-            return self.result(mean_value, score, "Approximate control-flow complexity is derived from language-specific structural cues.", detail)
+            return self.result(mean_value, score, "The mean of lexical decision-count estimates covers recognised functions only; it is not exact McCabe complexity.", detail,
+                               method="lexical_function_mean", unit="decisions_per_function", domain="recognised_functions")
         line_count = max(len(context.code_lines), 1)
         count = len(re.findall(r"\b(?:if|for|while|case|catch|switch|elif|except)\b|&&|\|\||\?", context.cleaned_code))
         density = safe_div(count, line_count / 20.0)
         score = band_score(density, float(self.threshold("ai_low", 1.5)), float(self.threshold("density_high", 2.6)), softness=1.2)
         detail = f"approximate_branches={count}, density_per_20={density:.2f}"
-        return self.result(density, score, "Approximate complexity is used when reliable function extraction is not available.", detail)
+        return self.result(density, score, "Lexical branch density covers cleaned file code when no functions are recognised. It is not a per-function mean or exact McCabe complexity.", detail,
+                           method="lexical_branch_density", unit="branches_per_20_code_lines", domain="cleaned_file_code")
 
 
 @MetricRegistry.register
@@ -4984,6 +5337,8 @@ class HalsteadDifficultyMetric(BaseMetric):
     references = [REFERENCE_LIBRARY["halstead"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
+        if lang != "python" and context.numeric_literal_issues:
+            return self.not_applicable("The generic operand vocabulary contains an unsupported numeric form.", "; ".join(context.numeric_literal_issues))
         operators = context.tokens_operators
         operands = context.tokens_operands
         if len(operators) + len(operands) < 20:
@@ -5011,7 +5366,9 @@ class MagicNumbersMetric(BaseMetric):
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
         line_count = max(len(context.code_lines), 1)
-        numbers = RE_NUMBER.findall(context.cleaned_code)
+        numbers, issues = _context_numeric_literals(context)
+        if issues:
+            return self.not_applicable("Numeric literal feedback is unavailable within the supported subset.", "; ".join(issues))
         whitelist = {"0", "1", "2", "-1", "+1", "0.0", "1.0", "0x0"}
         magic = [item for item in numbers if item not in whitelist]
         density = safe_div(len(magic), line_count / 20.0)
@@ -5046,7 +5403,10 @@ class NestingDepthMetric(BaseMetric):
         if lang == "python":
             depth = float(python_max_nesting(context.ast_tree))
         elif lang == "bash":
-            depth = float(approx_bash_nesting(context.cleaned_code.split("\n")))
+            issues = context.script_observations.get("bash_nesting_issues", [])
+            if issues:
+                return self.not_applicable("Bash control-block nesting is unavailable.", "; ".join(issues))
+            depth = float(context.script_observations.get("bash_nesting", 0))
         else:
             depth = float(approx_brace_nesting(context.cleaned_code))
         score = 0.15 if depth <= 1.0 else band_score(depth, float(self.threshold("ai_low", 2.0)), float(self.threshold("ai_high", 4.0)), softness=0.8)
@@ -5064,8 +5424,9 @@ class DefensiveProgrammingMetric(BaseMetric):
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
         line_count = max(len(context.code_lines), 1)
         if lang == "python":
+            if context.ast_tree is None:
+                return self.not_applicable("Python defensive cues require a successful AST parse.")
             count = python_guard_count(context.ast_tree)
-            count += len(re.findall(r"\bif\s+not\b", code))
         elif lang == "javascript":
             count = 0
             count += len(re.findall(r"\btypeof\b", context.cleaned_code))
@@ -5093,6 +5454,8 @@ class DefensiveProgrammingMetric(BaseMetric):
         ai_high = float(self.threshold("ai_high", 2.0))
         score = 0.0 if density < ai_low else band_score(density, ai_low, ai_high, softness=1.0)
         detail = f"guards={count}, density={density:.2f}/20 lines"
+        if lang == "python":
+            return self.result(density, score, "AST guard cues are structural context. Calls to isinstance, issubclass, len, all and any are counted syntactically; they do not establish defensive intent or runtime behaviour.", detail)
         return self.result(density, score, "Generated code often introduces guards and validations more conspicuously than spontaneous student code.", detail)
 
 
@@ -5159,7 +5522,7 @@ class TypeTokenRatioMetric(BaseMetric):
         if len(tokens) < 20:
             return self.not_applicable("Too few identifiers for a stable logarithmic type-token ratio.")
         types = len(set(tokens))
-        lttr = safe_div(math.log(max(types, 2)), math.log(max(len(tokens), 2)), default=0.0)
+        lttr = math.log(types) / math.log(len(tokens))
         score = band_score(lttr, float(self.threshold("ai_low", 0.82)), float(self.threshold("ai_high", 0.92)), softness=0.25)
         detail = f"identifiers={len(tokens)}, unique={types}, lttr={lttr:.3f}"
         return self.result(lttr, score, "The logarithmic type-token ratio reduces the length sensitivity of the raw TTR.", detail)
@@ -5216,12 +5579,15 @@ class UsedImportRatioMetric(BaseMetric):
             ratio = safe_div(usage["used"], usage["imported"])
             detail = f"imported={usage['imported']}, used={usage['used']}; bounded static binding reads; execution and reachability are not established"
         else:
-            ratio = approx_js_import_use_ratio(context)
+            issues: List[str] = []
+            ratio = approx_js_import_use_ratio(context, issues)
+            if issues:
+                return self.not_applicable("JavaScript import binding use is unavailable within the finite subset.", "; ".join(issues))
             if ratio is None:
                 return self.not_applicable("There are no JavaScript imports with explicit bindings.")
-            detail = f"usage_ratio={ratio:.3f}"
+            detail = f"usage_ratio={ratio:.3f}; bounded executable identifier reads, excluding import declarations and member/property names"
         score = high_ratio_score(float(ratio), float(self.threshold("ai_low", 0.80)), float(self.threshold("ai_high", 1.00)))
-        explanation = "The fraction of explicit import binding occurrences with an associated static read is quality feedback, not proof that an import executes." if lang == "python" else "Using nearly all imported symbols suggests a tidier draft with less experimental residue."
+        explanation = "The fraction of explicit import binding occurrences with an associated static read is quality feedback, not proof that an import executes." if lang == "python" else "Static binding reads are lexical quality feedback. Module loading, reachability and general shadow resolution are not established."
         return self.result(ratio, score, explanation, detail)
 
 
@@ -5300,18 +5666,23 @@ class JavaScriptModernSyntaxMetric(BaseMetric):
     references = [REFERENCE_LIBRARY["rahman_detection"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
-        modern = 0
-        modern += len(re.findall(r"=>", code))
-        modern += len(re.findall(r"\b(?:const|let)\b", code))
-        modern += len(re.findall(r"`[^`]*\$\{", code))
-        modern += len(re.findall(r"(?:const|let|var)\s*[{[]", code))
-        modern += len(re.findall(r"\.\.\.", code))
-        modern += len(re.findall(r"\?\.|\?\?", code))
-        legacy = len(re.findall(r"\bvar\b", code)) + 1
+        text = context.cleaned_code
+        words = []
+        previous_end = 0
+        for word, start, end in _js_identifier_spans(text):
+            if not text[previous_end:start].rstrip().endswith("."):
+                words.append((word, end))
+            previous_end = end
+        modern = len(re.findall(r"=>|\.\.\.|\?\.|\?\?", text))
+        modern += sum(word in {"const", "let"} for word, _ in words)
+        modern += int(context.script_observations.get("interpolated_templates", 0))
+        destructuring = re.compile(r"\s*[{[]")
+        modern += sum(word in {"const", "let", "var"} and bool(destructuring.match(text, end)) for word, end in words)
+        legacy = sum(word == "var" for word, _ in words) + 1
         ratio = safe_div(modern, modern + legacy)
         score = high_ratio_score(ratio, float(self.threshold("ai_low", 0.55)), float(self.threshold("ai_high", 0.92)))
         detail = f"modern={modern}, legacy={legacy - 1}, ratio={ratio:.3f}"
-        return self.result(ratio, score, "Current generators almost always prefer modern JavaScript syntax.", detail)
+        return self.result(ratio, score, "Executable syntax markers and one marker per interpolated template describe JavaScript style; literal and comment text are excluded.", detail)
 
 
 @MetricRegistry.register
@@ -5322,14 +5693,14 @@ class BashQuotingConsistencyMetric(BaseMetric):
     references = [REFERENCE_LIBRARY["pep8"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
-        refs = re.findall(r"\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[^}]+\})", code)
-        if len(refs) < 5:
+        refs = int(context.script_observations.get("bash_references", 0))
+        if refs < 5:
             return self.not_applicable("Too few variable references for a stable quoting estimate.")
-        quoted = len(re.findall(r'"[^"\n]*\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[^}]+\})[^"\n]*"', code))
-        ratio = safe_div(quoted, len(refs))
+        quoted = int(context.script_observations.get("bash_double_quoted", 0))
+        ratio = safe_div(quoted, refs)
         score = high_ratio_score(ratio, float(self.threshold("ai_low", 0.55)), float(self.threshold("ai_high", 0.98)))
-        detail = f"references={len(refs)}, double_quoted={quoted}, ratio={ratio:.3f}"
-        return self.result(ratio, score, "Generated shell scripts often quote variables more consistently to avoid expansion surprises.", detail)
+        detail = f"references={refs}, double_quoted={quoted}, ratio={ratio:.3f}"
+        return self.result(ratio, score, "The share of eligible simple/braced parameter expansions inside double quotes is shell-quality context; inert dollars and heredoc payload are excluded.", detail)
 
 
 @MetricRegistry.register
@@ -5340,9 +5711,11 @@ class ImportOrganizationMetric(BaseMetric):
     references = [REFERENCE_LIBRARY["pep8"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
+        if context.ast_tree is None:
+            return self.not_applicable("Python import organisation requires a successful AST parse.")
         outcome = import_organisation_score(context)
         if outcome is None:
-            return self.not_applicable("Too few Python imports for organisation analysis.")
+            return self.not_applicable("At least two module-level Python import statements are required for organisation analysis.")
         ratio, detail = outcome
         score = high_ratio_score(ratio, float(self.threshold("ai_low", 0.50)), float(self.threshold("ai_high", 1.00)))
         return self.result(ratio, score, "Ordered and grouped imports are useful, but this remains a low-weight style signal.", detail)
@@ -5367,7 +5740,9 @@ def function_cohesion_ratio(context: AnalysisContext) -> Optional[float]:
 
 def magic_number_absence_score(context: AnalysisContext) -> float:
     line_count = max(len(context.code_lines), 1)
-    numbers = RE_NUMBER.findall(context.cleaned_code)
+    numbers, issues = _context_numeric_literals(context)
+    if issues:
+        raise ValueError("Numeric literal feedback is unavailable: " + "; ".join(issues))
     whitelist = {"0", "1", "2", "-1", "+1", "0.0", "1.0", "0x0"}
     magic = [item for item in numbers if item not in whitelist]
     density = safe_div(len(magic), line_count / 20.0)
@@ -5409,6 +5784,7 @@ class RegisterPressureMetric(BaseMetric):
     contributes_to_overall = False
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
+        low, moderate = register_pressure_anchors(self._config)
         if not context.functions:
             return self.not_applicable("No C or C++ functions were recognised.")
         ratios: List[float] = []
@@ -5422,13 +5798,14 @@ class RegisterPressureMetric(BaseMetric):
                 flagged.append(function.name)
         mean_ratio = statistics.mean(ratios) if ratios else 0.0
         max_ratio = max(ratios) if ratios else 0.0
-        quality_score = 1.0
-        if max_ratio >= float(self.threshold("moderate", 0.85)):
-            quality_score = low_value_score(max_ratio, float(self.threshold("moderate", 0.85)), 1.25)
+        if max_ratio <= low:
+            quality_score = 1.0
+        elif max_ratio <= moderate:
+            quality_score = 1.0 - 0.5 * (max_ratio - low) / (moderate - low)
         else:
-            quality_score = high_ratio_score(1.0 - max_ratio, 1.0 - float(self.threshold("moderate", 0.85)), 1.0 - float(self.threshold("low", 0.50)))
+            quality_score = max(0.0, 0.5 * (1.25 - max_ratio) / (1.25 - moderate))
         detail = f"mean_ratio={mean_ratio:.3f}, max_ratio={max_ratio:.3f}, peak_live={max(peaks) if peaks else 0}, flagged={flagged[:5]}"
-        return self.result(max_ratio, quality_score, "Lower estimated pressure indicates cleaner local allocation and less likelihood of register spilling.", detail)
+        return self.result(max_ratio, quality_score, "Quality decreases continuously as the source-level live-scalar pressure proxy rises; this is not a hardware register or spill measurement.", detail)
 
 
 @MetricRegistry.register
@@ -5500,6 +5877,9 @@ class CodeEleganceMetric(BaseMetric):
     contributes_to_overall = False
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
+        _, issues = _context_numeric_literals(context)
+        if issues:
+            return self.not_applicable("The elegance composite requires available numeric literal feedback.", "; ".join(issues))
         identifiers = [item for item in context.identifiers if item]
         if len(identifiers) < 5:
             return self.not_applicable("Too few identifiers for the elegance composite.")
@@ -6584,7 +6964,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             hint = None
         report = engine.analyse(candidate.text, path, language_hint=hint, profile=profile)
         warnings.extend(f"{path}: {warning}" for warning in report.warnings
-                        if warning.startswith(("Tokenizer warning:", "AST warning:", "C-family scope:", "C-family extraction warning:", "C-family declaration warning:", "JavaScript scope:", "JavaScript warning:", "Bash scope:", "Bash warning:", "Markdown scope:"))
+                        if warning.startswith(("Tokenizer warning:", "AST warning:", "C-family scope:", "C-family extraction warning:", "C-family declaration warning:", "JavaScript scope:", "JavaScript warning:", "Bash scope:", "Bash warning:", "Bash nesting warning:", "Markdown scope:", "Numeric literal warning:"))
                         or warning == "The language could not be detected with strong confidence.")
         report.intake_provenance = candidate.intake_provenance
         for warning in candidate.intake_provenance.get("warnings", []):
@@ -6611,6 +6991,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     notes = [
         "Project mode analyses a set of source files and excludes common non-student, generated, dependency, binary and documentation artefacts by default.",
+        INACTIVE_THRESHOLD_NOTE,
         "The project AI-style concern score is a SLOC-weighted aggregate with a per-file cap, so one large file cannot dominate the whole report.",
         "A project aggregate is still a heuristic review signal, not evidence of misconduct or a certificate of human authorship.",
         f"Input source: {source}; candidate files received after path normalisation: {len(candidates)}; files analysed: {len(included_reports)}; score-contributing files: {contributing_count}.",
@@ -6790,6 +7171,10 @@ def format_project_report_text(report: Dict[str, Any]) -> str:
                 f"- {item.get('filename')}: {LANGUAGE_LABELS.get(item.get('language'), item.get('language'))}, "
                 f"SLOC {item.get('sloc')}, score {score_text}, {item.get('verdict')}"
             )
+            for metric in item.get("metrics", []):
+                if metric.get("name") == "cyclomatic_complexity":
+                    lines.append(f"  Cyclomatic complexity: value={metric.get('value_display', 'N/A')}; "
+                                 + (metric.get("detail") or metric.get("explanation", "")))
     else:
         lines.append("- No analysable source files were included.")
 
@@ -6825,6 +7210,7 @@ class AnalysisEngine:
     """Run all enabled metrics on a shared analysis context."""
 
     def __init__(self, config: Dict[str, Dict[str, Any]], calibration_profile: Any = None, engine_fingerprint: Any = None, *, require_python_ast: bool = False, require_c_family_features: bool = False, require_script_features: bool = False) -> None:
+        register_pressure_anchors(config)
         self.config = config
         self.calibration_profile = normalise_calibration_profile(calibration_profile)
         self.review_policy = self.calibration_profile.get("review_policy")
@@ -6852,7 +7238,8 @@ class AnalysisEngine:
                 not context.c_family_lexically_safe or context.c_family_function_issues or context.c_family_declaration_issues):
             raise ValueError("Calibrated C-family analysis requires available lexical, function and declaration features within the bounded subset.")
         if self.require_script_features and context.language in {"javascript", "bash"} and (
-                not context.script_lexically_safe or context.script_feature_issues or context.script_function_issues):
+                not context.script_lexically_safe or context.script_feature_issues or context.script_function_issues
+                or context.script_observations.get("bash_nesting_issues")):
             raise ValueError("Calibrated JavaScript/Bash analysis requires available lexical and function features within the bounded subset.")
         active_review_policy = self._review_policy_for_language(context.language)
         metrics: List[MetricResult] = []
@@ -6940,6 +7327,7 @@ class AnalysisEngine:
         duration = time.perf_counter() - start
         notes = [
             f"Detected language: {LANGUAGE_LABELS.get(context.language, context.language)}.",
+            INACTIVE_THRESHOLD_NOTE,
             f"Total lines: {context.loc}; non-blank lines: {context.sloc}; comment lines: {len(context.comment_lines)}.",
             f"Applicable metrics: {len([m for m in metrics if m.applicable])} of {len(metrics)}; profile: {profile}.",
             "The result is a heuristic concern signal and should be read alongside oral examination, version history and assignment context.",
@@ -7046,6 +7434,7 @@ def report_to_dict(report: AnalysisReport) -> Dict[str, Any]:
                 "references": item.references,
                 "group": item.group,
                 "contributes_to_overall": item.contributes_to_overall,
+                **({"method": item.method, "unit": item.unit, "domain": item.domain} if item.method else {}),
             }
             for item in report.metrics
         ],

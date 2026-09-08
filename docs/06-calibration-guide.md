@@ -144,3 +144,41 @@ with `operational: false`; application refuses them. Held-out evaluation reports
 its own target result without influencing selection. Operational status is not
 scientific validation or authorisation for high-stakes use. See
 `docs/22-contract-reconciliation.md` for the precise compatibility boundary.
+
+## Inactive thresholds and replay identity
+
+Four retained threshold keys are deprecated because their values have no formula
+consumer: `identifier_style.thresholds.ai_low`,
+`identifier_style.thresholds.ai_high`,
+`line_length_uniformity.thresholds.ai_high` and
+`halstead_difficulty.thresholds.mi_high`. Existing valid overrides are still
+accepted; Boolean, non-finite or structurally invalid values remain refused.
+They do not become active tuning parameters merely because a manifest or profile
+contains them.
+
+Reports expose their abbreviated dotted names in
+`tool_metadata.inactive_thresholds` and explain them in file/project notes and
+text. These descriptions are outside the effective configuration. The digest
+continues to include the retained threshold values: changing only an inactive
+value leaves metric values and scores unchanged but changes configuration
+identity. Applying that changed configuration to a profile bound to the previous
+digest is refused. A digest match is a replay requirement, not proof that every
+parameter influences a formula or that the profile is authentic.
+
+Manifest overrides, or the replacement `--config`, must be fixed before sample
+scoring. Generated profiles retain those validated overrides and bind their
+effective configuration with the loaded engine and base mode. Omitting a
+deprecated key from one override leaves the value from the remaining
+configuration layers; it does not remove that key from the digested
+configuration. Do not edit profile
+identity fields to bypass a mismatch.
+
+An engine change requires scoring the original curated samples again with the
+declared grouping and fit/evaluation design, then reviewing the resulting
+profile. This remains true for corrected identifier LTTR, register-pressure
+normalisation or additional measurement metadata: the loaded engine identity
+has changed. Synthetic boundary fixtures establish software behaviour only;
+they are not a fitted corpus, new empirical evaluation or proof of improved
+authorship detection. Metric units, finite extraction boundaries and the
+declared pressure anchors are described in the
+[report schema notes](03-report-schema.md#metric-values-and-measurement-scope).

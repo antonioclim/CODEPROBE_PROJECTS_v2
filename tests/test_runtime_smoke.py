@@ -1015,5 +1015,177 @@ class LanguageDetectionContractTests(unittest.TestCase):
                 self.assertEqual(engine.detect_language("sample.txt", source), language)
 
 
+
+class MetricExtractionContractTests(unittest.TestCase):
+    """Finite source fixtures are analysed as text and never executed."""
+
+    def check_metric(self, source, filename, name, expected, details):
+        bundle = json.loads(engine.codeprobe_analyze(json.dumps({"code": source, "filename": filename})))
+        result = next(item for item in bundle["report"]["metrics"] if item["name"] == name)
+        for key, value in expected.items():
+            if isinstance(value, float):
+                self.assertAlmostEqual(result[key], round(value, 4) if key == "score" else value, places=9)
+            else:
+                self.assertEqual(result[key], value)
+        for key, value in details.items():
+            self.assertRegex(result["detail"], rf"(?:^|[,;] ){key}={value}(?:[,; ]|$)")
+        self.assertIn(result["display_name"], bundle["text"])
+        if not expected["applicable"]:
+            self.assertTrue(result["explanation"])
+
+    def test_numeric_literals_exclude_identifier_digits_and_inert_text(self):
+        cases = (
+            ('value123 = 0\n', 'fixture.py', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('item_2026 = 0\n', 'fixture.py', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('value = 42\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\n', 'fixture.py', 'magic_numbers', {'value': 1.0, 'applicable': True, 'score': 0.36363636363636365}, {'numbers': 1, 'magic_candidates': 1}),
+            ("# 123 456\nlabel = '789 42'\nvalue = 0\n", 'fixture.py', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('value = 3.5\n', 'fixture.py', 'magic_numbers', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'numbers': 1, 'magic_candidates': 1}),
+            ('value = 3e2\n', 'fixture.py', 'magic_numbers', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'numbers': 1, 'magic_candidates': 1}),
+            ('value = 0x2A\n', 'fixture.py', 'magic_numbers', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'numbers': 1, 'magic_candidates': 1}),
+            ('value = 1_000\n', 'fixture.py', 'magic_numbers', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'numbers': 1, 'magic_candidates': 1}),
+            ('const value123 = 0;\nconst text = "42";\n// 99\n', 'fixture.js', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('int value123 = 0;\nconst char *text = "42";\n// 99\n', 'fixture.c', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('int value123 = 0;\nconst char *text = "42";\n// 99\n', 'fixture.cpp', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('class Sample { int value123 = 0; string text = "42"; }\n', 'fixture.cs', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ("value123=0\nprintf '%s' '42'\n# 99\n", 'fixture.sh', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_unsupported_numeric_forms_remain_unavailable(self):
+        cases = (
+            ('value = 3j\n', 'fixture.py', 'magic_numbers', {'value': None, 'applicable': False}, {}),
+            ('int value = 123abc;\n', 'fixture.c', 'magic_numbers', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_main_guards_require_module_ast_and_keep_separate_wrapper_channels(self):
+        cases = (
+            ('label = \'if __name__ == "__main__"\'\n', 'fixture.py', 'boilerplate_presence', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'indicators': '0/5'}),
+            ('# if __name__ == "__main__":\nvalue = 0\n', 'fixture.py', 'boilerplate_presence', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'indicators': '0/5'}),
+            ('if __name__ == "__main__":\n    pass\n', 'fixture.py', 'boilerplate_presence', {'value': 0.2, 'applicable': True, 'score': 0.0}, {'indicators': '1/5'}),
+            ('if "__main__" == __name__:\n    pass\n', 'fixture.py', 'boilerplate_presence', {'value': 0.2, 'applicable': True, 'score': 0.0}, {'indicators': '1/5'}),
+            ('def work():\n    if __name__ == "__main__":\n        pass\n', 'fixture.py', 'boilerplate_presence', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'indicators': '0/5'}),
+            ('from __future__ import annotations\nif __name__ == "__main__":\n    pass\n', 'fixture.py', 'boilerplate_presence', {'value': 0.4, 'applicable': True, 'score': 0.3333333333333333}, {'indicators': '2/5'}),
+            ('"""Module documentation."""\nvalue = 0\n', 'fixture.py', 'boilerplate_presence', {'value': 0.2, 'applicable': True, 'score': 0.0}, {'indicators': '1/5'}),
+            ('#!/usr/bin/env python3\nvalue = 0\n', 'fixture.py', 'boilerplate_presence', {'value': 0.2, 'applicable': True, 'score': 0.0}, {'indicators': '1/5'}),
+            ('if __name__ == "__main__"\n    pass\n', 'fixture.py', 'boilerplate_presence', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_defensive_cues_use_ast_nodes_and_actual_none_constants(self):
+        cases = (
+            ('# if not ready\nvalue = 1\n', 'fixture.py', 'defensive_programming', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'guards': 0}),
+            ('label = "if not ready"\nvalue = 1\n', 'fixture.py', 'defensive_programming', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'guards': 0}),
+            ('if not ready:\n    pass\n', 'fixture.py', 'defensive_programming', {'value': 10.0, 'applicable': True, 'score': 0.0}, {'guards': 1}),
+            ('if not all(items):\n    pass\n', 'fixture.py', 'defensive_programming', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'guards': 2}),
+            ('value = len(items)\n', 'fixture.py', 'defensive_programming', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'guards': 1}),
+            ('if value is None:\n    pass\n', 'fixture.py', 'defensive_programming', {'value': 10.0, 'applicable': True, 'score': 0.0}, {'guards': 1}),
+            ('if value == "None":\n    pass\n', 'fixture.py', 'defensive_programming', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'guards': 0}),
+            ('if not ready\n    pass\n', 'fixture.py', 'defensive_programming', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_bash_nesting_counts_blocks_and_refuses_mismatched_terminators(self):
+        cases = (
+            ('if true; then\n  :\nfi\n', 'fixture.sh', 'nesting_depth', {'value': 1.0, 'applicable': True, 'score': 0.15}, {}),
+            ('if true\nthen\n  :\nfi\n', 'fixture.sh', 'nesting_depth', {'value': 1.0, 'applicable': True, 'score': 0.15}, {}),
+            ('if true\nthen\n while true\n do\n  :\n done\nfi\n', 'fixture.sh', 'nesting_depth', {'value': 2.0, 'applicable': True, 'score': 1.0}, {}),
+            ('if true; then\n :\nfi\nif true; then\n :\nfi\n', 'fixture.sh', 'nesting_depth', {'value': 1.0, 'applicable': True, 'score': 0.15}, {}),
+            ("# then do\nprintf '%s' 'then do'\ncat <<'EOF'\nthen\ndo\nEOF\n", 'fixture.sh', 'nesting_depth', {'value': 0.0, 'applicable': True, 'score': 0.15}, {}),
+            ('if true; then\n :\ndone\n', 'fixture.sh', 'nesting_depth', {'value': None, 'applicable': False}, {}),
+            ('while true; do\n :\n', 'fixture.sh', 'nesting_depth', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_lttr_uses_log_types_and_retains_the_twenty_token_minimum(self):
+        cases = (
+            ('', 'fixture.py', 'type_token_ratio', {'value': None, 'applicable': False, 'score': 0.0}, {}),
+            ('a\n', 'fixture.py', 'type_token_ratio', {'value': None, 'applicable': False, 'score': 0.0}, {}),
+            ('a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a\n', 'fixture.py', 'type_token_ratio', {'value': None, 'applicable': False, 'score': 0.0}, {}),
+            ('a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a\n', 'fixture.py', 'type_token_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ('a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e\n', 'fixture.py', 'type_token_ratio', {'value': 0.5, 'applicable': True, 'score': 0.0}, {}),
+            ('name0 + name1 + name2 + name3 + name4 + name5 + name6 + name7 + name8 + name9 + name10 + name11 + name12 + name13 + name14 + name15 + name16 + name17 + name18 + name19\n', 'fixture.py', 'type_token_ratio', {'value': 1.0, 'applicable': True}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_bash_quoting_counts_each_eligible_expansion(self):
+        cases = (
+            ('printf "%s" "$a" "$b" "$c" "$d" "$e"', 'fixture.sh', 'bash_quoting_consistency', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'references': 5, 'double_quoted': 5}),
+            ('printf "%s" "$a $b $c $d $e"', 'fixture.sh', 'bash_quoting_consistency', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'references': 5, 'double_quoted': 5}),
+            ('printf "%s" "$a $b $c $d" $e $f\n', 'fixture.sh', 'bash_quoting_consistency', {'value': 0.6666666666666666, 'applicable': True, 'score': 0.2713178294573643}, {'references': 6, 'double_quoted': 4}),
+            ('printf "%s" "${a} ${b} ${c} ${d} ${e}"\n', 'fixture.sh', 'bash_quoting_consistency', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'references': 5, 'double_quoted': 5}),
+            ("printf '%s' '$a $b $c $d $e'\n# $a $b $c $d $e\nprintf '%s' \\$a \\$b \\$c \\$d \\$e\n", 'fixture.sh', 'bash_quoting_consistency', {'value': None, 'applicable': False}, {}),
+            ('printf "%s" "$a $b $c $d"\n', 'fixture.sh', 'bash_quoting_consistency', {'value': None, 'applicable': False}, {}),
+            ("printf '%s' 'ordinary text'\n", 'fixture.sh', 'bash_quoting_consistency', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_python_import_position_excludes_local_and_inert_imports(self):
+        cases = (
+            ('import os\n\nimport sys\nvalue = 1', 'fixture.py', 'import_organization', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'top_aligned': True, 'sorted': True, 'grouped': True, 'imports': 2}),
+            ('value = 1\nimport sys\nimport os', 'fixture.py', 'import_organization', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'top_aligned': False, 'sorted': False, 'grouped': False, 'imports': 2}),
+            ('"""Module notes."""\nfrom __future__ import annotations\n\nimport os\n\nimport sys\nvalue = 1\n', 'fixture.py', 'import_organization', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'top_aligned': True, 'sorted': True, 'grouped': True, 'imports': 3}),
+            ('def work():\n    import os\n    import sys\n    return os, sys\n', 'fixture.py', 'import_organization', {'value': None, 'applicable': False}, {}),
+            ('label = "import os\\nimport sys"\n', 'fixture.py', 'import_organization', {'value': None, 'applicable': False}, {}),
+            ('import os\nimport sys\nvalue = 1\n', 'fixture.py', 'import_organization', {'value': 0.6666666666666666, 'applicable': True, 'score': 0.3333333333333333}, {'top_aligned': True, 'sorted': True, 'grouped': False, 'imports': 2}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_register_pressure_quality_decreases_across_the_old_discontinuity(self):
+        cases = (
+            ('int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5;\n}', 'fixture.c', 'register_pressure', {'value': 0.46153846153846156, 'applicable': True, 'score': 1.0}, {'peak_live': 6}),
+            ('int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nint item_6 = 0;\nint item_7 = 0;\nint item_8 = 0;\nint item_9 = 0;\nint item_10 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10;\n}', 'fixture.c', 'register_pressure', {'value': 0.8461538461538461, 'applicable': True, 'score': 0.5054945054945055}, {'peak_live': 11}),
+            ('int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nint item_6 = 0;\nint item_7 = 0;\nint item_8 = 0;\nint item_9 = 0;\nint item_10 = 0;\nint item_11 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10 + item_11;\n}', 'fixture.c', 'register_pressure', {'value': 0.9230769230769231, 'applicable': True, 'score': 0.40865384615384615}, {'peak_live': 12}),
+            ('int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nint item_6 = 0;\nint item_7 = 0;\nint item_8 = 0;\nint item_9 = 0;\nint item_10 = 0;\nint item_11 = 0;\nint item_12 = 0;\nint item_13 = 0;\nint item_14 = 0;\nint item_15 = 0;\nint item_16 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10 + item_11 + item_12 + item_13 + item_14 + item_15 + item_16;\n}', 'fixture.c', 'register_pressure', {'value': 1.3076923076923077, 'applicable': True, 'score': 0.0}, {'peak_live': 17}),
+            ('int value;\n', 'fixture.c', 'register_pressure', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_preprocessor_guards_require_active_matching_outer_directives(self):
+        cases = (
+            ('/*\n#ifndef FAKE\n#define FAKE\n*/\nint value;\n', 'fixture.h', 'preprocessor_hygiene', {'value': 0.75, 'applicable': True, 'score': 0.75}, {'has_guard': False}),
+            ('#ifndef HEADER\n#define HEADER\nint value;\n#endif\n', 'fixture.h', 'preprocessor_hygiene', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'has_guard': True}),
+            ('#pragma once\nint value;\n', 'fixture.h', 'preprocessor_hygiene', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'has_guard': True}),
+            ('#ifndef HEADER\n#define OTHER\nint value;\n#endif\n', 'fixture.h', 'preprocessor_hygiene', {'value': 0.75, 'applicable': True, 'score': 0.75}, {'has_guard': False}),
+            ('#ifndef HEADER\n#define HEADER\nint value;\n', 'fixture.h', 'preprocessor_hygiene', {'value': 0.75, 'applicable': True, 'score': 0.75}, {'has_guard': False, 'conditional_depth': 1}),
+            ('#ifndef HEADER\n#define HEADER\n#if CONDITION\nint value;\n#endif\n', 'fixture.h', 'preprocessor_hygiene', {'value': 0.6875, 'applicable': True, 'score': 0.6875}, {'has_guard': False, 'conditional_depth': 2}),
+            ('#ifn\\\ndef HEADER\n#define HEADER\nint value;\n#endif\n', 'fixture.h', 'preprocessor_hygiene', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'has_guard': True}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+
+    def test_active_directive_splicing_does_not_admit_code_token_splicing(self):
+        # Exact I08 cpp-code-token-splice source and its retained refusal boundary.
+        source = "int fo\\\no() { return 1; }\n"
+        context = engine.build_analysis_context(source, "cpp-code-token-splice.cpp", "cpp")
+        self.assertEqual(context.functions, [])
+        self.assertEqual(len(context.cleaned_code), len(source))
+        self.assertEqual([i for i, char in enumerate(context.cleaned_code) if char == "\n"],
+                         [i for i, char in enumerate(source) if char == "\n"])
+        for name in ("magic_numbers", "cyclomatic_complexity", "preprocessor_hygiene"):
+            self.check_metric(source, "cpp-code-token-splice.cpp", name,
+                              {"value": None, "applicable": False}, {})
+
+
 if __name__ == "__main__":
     unittest.main()

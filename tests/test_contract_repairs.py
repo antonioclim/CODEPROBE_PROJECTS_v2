@@ -611,5 +611,65 @@ class PublicationOverlapTests(unittest.TestCase):
         self.assertIn("input-contracts:", completed.stdout)
 
 
+class MetricConfigurationMeaningTests(unittest.TestCase):
+    def test_inactive_thresholds_remain_accepted_and_digest_affecting(self):
+        changes = (("identifier_style", "ai_low", .33),
+                   ("identifier_style", "ai_high", .77),
+                   ("line_length_uniformity", "ai_high", .61),
+                   ("halstead_difficulty", "mi_high", 72.0))
+        original = engine.merged_metric_config("strict")
+        digest = engine.metric_config_digest(original)
+        self.assertEqual(digest, "855f2d2146821cb5393ded507205a29f5469b4390ddaafc70044fbfbf94743e7")
+        digests = {digest}
+        for metric, key, value in changes:
+            with self.subTest(metric=metric, key=key):
+                changed = engine.merged_metric_config("strict", {metric: {"thresholds": {key: value}}})
+                self.assertEqual(changed[metric]["thresholds"][key], value)
+                digests.add(engine.metric_config_digest(changed))
+        self.assertEqual(len(digests), 5)
+
+    def test_inactive_threshold_meaning_reaches_file_and_project_metadata_and_text(self):
+        expected = ["identifier_style.ai_low", "identifier_style.ai_high",
+                    "line_length_uniformity.ai_high", "halstead_difficulty.mi_high"]
+        code = "def first():\n    return 0\n\ndef second(a, b):\n    if a:\n        return 1\n    if b:\n        return 2\n    return 0\n" + "total = second(first(), first())\n" * 20
+        override = {"identifier_style": {"thresholds": {"ai_low": .33, "ai_high": .77}},
+                    "line_length_uniformity": {"thresholds": {"ai_high": .61}},
+                    "halstead_difficulty": {"thresholds": {"mi_high": 72.0}}}
+        for operation, payload, project in ((engine.codeprobe_analyze, {"code": code, "filename": "owned.py"}, False),
+                                            (engine.codeprobe_analyze_project, {"files": [{"path": "owned.py", "content": code}]}, True)):
+            baseline = json.loads(operation(json.dumps(payload)))
+            changed = json.loads(operation(json.dumps({**payload, "config_override": override})))
+            self.assertNotEqual(baseline["report"]["metric_config_digest"], changed["report"]["metric_config_digest"])
+            before_report = baseline["report"]["files"][0] if project else baseline["report"]
+            after_report = changed["report"]["files"][0] if project else changed["report"]
+            before, after = before_report["metrics"], after_report["metrics"]
+            self.assertTrue(before)
+            self.assertTrue(after)
+            fields = ("name", "value", "score", "applicable", "group", "contributes_to_overall")
+            self.assertEqual([tuple(m[key] for key in fields) for m in before],
+                             [tuple(m[key] for key in fields) for m in after])
+            for key in ("decision_score", "overall_applicable"):
+                self.assertEqual(baseline["report"][key], changed["report"][key])
+            for bundle in (baseline, changed):
+                report = bundle["report"]
+                self.assertEqual(report["tool_metadata"]["inactive_thresholds"], expected)
+                note = " ".join(report["notes"])
+                self.assertIn("inactive", note.lower())
+                self.assertIn("digest", note.lower())
+                for key in expected:
+                    self.assertIn(key, note)
+                for item in report["notes"]:
+                    self.assertIn(item, bundle["text"])
+
+    def test_register_pressure_anchor_configuration_requires_strict_finite_order(self):
+        for low, moderate in ((.5, .5), (.9, .8), (-.1, .85), (.5, 1.25), (.5, 1.3),
+                              (float("nan"), .85), (.5, float("inf"))):
+            with self.subTest(low=low, moderate=moderate), self.assertRaises(ValueError):
+                engine.merged_metric_config("default", {"register_pressure": {"thresholds": {"low": low, "moderate": moderate}}})
+        changed = engine.merged_metric_config("default", {"register_pressure": {"thresholds": {"low": .25, "moderate": .75}}})
+        self.assertEqual(changed["register_pressure"]["thresholds"]["low"], .25)
+        self.assertEqual(changed["register_pressure"]["thresholds"]["moderate"], .75)
+
+
 if __name__ == "__main__":
     unittest.main()

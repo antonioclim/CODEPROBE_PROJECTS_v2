@@ -165,6 +165,7 @@ jobs:
         run: |
           python -I -S -B -m unittest discover -s tests -p test_project_mode.py -v
           python -I -S -B -m unittest discover -s tests -p test_runtime_smoke.py -v
+          python -I -S -B -m unittest discover -s tests -p test_contract_repairs.py -v
           python -I -S -B -m unittest discover -s tests -p test_javascript_parser.py -v
           python -I -S -B -m unittest discover -s tests -p test_false_positive_controls.py -v
           python -I -S -B tests/test_release_recovery.py BoundedRecoveryReaderTests -v

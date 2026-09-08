@@ -87,6 +87,101 @@ The project aggregate is only as meaningful as its inclusion/exclusion record. I
 | `tool_metadata` | version, schema and methodological labels | No |
 | `engine_metadata` | compatibility alias for tool/engine metadata | No |
 
+## Metric values and measurement scope
+
+A metric's `value` is its raw observation; `score` is the existing normalised
+policy value, rounded in JSON. Read both with `applicable`, `group`,
+`contributes_to_overall`, `detail` and `explanation`. A quality score has the
+direction declared by that metric and is not an authorship probability.
+Unavailable observations retain `applicable: false` and their reason; they are
+not measured zeros.
+
+Applicable `cyclomatic_complexity` results add three string fields:
+
+| `method` | `unit` | `domain` |
+|---|---|---|
+| `python_ast_function_mean` | `decisions_per_function` | `recognised_functions` |
+| `lexical_function_mean` | `decisions_per_function` | `recognised_functions` |
+| `lexical_branch_density` | `branches_per_20_code_lines` | `cleaned_file_code` |
+
+The first route is the mean of the scoped Python AST counts described below.
+The second is the mean of the finite lexical counts for extracted functions in
+other code families. Each underlying function count starts at one. The third
+is a fallback for non-Python code without extracted functions: counted branch
+cues divided by code-line count, multiplied by 20. It is a density, not a
+per-function McCabe complexity. The fallback uses at least one line as its
+denominator. Python without parsable functions remains unavailable.
+
+For example, function counts 1 and 3 have mean 2 decisions/function; two branch
+cues in ten code lines have density 4 branches/20 code lines. These examples do
+not make the units interchangeable. Existing raw values and score normalisation
+are retained; adding labels alone does not change a score. `value_display` now
+includes `decisions/function` or `branches/20 code lines`, so consumers needing
+a number should use `value`. `detail` identifies the method, unit and domain. File
+JSON/text and project member JSON retain the descriptions; project text includes
+each member's applicable cyclomatic observation. Browser displays and exports
+consume these same display/detail fields.
+
+The three fields are optional: unrelated and unavailable metric JSON objects
+omit them. Internal `MetricResult` defaults them to empty strings. An unavailable
+result does not certify a method merely because a language was detected.
+Schema versions remain `2.2.0` and `2.2.0-project`.
+
+### Inactive configuration thresholds
+
+`tool_metadata.inactive_thresholds` lists these retained, deprecated keys:
+
+| Dotted metadata name | Formula status |
+|---|---|
+| `identifier_style.ai_low` | Inactive; identifier style retains its existing fixed component constants. |
+| `identifier_style.ai_high` | Inactive; identifier style retains its existing fixed component constants. |
+| `line_length_uniformity.ai_high` | Inactive; the formula consumes `ai_low` and `human_high`. |
+| `halstead_difficulty.mi_high` | Inactive; the formula consumes `ai_low` and `ai_high`. |
+
+The names abbreviate each metric's `thresholds` object. File and project
+`notes`, also rendered in text, explain that these values remain in the
+configuration and its digest but do not affect their formulas. This is a note,
+not a warning that changes the confidence calculation. Accepted finite numeric
+overrides remain compatible; invalid structures, Boolean and non-finite values
+remain refused. This list does not claim that arbitrary caller-defined threshold
+names have formula consumers.
+
+Changing an inactive value therefore leaves computed metric values/scores
+unchanged but changes `metric_config_digest`. That digest identifies the complete
+effective configuration, not an equivalence class of scoring formulas. A bound
+profile with the former digest is refused even when this particular change
+would leave its score unchanged. Deprecation metadata is outside the digested
+configuration. See the [calibration guide](06-calibration-guide.md) for replay
+and refitting requirements.
+
+### Identifier LTTR and register-pressure quality
+
+`type_token_ratio` reports identifier LTTR as `log(V) / log(N)`, where `N` is the
+number of non-empty identifier occurrences and `V` is the number of distinct
+spellings among them. Using the same logarithm base in numerator and denominator
+gives the same ratio. The existing minimum is 20 occurrences: smaller inputs,
+including zero or one, are unavailable before logarithms are evaluated.
+At `N = 20, V = 1`, LTTR is exactly 0; at `N = 25, V = 5`, it is 0.5; and at
+`N = V = 20`, it is 1. Existing identifier extraction/spelling limits apply.
+This arithmetic does not establish length invariance, multilingual linguistic
+validity or a validated authorship threshold.
+
+For C/C++, `register_pressure.value` remains the maximum estimated per-function
+peak of simultaneously live scalar declarations divided by the fixed budget
+13. Its quality score is 1 at or below `low`, interpolates linearly to 0.5 at
+`moderate`, then linearly to 0 at 1.25, and stays 0 above that point. Thus higher
+estimated pressure never improves this quality score. Defaults remain
+`low = 0.50` and `moderate = 0.85`; effective overrides must be finite and satisfy
+`0 <= low < moderate < 1.25`. Equal, reversed or out-of-domain anchors are
+refused, including when the metric is called directly.
+
+These anchors are explicit heuristic policy. The source-level live ranges and
+fixed register budget do not measure compiler allocation, hardware registers or
+actual spills. Existing function/declaration availability rules remain; missing
+features do not establish zero pressure. This metric retains its quality role
+and does not contribute to the default concern aggregate. Neither corrected
+arithmetic nor continuous normalisation supplies empirical detector validation.
+
 ## Calibration fields
 
 When a calibration profile is supplied, reports record:
@@ -370,6 +465,144 @@ for the whole parser or browser. Invalid input remains diagnostic fallback;
 [the tokenizer documentation](https://docs.python.org/3/library/tokenize.html)
 does not promise stable tokenisation of syntactically invalid Python.
 
+## Finite metric extraction
+
+Numeric observations consume recognised literal boundaries, rather than digits
+inside identifiers such as `value123`. Generic-language extraction uses the
+masked executable view; Python uses numeric AST constant source spans, including
+numeric expressions within f-strings. Comments and literal text do not create
+numbers. Boolean/string constants are not numeric constants here, and unsupported
+numeric forms require unavailable dependent feedback with a diagnostic rather
+than a partial numeric match. Python without an AST cannot certify these numeric
+observations. Generic masked-language support is decimal/scientific notation
+(including `.5` and `3.`) and hexadecimal `0x`/`0X` forms, with admitted attached
+`+`/`-` spellings. Numeric suffixes, separators and binary/octal prefixes are
+outside that generic subset; a numeric-looking unsupported word is rejected
+whole. Python's AST supplies accepted real integer/float source spellings,
+including base prefixes and separators accepted by that interpreter; complex
+or imaginary constants are unavailable here. Each numeric AST source span must
+remain on one physical line. This is a finite lexical/AST subset, not expression
+evaluation.
+
+`Numeric literal warning:` records an unavailable numeric vocabulary. It makes
+`magic_numbers` and `code_elegance` unavailable; for generic code families it
+also makes `lexical_entropy` and `halstead_difficulty` unavailable because their
+operand vocabulary is affected. Python's latter two metrics retain their
+separate token-stream contract. This warning alone does not add a general
+calibration refusal; the existing AST, C-family and script-feature requirements
+still apply. File JSON/text retain the warning, and projects promote it with
+the member path into project warnings/text.
+
+`magic_numbers` retains its spelling-based exceptions `0`, `1`, `2`, `-1`, `+1`,
+`0.0`, `1.0` and `0x0`, and reports non-exempt candidates per 20 code lines.
+Equivalent numeric values with other spellings are not automatically exempt.
+Corrected token boundaries also feed numeric operands and the literal component
+of `code_elegance`; this can change dependent observations without changing the
+default metric roles or weights.
+
+For Python, `boilerplate_presence` recognises a main guard only as a direct
+module-body `if` with one equality comparison between `__name__` and the constant
+`'__main__'`, in either order. It contributes at most one indicator. Module
+future imports, an actual module docstring, a recognised first-line Python
+shebang and a coding comment in the first two lines remain separate indicators.
+An inert string resembling a main guard contributes none. Missing AST makes
+this Python metric unavailable.
+
+Python `defensive_programming` counts syntactic cues: `assert`, `raise`, the
+named calls `isinstance`, `issubclass`, `len`, `all` and `any`, comparisons with
+a direct `None` constant operand, and `if` tests whose outer node is `not`.
+Calls and `if` cues are separate occurrences. Text containing these words and a
+string containing `None` do not qualify. Missing AST makes the metric
+unavailable. These counts do not resolve called functions or prove defensive
+intent; for example, a `len` call can serve other purposes.
+
+Python `import_organization` inventories direct module-body import statements.
+One initial module docstring is skipped; imports are top-aligned only when all
+precede the first non-import statement. Initial future imports are legitimate
+members of that block. Local and conditional imports do not enter this module
+inventory. Existing sorting uses case-insensitive module-name order, while
+grouping concerns physical gaps between complete import statements. These
+components are separate from top alignment. Fewer than two module import
+statements, or a missing AST, makes this metric unavailable; it is not a complete
+import-style linter.
+
+For JavaScript, `used_import_ratio` recognises supported static default,
+named/aliased and namespace bindings and associates exact executable identifier
+reads outside their declarations. Comments, string/regex contents and longer
+lookalike names do not mark a binding used. Detected duplicate, rebound or shadowed
+bindings and unsupported binding forms require unavailable feedback with a
+qualification. Named imports use identifier spellings, and the module target
+must be a string literal. A binding clause through the module literal is bounded
+to 2,048 characters after the `import` keyword; unsupported attributes, comments
+between `from` and its module literal, or longer clauses are qualified. Dynamic
+`import()` and `import.meta` do not introduce static bindings here. Ordinary
+member/property names are excluded from binding reads. This is a finite binding
+analysis without module resolution,
+reachability analysis or arbitrary effects of called code.
+
+`javascript_modern_syntax` counts arrow `=>`, `const`/`let`, interpolated-template,
+declaration-destructuring, `...`, `?.` and `??` markers in masked executable code
+with exact identifier boundaries. These are marker occurrences, so one
+construction can contribute more than one family. Supported template interpolation expressions
+remain executable; literal template text is masked. Each template with at least
+one interpolation contributes one template marker, including a separately
+interpolated nested template. The raw ratio remains
+`modern / (modern + var_occurrences + 1)` with its existing normalisation.
+Inert arrows, keywords and interpolation-like text do not count.
+Dotted member names are excluded from the word markers. Bare object keys are
+not fully classified by syntactic role and can still contribute a `const`,
+`let` or `var` word marker; this is not complete declaration-role parsing.
+
+For Bash, `nesting_depth` tracks command-position control blocks: `then` and
+`do` continue their associated block rather than opening another level.
+`elif`/`else` remain in the same conditional; matching terminators unwind the
+stack, and command substitutions have separate validated block frames. Quoted
+words, escaped characters, comments and here-document payload cannot open a
+control block. Detected missing, misplaced or mismatched control tokens make the nesting
+observation unavailable. This is finite structural bookkeeping, not execution
+or a complete shell grammar.
+At most 32 control blocks can be active cumulatively across those frames.
+The first excess is diagnostic. `Bash nesting warning:` is retained in file
+JSON/text and promoted with the member path to project warnings/text. An applied
+bound profile or `require_script_features: true` refuses a detected nesting
+issue; ordinary unbound analysis retains the unavailable nesting observation.
+These promoted numeric/nesting warnings can affect the existing project
+confidence label, independently of a concern-score change.
+
+`bash_quoting_consistency` divides the number of eligible expansions in double
+quotes by the number of eligible expansions, counting each occurrence. Five
+eligible expansions in one double-quoted string therefore give 5/5, just as five
+separately quoted strings do; four quoted and two unquoted give 4/6. The subset
+includes simple `$name` and braced forms with an ASCII name
+`[A-Za-z_][A-Za-z0-9_]*`, an optional initial `#`, and an optional `#`, `##`, `%`
+or `%%` removal suffix whose literal pattern contains no dollar, brace,
+backtick or backslash. This recognises a finite spelling subset, without proving
+that every combination has meaningful shell semantics.
+Single-quoted text, escaped dollars, comments and here-document
+payload are excluded. A command substitution uses its own shell quote context.
+Positional/special parameters, arithmetic and complex expansions or backticks
+do not imply full shell support. Fewer than five eligible expansions remains
+unavailable, including a zero denominator.
+
+For C/C++, `preprocessor_hygiene` reads active directives from the masked view.
+Here, active means lexically outside comments/literals, not proven active after
+evaluating `#if` conditions: apparent directives inside `#if 0` are still lexical
+directives. Macro-generated directives and conditional truth are not resolved.
+Continued directive lines are joined, including code-token splicing within an
+already active directive. Ordinary code-token splicing remains outside the
+structural extraction subset. For header extensions `.h`, `.hpp`, `.hxx` and
+`.hh`, a guard needs an outer first active `#ifndef NAME`, the matching
+`#define NAME` as the next non-empty logical line and its corresponding final
+`#endif`; nested conditionals are tracked. Mismatched names and incomplete or
+misnested directives cannot establish that paired macro guard. An active unconditional
+`#pragma once` follows the same finite guard policy. Original include text is
+used for destination style only after an active include directive is found.
+Commented directives do not contribute. No preprocessor is executed, macro
+expanded or conditional expression evaluated, and this is not a complete
+preprocessing translation model.
+For other extensions the existing `has_guard: true` convention means that the
+header-guard requirement is waived; it is not a detected guard.
+
 ## JavaScript and Bash diagnostics
 
 The existing JSON envelope and schema versions are unchanged. JavaScript and
@@ -379,6 +612,7 @@ Bash reports use the following `warnings` prefixes:
 |---|---|
 | `JavaScript scope:` / `Bash scope:` | Describes the finite extraction subset. A scope note alone does not suppress metrics or refuse a calibrated request. |
 | `JavaScript warning:` / `Bash warning:` | A detected lexical, executable-feature or function-inventory issue, with a diagnostic code and physical start line. Read its explanation and metric applicability before interpreting a partial result. |
+| `Bash nesting warning:` | A detected control-block mismatch or excessive nesting. Unbound nesting is unavailable; strict/bound script analysis refuses it. |
 
 EOF errors also populate the existing internal `tokenizer_error` field. Internal
 context records `script_lexically_safe`, `script_feature_issues` and
@@ -429,6 +663,7 @@ statistical interval or an authorship probability.
 | JSX | Simple detected expression spans are qualified and masked, bounded to 65,536 physical characters. The enclosing function is a qualified omission; ordinary following functions can be recovered when boundaries are safe. Unknown, unterminated or excessive spans cannot establish a safe later inventory. |
 | JavaScript names | `$`, `_`, `Lu`, `Ll`, `Lt`, `Lm`, `Lo`, `Nl` initially; continuation adds `Mn`, `Mc`, `Nd`, `Pc`, ZWNJ and ZWJ. Source spelling is retained without normalisation or escape decoding. Unsupported forms are diagnosed. |
 | Bash command substitutions | Ordinary `$()` in code/double quotes retains child code through 16 active levels. Backticks, process substitutions, arithmetic and complex expansions are qualified. |
+| Bash control blocks | At most 32 active control blocks cumulatively across command contexts. Excess or detected mismatches make nesting unavailable and are refused by strict/bound script analysis. |
 | Bash parameter masking | At most 32 brace levels while masking parameter text. Nested/complex forms remain qualified within this budget; the limit is not executable-expression support. |
 | Bash functions | Brace-delimited `name()`, `function name` and `function name()` forms; names match `[A-Za-z_][A-Za-z0-9_]*`. Names and physical start/end lines are extraction metadata, not shell execution or binding validation. |
 | Bash here documents | At most 16 pending documents, 128 characters per quote-removed delimiter and 65,536 physical payload characters including newlines before the terminator. Quoted delimiters and `<<-` leading tabs are recognised. Apparent unquoted executable/complex payload expansions are conservatively qualified, including escaped apparent forms. |

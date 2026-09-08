@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -209,6 +210,55 @@ class JavaScriptLexicalContractTests(unittest.TestCase):
                 self.assertEqual([f.name for f in context.functions], ["boundary"] if width <= 2048 else [])
                 if width > 2048:
                     self.assertIn("JS_FUNCTION_HEADER_LIMIT", " ".join(context.notes))
+
+
+
+class JavaScriptMetricInputTests(unittest.TestCase):
+    """Import and syntax counts use executable lexical regions."""
+
+    def check_metric(self, source, filename, name, expected, details):
+        bundle = json.loads(engine.codeprobe_analyze(json.dumps({"code": source, "filename": filename})))
+        result = next(item for item in bundle["report"]["metrics"] if item["name"] == name)
+        for key, value in expected.items():
+            if isinstance(value, float):
+                self.assertAlmostEqual(result[key], round(value, 4) if key == "score" else value, places=9)
+            else:
+                self.assertEqual(result[key], value)
+        for key, value in details.items():
+            self.assertRegex(result["detail"], rf"(?:^|[,;] ){key}={value}(?:[,; ]|$)")
+        self.assertIn(result["display_name"], bundle["text"])
+        if not expected["applicable"]:
+            self.assertTrue(result["explanation"])
+
+    def test_import_reads_ignore_comments_strings_and_similar_names(self):
+        cases = (
+            ("import value from 'module';\nconst result = 1;", 'fixture.js', 'used_import_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ("import value from 'module';\nconst result = 1;\n// value", 'fixture.js', 'used_import_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ('import value from \'module\';\nconst result = 1;\nconst text = "value";', 'fixture.js', 'used_import_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ("import value from 'module';\nconst result = 1;\nvalue_other();", 'fixture.js', 'used_import_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ("import value from 'module';\nconst result = 1;\nvalue();", 'fixture.js', 'used_import_ratio', {'value': 1.0, 'applicable': True, 'score': 1.0}, {}),
+            ("import {left as used, right} from 'module';\nused();\n", 'fixture.js', 'used_import_ratio', {'value': 0.5, 'applicable': True, 'score': 0.0}, {}),
+            ("import * as module from 'module';\nmodule.run();\n", 'fixture.js', 'used_import_ratio', {'value': 1.0, 'applicable': True, 'score': 1.0}, {}),
+            ("import 'side-effect';\n", 'fixture.js', 'used_import_ratio', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_modern_markers_keep_template_expressions_active_and_literal_text_inert(self):
+        cases = (
+            ('var value = 1;', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+            ('var value = 1;\n// const const => ?. ?? ...', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+            ('var value = "const let => ?. ?? ...";\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+            ('var value = /const|let|=>|[.][.][.]/;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+            ('const add = value => value;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.6666666666666666, 'applicable': True}, {'modern': 2, 'legacy': 0}),
+            ('const {value} = source;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.6666666666666666, 'applicable': True}, {'modern': 2, 'legacy': 0}),
+            ('const text = `value: ${value?.item}`;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.75, 'applicable': True}, {'modern': 3, 'legacy': 0}),
+            ('var text = `const let => ?. ?? ...`;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
 
 
 if __name__ == "__main__":

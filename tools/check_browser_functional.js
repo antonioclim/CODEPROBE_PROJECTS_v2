@@ -2449,6 +2449,706 @@ async function testDocumentLanguageContracts(cdp, baseUrl, downloads, fixtureSta
     qualification:"Two fixed context groups ran in the owned authenticated worker interpreter. Five main-file cases used real File/DOM labels, public worker transport and JSON/text downloads. Both project UIs retained default documentation exclusions and downloaded exact reports; separate public worker calls explicitly opted in documentation. Source remained data; no fenced programme or shebang interpreter was executed. Finite extraction rules do not establish complete CommonMark conformance or authorship accuracy."}));
 }
 
+// Fixed I11 metric contracts: submitted source is data at every boundary.
+async function testMetricContracts(cdp, baseUrl, downloads, fixtureState, engineDigest) {
+  const deadline = Date.now() + 300000;
+  const observations = [];
+  async function withinCase(name, findings, boundary, operation) {
+    const remaining = Math.min(60000, deadline - Date.now());
+    assert(remaining > 0, "Metric contracts browser group exceeded its 300-second budget");
+    const started = Date.now();
+    let timer;
+    try {
+      const observed = await Promise.race([operation(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Metric contracts browser case timed out: ${name}`)), remaining);
+      })]);
+      const row = {case:name, findings, boundary, result:"PASS", elapsed_ms:Date.now() - started, observed};
+      observations.push(row);
+      console.log("[PASS] browser-metrics-i11-case: " + JSON.stringify(row));
+    } finally { clearTimeout(timer); }
+  }
+  const directCases = [
+  {
+    "name": "numeric-and-python-structural",
+    "findings": [
+      "A02-F020",
+      "A02-F021",
+      "A02-F022",
+      "A02-F030"
+    ],
+    "script": "cases = [{'id': 'F020-numeric-suffix', 'finding_id': 'A02-F020', 'metric': 'magic_numbers', 'filename': 'fixture.py', 'source': 'value123 = 0\\n', 'expected': {'value': 0.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 1.0}, 'detail_fields': {'numbers': 1, 'magic_candidates': 0}, 'public_only': False, 'original_a02': 'magic_numbers:numeric_suffix', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '4c0ed73d0ff1bdadc924a89e9c99fc14486cbb7d3a0ab8d5b62d30b25f096428'}, {'id': 'F020-one-real-per-twenty', 'finding_id': 'A02-F020', 'metric': 'magic_numbers', 'filename': 'fixture.py', 'source': 'value = 42\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\npass\\n', 'expected': {'value': 1.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.36363636363636365}, 'detail_fields': {'numbers': 1, 'magic_candidates': 1}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'b64919a76bbc15550c18e17de9c93a4b0a29e3f7a0be804dd2d348bbd178fbaa'}, {'id': 'F020-inert-literal-text', 'finding_id': 'A02-F020', 'metric': 'magic_numbers', 'filename': 'fixture.py', 'source': \"# 123 456\\nlabel = '789 42'\\nvalue = 0\\n\", 'expected': {'value': 0.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 1.0}, 'detail_fields': {'numbers': 1, 'magic_candidates': 0}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '1dc2d2a2e2ea9fab0156c94689ab4413d9ae5882af68aaff5f5a36d20da3f4a7'}, {'id': 'F021-quoted-main-guard', 'finding_id': 'A02-F021', 'metric': 'boilerplate_presence', 'filename': 'fixture.py', 'source': 'label = \\'if __name__ == \"__main__\"\\'\\n', 'expected': {'value': 0.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {'indicators': '0/5'}, 'public_only': False, 'original_a02': 'boilerplate:ignore_string_contents', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '69b17c01f3e3ece9108532e2e3d3f6d5c872a002869d42c0f96ae299b6f8b927'}, {'id': 'F021-real-main-guard', 'finding_id': 'A02-F021', 'metric': 'boilerplate_presence', 'filename': 'fixture.py', 'source': 'if __name__ == \"__main__\":\\n    pass\\n', 'expected': {'value': 0.2, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {'indicators': '1/5'}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'f86aa87ed34409906d0bc17cd8a589add483d3905c281aeb2f41251c41141f29'}, {'id': 'F021-invalid-ast', 'finding_id': 'A02-F021', 'metric': 'boilerplate_presence', 'filename': 'fixture.py', 'source': 'if __name__ == \"__main__\"\\n    pass\\n', 'expected': {'value': None, 'applicable': False, 'group': 'context', 'contributes_to_overall': False}, 'detail_fields': {}, 'public_only': True, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '26c292f608558a71f9df12a8637ca834ad19d05394ac218c77e1909105be5944'}, {'id': 'F022-inert-string', 'finding_id': 'A02-F022', 'metric': 'defensive_programming', 'filename': 'fixture.py', 'source': 'label = \"if not ready\"\\nvalue = 1\\n', 'expected': {'value': 0.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {'guards': 0}, 'public_only': False, 'original_a02': 'defensive:ignore_string', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '93b56fb55c5aabe14240b69027aad3de4c82f2990b033972913879ec815af717'}, {'id': 'F022-real-if-not', 'finding_id': 'A02-F022', 'metric': 'defensive_programming', 'filename': 'fixture.py', 'source': 'if not ready:\\n    pass\\n', 'expected': {'value': 10.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {'guards': 1}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'cf0747dd51f6d6e4214a170e773a8abf3c573552424dbddab3737d02686bcee1'}, {'id': 'F022-quoted-none-comparison', 'finding_id': 'A02-F022', 'metric': 'defensive_programming', 'filename': 'fixture.py', 'source': 'if value == \"None\":\\n    pass\\n', 'expected': {'value': 0.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {'guards': 0}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '3ea29ea8a11ad6648d38eb42d3a1bd27ed70bc39e672d3692cd91afc65698a84'}, {'id': 'F030-top-import-block', 'finding_id': 'A02-F030', 'metric': 'import_organization', 'filename': 'fixture.py', 'source': 'import os\\n\\nimport sys\\nvalue = 1', 'expected': {'value': 1.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 1.0}, 'detail_fields': {'top_aligned': True, 'sorted': True, 'grouped': True, 'imports': 2}, 'public_only': False, 'original_a02': 'E10-top-import-block-oracle lines', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'e37a93f8e730e4f43fbe52702edfdd3df3f84567490d2e0d3a476a35443a27f4'}, {'id': 'F030-late-unsorted', 'finding_id': 'A02-F030', 'metric': 'import_organization', 'filename': 'fixture.py', 'source': 'value = 1\\nimport sys\\nimport os', 'expected': {'value': 0.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {'top_aligned': False, 'sorted': False, 'grouped': False, 'imports': 2}, 'public_only': False, 'original_a02': 'E10-valid-unorganised lines', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'aa9e4295a63ee1625886d09fda004d47aaa5ef30f9f4c48725a8efa30609af34'}, {'id': 'F030-local-imports', 'finding_id': 'A02-F030', 'metric': 'import_organization', 'filename': 'fixture.py', 'source': 'def work():\\n    import os\\n    import sys\\n    return os, sys\\n', 'expected': {'value': None, 'applicable': False, 'group': 'quality', 'contributes_to_overall': False}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '3c609aeb3eb15c3f94a42687c1333e9a56988fe4084b3cd496bedf4789ee071d'}]\n\nimport dataclasses, hashlib, math, re\nclasses = {item.name:item for item in module.MetricRegistry.metric_classes()}\nconfig = module.merged_metric_config('default')\nobserved = []\ndef same(actual, expected):\n    if isinstance(expected, float):\n        return isinstance(actual, (int, float)) and not isinstance(actual, bool) and math.isclose(actual, expected, rel_tol=1e-10, abs_tol=1e-10)\n    return actual == expected\nfor case in cases:\n    assert hashlib.sha256(case['source'].encode()).hexdigest() == case['source_sha256'], case['id']\n    context = module.build_analysis_context(case['source'], case['filename'])\n    checks = []\n    def record(boundary, actual, expected):\n        checks.append(dict(boundary=boundary, actual=actual, expected=expected, matches=same(actual, expected)))\n    if 'identifiers_expected' in case:\n        record('context-identifiers', context.identifiers, case['identifiers_expected'])\n    if 'function_complexities_expected' in case:\n        record('context-function-complexities', [item.cyclomatic for item in context.functions], case['function_complexities_expected'])\n    result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=case['source'], filename=case['filename']))))\n    report_metric = next(item for item in result['report']['metrics'] if item['name'] == case['metric'])\n    metrics = [('public-file-json', report_metric, True)]\n    if not case['public_only']:\n        direct = classes[case['metric']](config).compute(case['source'], context.language, context)\n        metrics.insert(0, ('direct-metric', dataclasses.asdict(direct), False))\n    for boundary, metric, rounded in metrics:\n        for key, value in case['expected'].items():\n            expected = round(value, 4) if key == 'score' and rounded else value\n            record(boundary + ':' + key, metric.get(key), expected)\n        for key, value in case['detail_fields'].items():\n            found = re.search(r'(?:^|[,;] )' + re.escape(key) + r'=([^,; ]+)', metric.get('detail', ''))\n            actual = found.group(1) if found else None\n            record(boundary + ':detail:' + key, actual, str(value))\n        if not case['expected']['applicable']:\n            record(boundary + ':unavailable-reason', bool(metric.get('explanation')), True)\n            if case['metric'] == 'cyclomatic_complexity':\n                record(boundary + ':unavailable-method', all(not metric.get(key) for key in ('method','unit','domain')), True)\n    record('file-text-display-name', report_metric['display_name'] in result['text'], True)\n    if case['metric'] == 'cyclomatic_complexity' and case['expected']['applicable']:\n        unit_text = 'decisions/function' if case['expected']['unit'] == 'decisions_per_function' else 'branches/20 code lines'\n        record('file-unit-display', unit_text in report_metric['value_display'], True)\n        record('file-method-domain-detail', all(case['expected'][key] in report_metric['detail'] for key in ('method','domain')), True)\n        record('file-text-unit-and-method', unit_text in result['text'] and case['expected']['method'] in result['text'], True)\n    observed.append(dict(case=case['id'], source_sha256=case['source_sha256'], metric=case['metric'], checks=checks, matches=all(item['matches'] for item in checks)))\nassert all(item['matches'] for item in observed), [item['case'] for item in observed if not item['matches']]\n"
+  },
+  {
+    "name": "script-and-c-inert-boundaries",
+    "findings": [
+      "A02-F023",
+      "A02-F027",
+      "A02-F028",
+      "A02-F029",
+      "A02-F032"
+    ],
+    "script": "cases = [{'id': 'F023-separate-then', 'finding_id': 'A02-F023', 'metric': 'nesting_depth', 'filename': 'fixture.sh', 'source': 'if true\\nthen\\n  :\\nfi\\n', 'expected': {'value': 1.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 0.15}, 'detail_fields': {}, 'public_only': False, 'original_a02': 'bash_nesting:separate_then', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '217af73b63757f074f5749ced43ce1d0405164d7cbf1f270f66f4e444aca63ef'}, {'id': 'F023-nested-two', 'finding_id': 'A02-F023', 'metric': 'nesting_depth', 'filename': 'fixture.sh', 'source': 'if true\\nthen\\n while true\\n do\\n  :\\n done\\nfi\\n', 'expected': {'value': 2.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 1.0}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'e376f8249dae1dbaf5ea826aaad10e05ecd5dd8ee2c5739b8ddbe1ba76675ea4'}, {'id': 'F023-inert-introducers', 'finding_id': 'A02-F023', 'metric': 'nesting_depth', 'filename': 'fixture.sh', 'source': \"# then do\\nprintf '%s' 'then do'\\ncat <<'EOF'\\nthen\\ndo\\nEOF\\n\", 'expected': {'value': 0.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 0.15}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'f360dd65dcd2d8e64074f0411a6e037ac59e4cbf8d2c306edad8392c5b9977eb'}, {'id': 'F023-mismatched-terminator', 'finding_id': 'A02-F023', 'metric': 'nesting_depth', 'filename': 'fixture.sh', 'source': 'if true; then\\n :\\ndone\\n', 'expected': {'value': None, 'applicable': False, 'group': 'context', 'contributes_to_overall': False}, 'detail_fields': {}, 'public_only': True, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '91f477cc22d102504cb2e7fe9152ce6f5eb73b76b06585468df2976855f1bea6'}, {'id': 'F027-comment-use', 'finding_id': 'A02-F027', 'metric': 'used_import_ratio', 'filename': 'fixture.js', 'source': \"import value from 'module';\\nconst result = 1;\\n// value\", 'expected': {'value': 0.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {}, 'public_only': False, 'original_a02': 'E03-js-comment-use-oracle', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'fda7bb017a5aa94559541862e4db446738058c3d2f365674fa9aeab2c4a030bb'}, {'id': 'F027-real-read', 'finding_id': 'A02-F027', 'metric': 'used_import_ratio', 'filename': 'fixture.js', 'source': \"import value from 'module';\\nconst result = 1;\\nvalue();\", 'expected': {'value': 1.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 1.0}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'f36338c984b094da94b7305170e50e38d76d8c052f4e09cb62442ffae465b3c9'}, {'id': 'F027-named-alias', 'finding_id': 'A02-F027', 'metric': 'used_import_ratio', 'filename': 'fixture.js', 'source': \"import {left as used, right} from 'module';\\nused();\\n\", 'expected': {'value': 0.5, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '65caaae6b6b44b01ba8132343362fc3383e65c2592d833369afdadb56fcf1a9f'}, {'id': 'F028-comment-markers', 'finding_id': 'A02-F028', 'metric': 'javascript_modern_syntax', 'filename': 'fixture.js', 'source': 'var value = 1;\\n// const const => ?. ?? ...', 'expected': {'value': 0.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {'modern': 0, 'legacy': 1}, 'public_only': False, 'original_a02': 'E08-comment-invariance-oracle', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '105ccaf36b558426e6e06c106afcc4a83bf52c2917bc0c711bcf2a97c109d72e'}, {'id': 'F028-const-arrow', 'finding_id': 'A02-F028', 'metric': 'javascript_modern_syntax', 'filename': 'fixture.js', 'source': 'const add = value => value;\\n', 'expected': {'value': 0.6666666666666666, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False}, 'detail_fields': {'modern': 2, 'legacy': 0}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '77abeed9047dd6db6e43d6d7255ca1ac183fd6c3a06a5225ce753d74ae49296d'}, {'id': 'F028-template-expression', 'finding_id': 'A02-F028', 'metric': 'javascript_modern_syntax', 'filename': 'fixture.js', 'source': 'const text = `value: ${value?.item}`;\\n', 'expected': {'value': 0.75, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False}, 'detail_fields': {'modern': 3, 'legacy': 0}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '2de4d49893506c032349302892c1b57f9ef41851dc1de06f1623675afd64b4e8'}, {'id': 'F028-template-inert-markers', 'finding_id': 'A02-F028', 'metric': 'javascript_modern_syntax', 'filename': 'fixture.js', 'source': 'var text = `const let => ?. ?? ...`;\\n', 'expected': {'value': 0.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {'modern': 0, 'legacy': 1}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '076a4a83552a112e5eb62d6b4f960eff29d045b6fc9cca58e8e6afb622361d23'}, {'id': 'F029-grouped-five', 'finding_id': 'A02-F029', 'metric': 'bash_quoting_consistency', 'filename': 'fixture.sh', 'source': 'printf \"%s\" \"$a $b $c $d $e\"', 'expected': {'value': 1.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 1.0}, 'detail_fields': {'references': 5, 'double_quoted': 5}, 'public_only': False, 'original_a02': 'E09-grouped-quoting-oracle', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '623b60893ee75ad390f18fc379e838c6ccb4c5528afad0c80031871961bb1a4c'}, {'id': 'F029-mixed-four-of-six', 'finding_id': 'A02-F029', 'metric': 'bash_quoting_consistency', 'filename': 'fixture.sh', 'source': 'printf \"%s\" \"$a $b $c $d\" $e $f\\n', 'expected': {'value': 0.6666666666666666, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.2713178294573643}, 'detail_fields': {'references': 6, 'double_quoted': 4}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '4bdf0b36e73e7ce858eeaf3f59fa1d78251445fe0772cb5809c703a92898d428'}, {'id': 'F029-inert-dollars', 'finding_id': 'A02-F029', 'metric': 'bash_quoting_consistency', 'filename': 'fixture.sh', 'source': \"printf '%s' '$a $b $c $d $e'\\n# $a $b $c $d $e\\nprintf '%s' \\\\$a \\\\$b \\\\$c \\\\$d \\\\$e\\n\", 'expected': {'value': None, 'applicable': False, 'group': 'quality', 'contributes_to_overall': False}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '969d0900a57a2ebdba3f1072eff753c988cce608967f0b8c7a87519deaa947ff'}, {'id': 'F032-comment-guard', 'finding_id': 'A02-F032', 'metric': 'preprocessor_hygiene', 'filename': 'fixture.h', 'source': '/*\\n#ifndef FAKE\\n#define FAKE\\n*/\\nint value;\\n', 'expected': {'value': 0.75, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.75}, 'detail_fields': {'has_guard': False}, 'public_only': False, 'original_a02': 'E15-comment-guard-oracle', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'b926dd0b53835db31a22b91138c64a77d6b03560ecb6fa254aebc6ffa4816f46'}, {'id': 'F032-real-guard', 'finding_id': 'A02-F032', 'metric': 'preprocessor_hygiene', 'filename': 'fixture.h', 'source': '#ifndef HEADER\\n#define HEADER\\nint value;\\n#endif\\n', 'expected': {'value': 1.0, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 1.0}, 'detail_fields': {'has_guard': True}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'd4a2783fb523df30de7140cb216faa58c85266f8e22557bc85f18ecf817acb0c'}, {'id': 'F032-missing-end', 'finding_id': 'A02-F032', 'metric': 'preprocessor_hygiene', 'filename': 'fixture.h', 'source': '#ifndef HEADER\\n#define HEADER\\nint value;\\n', 'expected': {'value': 0.75, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.75}, 'detail_fields': {'has_guard': False, 'conditional_depth': 1}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '30519158a7b558ad06352b4ae41a44ace58e833bdc5f8cfe6c722ee9f24b1b2f'}]\n\nimport dataclasses, hashlib, math, re\nclasses = {item.name:item for item in module.MetricRegistry.metric_classes()}\nconfig = module.merged_metric_config('default')\nobserved = []\ndef same(actual, expected):\n    if isinstance(expected, float):\n        return isinstance(actual, (int, float)) and not isinstance(actual, bool) and math.isclose(actual, expected, rel_tol=1e-10, abs_tol=1e-10)\n    return actual == expected\nfor case in cases:\n    assert hashlib.sha256(case['source'].encode()).hexdigest() == case['source_sha256'], case['id']\n    context = module.build_analysis_context(case['source'], case['filename'])\n    checks = []\n    def record(boundary, actual, expected):\n        checks.append(dict(boundary=boundary, actual=actual, expected=expected, matches=same(actual, expected)))\n    if 'identifiers_expected' in case:\n        record('context-identifiers', context.identifiers, case['identifiers_expected'])\n    if 'function_complexities_expected' in case:\n        record('context-function-complexities', [item.cyclomatic for item in context.functions], case['function_complexities_expected'])\n    result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=case['source'], filename=case['filename']))))\n    report_metric = next(item for item in result['report']['metrics'] if item['name'] == case['metric'])\n    metrics = [('public-file-json', report_metric, True)]\n    if not case['public_only']:\n        direct = classes[case['metric']](config).compute(case['source'], context.language, context)\n        metrics.insert(0, ('direct-metric', dataclasses.asdict(direct), False))\n    for boundary, metric, rounded in metrics:\n        for key, value in case['expected'].items():\n            expected = round(value, 4) if key == 'score' and rounded else value\n            record(boundary + ':' + key, metric.get(key), expected)\n        for key, value in case['detail_fields'].items():\n            found = re.search(r'(?:^|[,;] )' + re.escape(key) + r'=([^,; ]+)', metric.get('detail', ''))\n            actual = found.group(1) if found else None\n            record(boundary + ':detail:' + key, actual, str(value))\n        if not case['expected']['applicable']:\n            record(boundary + ':unavailable-reason', bool(metric.get('explanation')), True)\n            if case['metric'] == 'cyclomatic_complexity':\n                record(boundary + ':unavailable-method', all(not metric.get(key) for key in ('method','unit','domain')), True)\n    record('file-text-display-name', report_metric['display_name'] in result['text'], True)\n    if case['metric'] == 'cyclomatic_complexity' and case['expected']['applicable']:\n        unit_text = 'decisions/function' if case['expected']['unit'] == 'decisions_per_function' else 'branches/20 code lines'\n        record('file-unit-display', unit_text in report_metric['value_display'], True)\n        record('file-method-domain-detail', all(case['expected'][key] in report_metric['detail'] for key in ('method','domain')), True)\n        record('file-text-unit-and-method', unit_text in result['text'] and case['expected']['method'] in result['text'], True)\n    observed.append(dict(case=case['id'], source_sha256=case['source_sha256'], metric=case['metric'], checks=checks, matches=all(item['matches'] for item in checks)))\nassert all(item['matches'] for item in observed), [item['case'] for item in observed if not item['matches']]\n"
+  },
+  {
+    "name": "units-lttr-and-pressure",
+    "findings": [
+      "A02-F025",
+      "A02-F026",
+      "A02-F031"
+    ],
+    "script": "cases = [{'id': 'F025-function-mean', 'finding_id': 'A02-F025', 'metric': 'cyclomatic_complexity', 'filename': 'fixture.py', 'source': 'def first():\\n    return 0\\n\\ndef second(a, b):\\n    if a:\\n        return 1\\n    if b:\\n        return 2\\n    return 0\\n', 'expected': {'value': 2.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 1.0, 'method': 'python_ast_function_mean', 'unit': 'decisions_per_function', 'domain': 'recognised_functions'}, 'detail_fields': {'functions': 2}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'function_complexities_expected': [1, 3], 'source_sha256': '8a602b3ef1bccc18cef57a40f04288ca307077d025ce7f6e8bc5e85e03dbe983'}, {'id': 'F025-branch-density', 'finding_id': 'A02-F025', 'metric': 'cyclomatic_complexity', 'filename': 'fixture.js', 'source': 'if (a) ready();\\nif (b) ready();\\nready();\\nready();\\nready();\\nready();\\nready();\\nready();\\nready();\\nready();\\n', 'expected': {'value': 4.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 0.4214876033057851, 'method': 'lexical_branch_density', 'unit': 'branches_per_20_code_lines', 'domain': 'cleaned_file_code'}, 'detail_fields': {'approximate_branches': 2}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'cb57344e3704867885e8d75df66c836d5a038c032a2bb3f53e643e23310cafb1'}, {'id': 'F025-no-python-functions', 'finding_id': 'A02-F025', 'metric': 'cyclomatic_complexity', 'filename': 'fixture.py', 'source': 'value = 0\\n', 'expected': {'value': None, 'applicable': False, 'group': 'context', 'contributes_to_overall': False}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'a06106e01c0ed5a953720fe62093cdd5cc2cbcc2144ca6a260e43a2393c81c0f'}, {'id': 'F025-unclosed-javascript', 'finding_id': 'A02-F025', 'metric': 'cyclomatic_complexity', 'filename': 'fixture.js', 'source': 'const value = \"unfinished', 'expected': {'value': None, 'applicable': False, 'group': 'context', 'contributes_to_overall': False}, 'detail_fields': {}, 'public_only': True, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'b2593e2004d9e20a037d68033b9b587a58be0b4b62eae4aa510fa9563a3f34c4'}, {'id': 'F026-tokens-19-types-1', 'finding_id': 'A02-F026', 'metric': 'type_token_ratio', 'filename': 'fixture.py', 'source': 'a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a\\n', 'expected': {'value': None, 'applicable': False, 'group': 'stylometry', 'contributes_to_overall': True, 'score': 0.0}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'identifiers_expected': ['a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a'], 'source_sha256': '806370577ab20e093a3fa3d295cb4ed4f33c618eff184d24a2e873459a11303a'}, {'id': 'F026-tokens-20-types-1', 'finding_id': 'A02-F026', 'metric': 'type_token_ratio', 'filename': 'fixture.py', 'source': 'a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a\\n', 'expected': {'value': 0.0, 'applicable': True, 'group': 'stylometry', 'contributes_to_overall': True, 'score': 0.0}, 'detail_fields': {}, 'public_only': False, 'original_a02': 'E01-single-type-log-oracle identifiers', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'identifiers_expected': ['a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a'], 'source_sha256': 'da764d005d87cf36714025bed247b2c14ecec68dea84419ffef3783b03a64654'}, {'id': 'F026-tokens-25-types-5', 'finding_id': 'A02-F026', 'metric': 'type_token_ratio', 'filename': 'fixture.py', 'source': 'a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e\\n', 'expected': {'value': 0.5, 'applicable': True, 'group': 'stylometry', 'contributes_to_overall': True, 'score': 0.0}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'identifiers_expected': ['a', 'b', 'c', 'd', 'e', 'a', 'b', 'c', 'd', 'e', 'a', 'b', 'c', 'd', 'e', 'a', 'b', 'c', 'd', 'e', 'a', 'b', 'c', 'd', 'e'], 'source_sha256': 'a1636ece09d9c3197aa3b5bdac23ae33ca7aa5c955eb08ab8579e2d1f0f1f5c9'}, {'id': 'F026-tokens-20-types-20', 'finding_id': 'A02-F026', 'metric': 'type_token_ratio', 'filename': 'fixture.py', 'source': 'name0 + name1 + name2 + name3 + name4 + name5 + name6 + name7 + name8 + name9 + name10 + name11 + name12 + name13 + name14 + name15 + name16 + name17 + name18 + name19\\n', 'expected': {'value': 1.0, 'applicable': True, 'group': 'stylometry', 'contributes_to_overall': True}, 'detail_fields': {}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'identifiers_expected': ['name0', 'name1', 'name2', 'name3', 'name4', 'name5', 'name6', 'name7', 'name8', 'name9', 'name10', 'name11', 'name12', 'name13', 'name14', 'name15', 'name16', 'name17', 'name18', 'name19'], 'source_sha256': 'a515a1f29c5fd0ade13206f68bde9f79f4fa0d6e7cbf1436cd9745d2f164cff4'}, {'id': 'F031-live-06', 'finding_id': 'A02-F031', 'metric': 'register_pressure', 'filename': 'fixture.c', 'source': 'int f(void) {\\nint item_0 = 0;\\nint item_1 = 0;\\nint item_2 = 0;\\nint item_3 = 0;\\nint item_4 = 0;\\nint item_5 = 0;\\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5;\\n}', 'expected': {'value': 0.46153846153846156, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 1.0}, 'detail_fields': {'peak_live': 6}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '050ecd684f0cc4c6cf11428a210df1ead37995355d56fdc123090b80fc5c9e28'}, {'id': 'F031-live-11', 'finding_id': 'A02-F031', 'metric': 'register_pressure', 'filename': 'fixture.c', 'source': 'int f(void) {\\nint item_0 = 0;\\nint item_1 = 0;\\nint item_2 = 0;\\nint item_3 = 0;\\nint item_4 = 0;\\nint item_5 = 0;\\nint item_6 = 0;\\nint item_7 = 0;\\nint item_8 = 0;\\nint item_9 = 0;\\nint item_10 = 0;\\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10;\\n}', 'expected': {'value': 0.8461538461538461, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.5054945054945055}, 'detail_fields': {'peak_live': 11}, 'public_only': False, 'original_a02': 'E11-monotone-quality-oracle source11', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'cf0a48e11235232767b6052fd508d2f70dec4f2498bc59a7d217612392caf8ee'}, {'id': 'F031-live-12', 'finding_id': 'A02-F031', 'metric': 'register_pressure', 'filename': 'fixture.c', 'source': 'int f(void) {\\nint item_0 = 0;\\nint item_1 = 0;\\nint item_2 = 0;\\nint item_3 = 0;\\nint item_4 = 0;\\nint item_5 = 0;\\nint item_6 = 0;\\nint item_7 = 0;\\nint item_8 = 0;\\nint item_9 = 0;\\nint item_10 = 0;\\nint item_11 = 0;\\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10 + item_11;\\n}', 'expected': {'value': 0.9230769230769231, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.40865384615384615}, 'detail_fields': {'peak_live': 12}, 'public_only': False, 'original_a02': 'E11-monotone-quality-oracle source12', 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': 'd119de0cd7b1d7262445a5a473602439c63182c921f784b20f1ad7009b7f7faf'}, {'id': 'F031-live-17', 'finding_id': 'A02-F031', 'metric': 'register_pressure', 'filename': 'fixture.c', 'source': 'int f(void) {\\nint item_0 = 0;\\nint item_1 = 0;\\nint item_2 = 0;\\nint item_3 = 0;\\nint item_4 = 0;\\nint item_5 = 0;\\nint item_6 = 0;\\nint item_7 = 0;\\nint item_8 = 0;\\nint item_9 = 0;\\nint item_10 = 0;\\nint item_11 = 0;\\nint item_12 = 0;\\nint item_13 = 0;\\nint item_14 = 0;\\nint item_15 = 0;\\nint item_16 = 0;\\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10 + item_11 + item_12 + item_13 + item_14 + item_15 + item_16;\\n}', 'expected': {'value': 1.3076923076923077, 'applicable': True, 'group': 'quality', 'contributes_to_overall': False, 'score': 0.0}, 'detail_fields': {'peak_live': 17}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'source_sha256': '71d66889ed4312c2c4f7af3c1e2c544320da7d8fcf5e6694d905986cbb042211'}]\n\nimport dataclasses, hashlib, math, re\nclasses = {item.name:item for item in module.MetricRegistry.metric_classes()}\nconfig = module.merged_metric_config('default')\nobserved = []\ndef same(actual, expected):\n    if isinstance(expected, float):\n        return isinstance(actual, (int, float)) and not isinstance(actual, bool) and math.isclose(actual, expected, rel_tol=1e-10, abs_tol=1e-10)\n    return actual == expected\nfor case in cases:\n    assert hashlib.sha256(case['source'].encode()).hexdigest() == case['source_sha256'], case['id']\n    context = module.build_analysis_context(case['source'], case['filename'])\n    checks = []\n    def record(boundary, actual, expected):\n        checks.append(dict(boundary=boundary, actual=actual, expected=expected, matches=same(actual, expected)))\n    if 'identifiers_expected' in case:\n        record('context-identifiers', context.identifiers, case['identifiers_expected'])\n    if 'function_complexities_expected' in case:\n        record('context-function-complexities', [item.cyclomatic for item in context.functions], case['function_complexities_expected'])\n    result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=case['source'], filename=case['filename']))))\n    report_metric = next(item for item in result['report']['metrics'] if item['name'] == case['metric'])\n    metrics = [('public-file-json', report_metric, True)]\n    if not case['public_only']:\n        direct = classes[case['metric']](config).compute(case['source'], context.language, context)\n        metrics.insert(0, ('direct-metric', dataclasses.asdict(direct), False))\n    for boundary, metric, rounded in metrics:\n        for key, value in case['expected'].items():\n            expected = round(value, 4) if key == 'score' and rounded else value\n            record(boundary + ':' + key, metric.get(key), expected)\n        for key, value in case['detail_fields'].items():\n            found = re.search(r'(?:^|[,;] )' + re.escape(key) + r'=([^,; ]+)', metric.get('detail', ''))\n            actual = found.group(1) if found else None\n            record(boundary + ':detail:' + key, actual, str(value))\n        if not case['expected']['applicable']:\n            record(boundary + ':unavailable-reason', bool(metric.get('explanation')), True)\n            if case['metric'] == 'cyclomatic_complexity':\n                record(boundary + ':unavailable-method', all(not metric.get(key) for key in ('method','unit','domain')), True)\n    record('file-text-display-name', report_metric['display_name'] in result['text'], True)\n    if case['metric'] == 'cyclomatic_complexity' and case['expected']['applicable']:\n        unit_text = 'decisions/function' if case['expected']['unit'] == 'decisions_per_function' else 'branches/20 code lines'\n        record('file-unit-display', unit_text in report_metric['value_display'], True)\n        record('file-method-domain-detail', all(case['expected'][key] in report_metric['detail'] for key in ('method','domain')), True)\n        record('file-text-unit-and-method', unit_text in result['text'] and case['expected']['method'] in result['text'], True)\n    observed.append(dict(case=case['id'], source_sha256=case['source_sha256'], metric=case['metric'], checks=checks, matches=all(item['matches'] for item in checks)))\nassert all(item['matches'] for item in observed), [item['case'] for item in observed if not item['matches']]\n"
+  },
+  {
+    "name": "inactive-config-identity-and-notes",
+    "findings": [
+      "A02-F024"
+    ],
+    "script": "case = {'id': 'F025-function-mean', 'finding_id': 'A02-F025', 'metric': 'cyclomatic_complexity', 'filename': 'fixture.py', 'source': 'def first():\\n    return 0\\n\\ndef second(a, b):\\n    if a:\\n        return 1\\n    if b:\\n        return 2\\n    return 0\\n', 'expected': {'value': 2.0, 'applicable': True, 'group': 'context', 'contributes_to_overall': False, 'score': 1.0, 'method': 'python_ast_function_mean', 'unit': 'decisions_per_function', 'domain': 'recognised_functions'}, 'detail_fields': {'functions': 2}, 'public_only': False, 'original_a02': None, 'oracle_basis': 'Manual lexical/structural counts or rational arithmetic from the declared finite metric contract', 'function_complexities_expected': [1, 3], 'source_sha256': '8a602b3ef1bccc18cef57a40f04288ca307077d025ce7f6e8bc5e85e03dbe983'}\ninactive = ['identifier_style.ai_low', 'identifier_style.ai_high', 'line_length_uniformity.ai_high', 'halstead_difficulty.mi_high']\noverrides = [None, {'identifier_style': {'thresholds': {'ai_low': -1000, 'ai_high': 1000}}, 'line_length_uniformity': {'thresholds': {'ai_high': -1000}}, 'halstead_difficulty': {'thresholds': {'mi_high': 1000}}}, {'identifier_style': {'thresholds': {'ai_low': 1000, 'ai_high': -1000}}, 'line_length_uniformity': {'thresholds': {'ai_high': 1000}}, 'halstead_difficulty': {'thresholds': {'mi_high': -1000}}}]\nobserved = []\nfor mode in ('file', 'project'):\n    signatures = []\n    digests = []\n    warnings = []\n    for index, override in enumerate(overrides):\n        payload = dict(code=case['source'], filename=case['filename']) if mode == 'file' else dict(files=[dict(path=case['filename'],content=case['source'])])\n        if override is not None:\n            payload['config_override'] = override\n        analyse = module.codeprobe_analyze if mode == 'file' else module.codeprobe_analyze_project\n        result = json.loads(analyse(json.dumps(payload)))\n        report = result['report']\n        child = report if mode == 'file' else report['files'][0]\n        signatures.append([(metric['name'],metric['value'],metric['score'],metric['applicable'],metric['contributes_to_overall']) for metric in child['metrics']])\n        digests.append(report['metric_config_digest'])\n        warnings.append(report['warnings'])\n        checks = dict(inactive_keys=sorted(report['tool_metadata'].get('inactive_thresholds',[])) == sorted(inactive),\n                      note=all(key in '\\n'.join(report['notes']) for key in inactive),\n                      text=all(key in result['text'] for key in inactive),\n                      metrics_unchanged=signatures[-1] == signatures[0],\n                      warnings_unchanged=warnings[-1] == warnings[0],\n                      distinct_config_digest=len(set(digests)) == len(digests))\n        observed.append(dict(case='inactive-thresholds-' + mode + '-' + str(index), source_sha256=case['source_sha256'], metric_config_digest=digests[-1], inactive_thresholds=report['tool_metadata'].get('inactive_thresholds'), notes=report['notes'], checks=checks, matches=all(checks.values())))\nassert all(item['matches'] for item in observed), [item['case'] for item in observed if not item['matches']]\n"
+  }
+];
+  fixtureState.reset();
+  const pageUrl = `${baseUrl}/app/index.html?metrics-i11=1`;
+  let session = null, workerSession = null, ownership = null, actualRuntime = null;
+  try {
+    await withinCase("metrics-owned-worker", [], "authenticated-worker-ownership", async () => {
+      await cdp.send("Target.setDiscoverTargets", {discover:true});
+      const previous = new Set((await cdp.send("Target.getTargets")).targetInfos.map(item => item.targetId));
+      session = await createSession(cdp, pageUrl);
+      await waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()", 60000);
+      assertSingleVerifiedRequests(fixtureState);
+      await cdp.send("Target.setAutoAttach", {autoAttach:true, waitForDebuggerOnStart:false, flatten:true,
+        filter:[{type:"worker"}, {exclude:true}]}, session.sessionId);
+      const discoveryDeadline = Date.now() + 5000;
+      let workers = [], attachments = [];
+      do {
+        workers = (await cdp.send("Target.getTargets")).targetInfos.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.parentId === session.targetId);
+        attachments = [...cdp.attachedTargets.entries()].filter(([, item]) => item.parentSessionId === session.sessionId && workers.some(worker => worker.targetId === item.targetInfo.targetId));
+        if (workers.length && attachments.length) break;
+        await delay(100);
+      } while (Date.now() < discoveryDeadline);
+      assert(workers.length === 1 && attachments.length === 1, "Metric contracts oracle did not locate exactly one owned worker channel");
+      const worker = workers[0];
+      if (worker.openerId) assert(worker.openerId === session.targetId, "Metric contracts oracle worker opener differs from its owned page");
+      assert(attachments[0][1].targetInfo.type === "worker" && attachments[0][1].targetInfo.parentId === session.targetId, "Metric contracts oracle attachment differs from its owned worker");
+      [workerSession] = attachments[0];
+      await cdp.send("Runtime.enable", {}, workerSession);
+      const workerBase = await evaluate(cdp, workerSession, "self.CODEPROBE_BASE_URL");
+      assert(workerBase === pageUrl, "Metric contracts oracle worker bootstrap URL differs from its owned page");
+      ownership = {page_target_id:session.targetId, worker_target_id:worker.targetId, worker_parent_id:worker.parentId, bootstrap_url:workerBase};
+      return ownership;
+    });
+    for (const item of directCases) {
+      await withinCase(item.name, item.findings, "context-in-authenticated-worker", async () => {
+        const script = "def _codeprobe_metrics_i11_fixture():\n    import json, sys\n    module = sys.modules['codeprobe_runtime']\n" +
+          item.script.trim().split("\n").map(line => "    " + line).join("\n") +
+          "\n    metadata = json.loads(module.codeprobe_engine_metadata('{}'))\n    return json.dumps(dict(observed=observed, runtime=metadata['python_runtime'], measured_sha256=metadata['engine_fingerprint']['value']), allow_nan=False)\n_codeprobe_metrics_i11_fixture()\n";
+        const result = await evaluate(cdp, workerSession, `(async () => {
+          const runtime = await self.CodeProbeRuntime.loadVerifiedPyodide();
+          try { return JSON.parse(runtime.runPython(${JSON.stringify(script)})); }
+          finally { runtime.globals.delete('_codeprobe_metrics_i11_fixture'); }
+        })()`);
+        assert(result.runtime.platform === "emscripten" && result.runtime.version === "3.11.3", "Metric contracts context oracle used an unexpected interpreter");
+        assert(result.measured_sha256 === engineDigest, "Metric contracts context oracle used different engine bytes");
+        actualRuntime = result.runtime;
+        assertSingleVerifiedRequests(fixtureState);
+        return {...result, oracle_sha256:crypto.createHash("sha256").update(script).digest("hex")};
+      });
+    }
+  } finally {
+    if (workerSession) await cdp.send("Target.detachFromTarget", {sessionId:workerSession}, session.sessionId);
+    if (session) await closeSession(cdp, session);
+    await cdp.send("Target.setDiscoverTargets", {discover:false});
+  }
+
+  const fileCases = [
+  {
+    "id": "F025-function-mean",
+    "finding_id": "A02-F025",
+    "metric": "cyclomatic_complexity",
+    "filename": "fixture.py",
+    "source": "def first():\n    return 0\n\ndef second(a, b):\n    if a:\n        return 1\n    if b:\n        return 2\n    return 0\n",
+    "expected": {
+      "value": 2.0,
+      "applicable": true,
+      "group": "context",
+      "contributes_to_overall": false,
+      "score": 1.0,
+      "method": "python_ast_function_mean",
+      "unit": "decisions_per_function",
+      "domain": "recognised_functions"
+    },
+    "detail_fields": {
+      "functions": 2
+    },
+    "public_only": false,
+    "original_a02": null,
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "function_complexities_expected": [
+      1,
+      3
+    ],
+    "source_sha256": "8a602b3ef1bccc18cef57a40f04288ca307077d025ce7f6e8bc5e85e03dbe983"
+  },
+  {
+    "id": "F025-branch-density",
+    "finding_id": "A02-F025",
+    "metric": "cyclomatic_complexity",
+    "filename": "fixture.js",
+    "source": "if (a) ready();\nif (b) ready();\nready();\nready();\nready();\nready();\nready();\nready();\nready();\nready();\n",
+    "expected": {
+      "value": 4.0,
+      "applicable": true,
+      "group": "context",
+      "contributes_to_overall": false,
+      "score": 0.4214876033057851,
+      "method": "lexical_branch_density",
+      "unit": "branches_per_20_code_lines",
+      "domain": "cleaned_file_code"
+    },
+    "detail_fields": {
+      "approximate_branches": 2
+    },
+    "public_only": false,
+    "original_a02": null,
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "cb57344e3704867885e8d75df66c836d5a038c032a2bb3f53e643e23310cafb1"
+  },
+  {
+    "id": "F025-no-python-functions",
+    "finding_id": "A02-F025",
+    "metric": "cyclomatic_complexity",
+    "filename": "fixture.py",
+    "source": "value = 0\n",
+    "expected": {
+      "value": null,
+      "applicable": false,
+      "group": "context",
+      "contributes_to_overall": false
+    },
+    "detail_fields": {},
+    "public_only": false,
+    "original_a02": null,
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "a06106e01c0ed5a953720fe62093cdd5cc2cbcc2144ca6a260e43a2393c81c0f"
+  },
+  {
+    "id": "F026-tokens-25-types-5",
+    "finding_id": "A02-F026",
+    "metric": "type_token_ratio",
+    "filename": "fixture.py",
+    "source": "a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e\n",
+    "expected": {
+      "value": 0.5,
+      "applicable": true,
+      "group": "stylometry",
+      "contributes_to_overall": true,
+      "score": 0.0
+    },
+    "detail_fields": {},
+    "public_only": false,
+    "original_a02": null,
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "identifiers_expected": [
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "a",
+      "b",
+      "c",
+      "d",
+      "e"
+    ],
+    "source_sha256": "a1636ece09d9c3197aa3b5bdac23ae33ca7aa5c955eb08ab8579e2d1f0f1f5c9"
+  },
+  {
+    "id": "F031-live-12",
+    "finding_id": "A02-F031",
+    "metric": "register_pressure",
+    "filename": "fixture.c",
+    "source": "int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nint item_6 = 0;\nint item_7 = 0;\nint item_8 = 0;\nint item_9 = 0;\nint item_10 = 0;\nint item_11 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10 + item_11;\n}",
+    "expected": {
+      "value": 0.9230769230769231,
+      "applicable": true,
+      "group": "quality",
+      "contributes_to_overall": false,
+      "score": 0.40865384615384615
+    },
+    "detail_fields": {
+      "peak_live": 12
+    },
+    "public_only": false,
+    "original_a02": "E11-monotone-quality-oracle source12",
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "d119de0cd7b1d7262445a5a473602439c63182c921f784b20f1ad7009b7f7faf"
+  },
+  {
+    "id": "F021-quoted-main-guard",
+    "finding_id": "A02-F021",
+    "metric": "boilerplate_presence",
+    "filename": "fixture.py",
+    "source": "label = 'if __name__ == \"__main__\"'\n",
+    "expected": {
+      "value": 0.0,
+      "applicable": true,
+      "group": "context",
+      "contributes_to_overall": false,
+      "score": 0.0
+    },
+    "detail_fields": {
+      "indicators": "0/5"
+    },
+    "public_only": false,
+    "original_a02": "boilerplate:ignore_string_contents",
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "69b17c01f3e3ece9108532e2e3d3f6d5c872a002869d42c0f96ae299b6f8b927"
+  }
+];
+  const projectCases = [
+  {
+    "id": "F025-function-mean",
+    "finding_id": "A02-F025",
+    "metric": "cyclomatic_complexity",
+    "filename": "fixture.py",
+    "source": "def first():\n    return 0\n\ndef second(a, b):\n    if a:\n        return 1\n    if b:\n        return 2\n    return 0\n",
+    "expected": {
+      "value": 2.0,
+      "applicable": true,
+      "group": "context",
+      "contributes_to_overall": false,
+      "score": 1.0,
+      "method": "python_ast_function_mean",
+      "unit": "decisions_per_function",
+      "domain": "recognised_functions"
+    },
+    "detail_fields": {
+      "functions": 2
+    },
+    "public_only": false,
+    "original_a02": null,
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "function_complexities_expected": [
+      1,
+      3
+    ],
+    "source_sha256": "8a602b3ef1bccc18cef57a40f04288ca307077d025ce7f6e8bc5e85e03dbe983",
+    "selected_filename": "F025-function-mean.py"
+  },
+  {
+    "id": "F025-branch-density",
+    "finding_id": "A02-F025",
+    "metric": "cyclomatic_complexity",
+    "filename": "fixture.js",
+    "source": "if (a) ready();\nif (b) ready();\nready();\nready();\nready();\nready();\nready();\nready();\nready();\nready();\n",
+    "expected": {
+      "value": 4.0,
+      "applicable": true,
+      "group": "context",
+      "contributes_to_overall": false,
+      "score": 0.4214876033057851,
+      "method": "lexical_branch_density",
+      "unit": "branches_per_20_code_lines",
+      "domain": "cleaned_file_code"
+    },
+    "detail_fields": {
+      "approximate_branches": 2
+    },
+    "public_only": false,
+    "original_a02": null,
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "cb57344e3704867885e8d75df66c836d5a038c032a2bb3f53e643e23310cafb1",
+    "selected_filename": "F025-branch-density.js"
+  },
+  {
+    "id": "F025-no-python-functions",
+    "finding_id": "A02-F025",
+    "metric": "cyclomatic_complexity",
+    "filename": "fixture.py",
+    "source": "value = 0\n",
+    "expected": {
+      "value": null,
+      "applicable": false,
+      "group": "context",
+      "contributes_to_overall": false
+    },
+    "detail_fields": {},
+    "public_only": false,
+    "original_a02": null,
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "a06106e01c0ed5a953720fe62093cdd5cc2cbcc2144ca6a260e43a2393c81c0f",
+    "selected_filename": "F025-no-python-functions.py"
+  },
+  {
+    "id": "F026-tokens-25-types-5",
+    "finding_id": "A02-F026",
+    "metric": "type_token_ratio",
+    "filename": "fixture.py",
+    "source": "a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e\n",
+    "expected": {
+      "value": 0.5,
+      "applicable": true,
+      "group": "stylometry",
+      "contributes_to_overall": true,
+      "score": 0.0
+    },
+    "detail_fields": {},
+    "public_only": false,
+    "original_a02": null,
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "identifiers_expected": [
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "a",
+      "b",
+      "c",
+      "d",
+      "e"
+    ],
+    "source_sha256": "a1636ece09d9c3197aa3b5bdac23ae33ca7aa5c955eb08ab8579e2d1f0f1f5c9",
+    "selected_filename": "F026-tokens-25-types-5.py"
+  },
+  {
+    "id": "F031-live-12",
+    "finding_id": "A02-F031",
+    "metric": "register_pressure",
+    "filename": "fixture.c",
+    "source": "int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nint item_6 = 0;\nint item_7 = 0;\nint item_8 = 0;\nint item_9 = 0;\nint item_10 = 0;\nint item_11 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10 + item_11;\n}",
+    "expected": {
+      "value": 0.9230769230769231,
+      "applicable": true,
+      "group": "quality",
+      "contributes_to_overall": false,
+      "score": 0.40865384615384615
+    },
+    "detail_fields": {
+      "peak_live": 12
+    },
+    "public_only": false,
+    "original_a02": "E11-monotone-quality-oracle source12",
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "d119de0cd7b1d7262445a5a473602439c63182c921f784b20f1ad7009b7f7faf",
+    "selected_filename": "F031-live-12.c"
+  },
+  {
+    "id": "F021-quoted-main-guard",
+    "finding_id": "A02-F021",
+    "metric": "boilerplate_presence",
+    "filename": "fixture.py",
+    "source": "label = 'if __name__ == \"__main__\"'\n",
+    "expected": {
+      "value": 0.0,
+      "applicable": true,
+      "group": "context",
+      "contributes_to_overall": false,
+      "score": 0.0
+    },
+    "detail_fields": {
+      "indicators": "0/5"
+    },
+    "public_only": false,
+    "original_a02": "boilerplate:ignore_string_contents",
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "69b17c01f3e3ece9108532e2e3d3f6d5c872a002869d42c0f96ae299b6f8b927",
+    "selected_filename": "F021-quoted-main-guard.py"
+  },
+  {
+    "id": "F027-comment-use",
+    "finding_id": "A02-F027",
+    "metric": "used_import_ratio",
+    "filename": "fixture.js",
+    "source": "import value from 'module';\nconst result = 1;\n// value",
+    "expected": {
+      "value": 0.0,
+      "applicable": true,
+      "group": "quality",
+      "contributes_to_overall": false,
+      "score": 0.0
+    },
+    "detail_fields": {},
+    "public_only": false,
+    "original_a02": "E03-js-comment-use-oracle",
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "fda7bb017a5aa94559541862e4db446738058c3d2f365674fa9aeab2c4a030bb",
+    "selected_filename": "F027-comment-use.js"
+  },
+  {
+    "id": "F028-template-inert-markers",
+    "finding_id": "A02-F028",
+    "metric": "javascript_modern_syntax",
+    "filename": "fixture.js",
+    "source": "var text = `const let => ?. ?? ...`;\n",
+    "expected": {
+      "value": 0.0,
+      "applicable": true,
+      "group": "quality",
+      "contributes_to_overall": false,
+      "score": 0.0
+    },
+    "detail_fields": {
+      "modern": 0,
+      "legacy": 1
+    },
+    "public_only": false,
+    "original_a02": null,
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "076a4a83552a112e5eb62d6b4f960eff29d045b6fc9cca58e8e6afb622361d23",
+    "selected_filename": "F028-template-inert-markers.js"
+  },
+  {
+    "id": "F029-grouped-five",
+    "finding_id": "A02-F029",
+    "metric": "bash_quoting_consistency",
+    "filename": "fixture.sh",
+    "source": "printf \"%s\" \"$a $b $c $d $e\"",
+    "expected": {
+      "value": 1.0,
+      "applicable": true,
+      "group": "quality",
+      "contributes_to_overall": false,
+      "score": 1.0
+    },
+    "detail_fields": {
+      "references": 5,
+      "double_quoted": 5
+    },
+    "public_only": false,
+    "original_a02": "E09-grouped-quoting-oracle",
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "623b60893ee75ad390f18fc379e838c6ccb4c5528afad0c80031871961bb1a4c",
+    "selected_filename": "F029-grouped-five.sh"
+  },
+  {
+    "id": "F032-comment-guard",
+    "finding_id": "A02-F032",
+    "metric": "preprocessor_hygiene",
+    "filename": "fixture.h",
+    "source": "/*\n#ifndef FAKE\n#define FAKE\n*/\nint value;\n",
+    "expected": {
+      "value": 0.75,
+      "applicable": true,
+      "group": "quality",
+      "contributes_to_overall": false,
+      "score": 0.75
+    },
+    "detail_fields": {
+      "has_guard": false
+    },
+    "public_only": false,
+    "original_a02": "E15-comment-guard-oracle",
+    "oracle_basis": "Manual lexical/structural counts or rational arithmetic from the declared finite metric contract",
+    "source_sha256": "b926dd0b53835db31a22b91138c64a77d6b03560ecb6fa254aebc6ffa4816f46",
+    "selected_filename": "F032-comment-guard.h"
+  }
+];
+  const inactiveKeys = [
+  "identifier_style.ai_low",
+  "identifier_style.ai_high",
+  "line_length_uniformity.ai_high",
+  "halstead_difficulty.mi_high"
+];
+  const inactiveOverrides = [
+  {
+    "identifier_style": {
+      "thresholds": {
+        "ai_low": -1000,
+        "ai_high": 1000
+      }
+    },
+    "line_length_uniformity": {
+      "thresholds": {
+        "ai_high": -1000
+      }
+    },
+    "halstead_difficulty": {
+      "thresholds": {
+        "mi_high": 1000
+      }
+    }
+  },
+  {
+    "identifier_style": {
+      "thresholds": {
+        "ai_low": 1000,
+        "ai_high": -1000
+      }
+    },
+    "line_length_uniformity": {
+      "thresholds": {
+        "ai_high": 1000
+      }
+    },
+    "halstead_difficulty": {
+      "thresholds": {
+        "mi_high": -1000
+      }
+    }
+  }
+];
+
+  function same(actual, expected) {
+    return typeof expected === "number" ? typeof actual === "number" && Math.abs(actual - expected) <= 1e-10 : actual === expected;
+  }
+  function checkMetric(report, item) {
+    assert(report.engine_fingerprint.value === engineDigest && report.engine_fingerprint.source === "packaged-verified", "I11 metric report lost verified provenance");
+    const metric = report.metrics.find(value => value.name === item.metric);
+    assert(metric, `I11 metric missing: ${item.metric}`);
+    for (const [key, expected] of Object.entries(item.expected)) {
+      const value = key === "score" ? Math.round((expected + Number.EPSILON) * 10000) / 10000 : expected;
+      assert(same(metric[key], value), `I11 ${item.id} ${key}: ${JSON.stringify(metric[key])} differs from ${JSON.stringify(value)}`);
+    }
+    for (const [key, expected] of Object.entries(item.detail_fields)) {
+      const found = new RegExp(`(?:^|[,;] )${key}=([^,; ]+)`).exec(metric.detail || "");
+      const value = typeof expected === "boolean" ? (expected ? "True" : "False") : String(expected);
+      assert(found && found[1] === value, `I11 ${item.id} lost exact detail ${key}=${value}`);
+    }
+    if (!metric.applicable) {
+      assert(metric.explanation && metric.value === null, "I11 unavailable metric lost its reason or null value");
+      if (item.metric === "cyclomatic_complexity") assert(["method","unit","domain"].every(key => !(key in metric)), "Unavailable cyclomatic metric acquired method metadata");
+    }
+    return metric;
+  }
+  function checkNotes(report, text) {
+    assert(JSON.stringify([...report.tool_metadata.inactive_thresholds].sort()) === JSON.stringify([...inactiveKeys].sort()), "I11 inactive-threshold inventory differs");
+    assert(inactiveKeys.every(key => report.notes.join("\n").includes(key) && text.includes(key)), "I11 inactive-threshold explanation is absent from notes/text");
+  }
+  async function download(id, name, result) {
+    fs.rmSync(downloads, {recursive:true, force:true}); fs.mkdirSync(downloads, {recursive:true});
+    await cdp.send("Browser.setDownloadBehavior", {behavior:"allow", downloadPath:downloads});
+    await evaluate(cdp, id, "document.getElementById('exportJsonBtn').click(); document.getElementById('exportTextBtn').click()");
+    const jsonPath = path.join(downloads, `${name}.json`), textPath = path.join(downloads, `${name}.txt`);
+    await Promise.all([waitForFile(jsonPath, 60000), waitForFile(textPath, 60000)]);
+    assert(JSON.stringify(JSON.parse(fs.readFileSync(jsonPath, "utf8"))) === JSON.stringify(result.report), "I11 JSON download differs from accepted report");
+    assert(fs.readFileSync(textPath, "utf8") === result.text, "I11 text download differs from accepted report");
+  }
+  fixtureState.reset();
+  let page = null;
+  try {
+    for (const item of fileCases) {
+      await withinCase(`main-file-${item.id}-metric-notes-exports`, [item.finding_id, "A02-F024"], "public-file-ui-worker-report-exports", async () => {
+        if (!page) {
+          page = await createSession(cdp, `${baseUrl}/app/index.html?metrics-i11-file=1`);
+          await waitForExpression(cdp, page.sessionId, "appState.workerSession?.isReady()", 60000);
+        }
+        const id = page.sessionId;
+        const override = item.id === "F025-function-mean" ? inactiveOverrides[0] : {};
+        await evaluate(cdp, id, `(() => {
+          const config = document.getElementById('configOverride'); config.value = ${JSON.stringify(JSON.stringify(override))};
+          config.dispatchEvent(new Event('input', {bubbles:true})); config.closest('details').open = true;
+          const transfer = new DataTransfer();
+          transfer.items.add(new File([${JSON.stringify(item.source)}], ${JSON.stringify(item.filename)}, {type:'text/plain'}));
+          const input = document.getElementById('fileInput'); input.files = transfer.files;
+          input.dispatchEvent(new Event('change', {bubbles:true}));
+        })()`);
+        await waitForExpression(cdp, id, "appState.loadingInput === false && !document.getElementById('analyzeBtn').disabled", 60000);
+        const imported = await evaluate(cdp, id, "document.getElementById('editor').value");
+        assert(imported === item.source, "I11 File import changed source bytes");
+        await evaluate(cdp, id, "document.getElementById('analyzeBtn').click()");
+        await waitForExpression(cdp, id, "document.getElementById('statusText').textContent === 'Analysis completed.'", 60000);
+        await evaluate(cdp, id, "document.getElementById('result-tab-summary').click()");
+        const result = await evaluate(cdp, id, "({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value, notes:document.getElementById('notesList').textContent, help:document.getElementById('configOverride').closest('details').textContent, notesVisible:document.getElementById('notesList').getClientRects().length > 0})");
+        const metric = checkMetric(result.report, item);
+        checkNotes(result.report, result.text);
+        assert(result.notesVisible && inactiveKeys.every(key => result.notes.includes(key) && result.help.includes(key)), "I11 main UI hides inactive keys or omits configuration help");
+        const metricIndex = result.report.metrics.findIndex(value => value.name === item.metric);
+        await evaluate(cdp, id, `document.getElementById('result-tab-metrics').click(); document.querySelector('[data-metric-index="${metricIndex}"]').click()`);
+        const visible = await evaluate(cdp, id, `({row:document.querySelector('[data-metric-index="${metricIndex}"]').textContent, detail:document.getElementById('metricDetail').textContent, shown:document.getElementById('metricDetail').getClientRects().length > 0})`);
+        assert(visible.shown && visible.row.includes(metric.value_display) && visible.detail.includes(metric.value_display), "I11 metric value is absent from the visible row/detail");
+        assert(result.text.includes(metric.display_name), "I11 text export omits the metric");
+        if (item.metric === "cyclomatic_complexity" && metric.applicable) {
+          const unit = metric.unit === "decisions_per_function" ? "decisions/function" : "branches/20 code lines";
+          assert(visible.row.includes(unit) && visible.detail.includes(metric.method) && visible.detail.includes(metric.domain), "I11 visible Cyclomatic value lacks unit/method/domain");
+          assert(result.text.includes(unit) && result.text.includes(metric.method), "I11 Cyclomatic text lacks unit/method");
+        }
+        await download(id, item.filename.replace(/\.[^.]+$/, ""), result);
+        assertSingleVerifiedRequests(fixtureState);
+        return {case:item.id, source_sha256:item.source_sha256, metric, visible, inactive_thresholds:result.report.tool_metadata.inactive_thresholds,
+          config_override:override, metric_config_digest:result.report.metric_config_digest, engine_sha256:engineDigest};
+      });
+    }
+  } finally { if (page) await closeSession(cdp, page); }
+  for (const compact of [false, true]) {
+    fixtureState.reset();
+    let projectPage = null;
+    const mode = compact ? "compact-project" : "main-project";
+    const active = compact ? "state" : "appState", button = compact ? "analyseBtn" : "analyzeBtn", status = compact ? "status" : "statusText";
+    try {
+      await withinCase(`${mode}-metric-metadata-notes-exports`, ["A02-F021","A02-F024","A02-F025","A02-F026","A02-F027","A02-F028","A02-F029","A02-F031","A02-F032"], "public-project-ui-worker-report-exports", async () => {
+        projectPage = await createSession(cdp, `${baseUrl}/app/${compact ? "project" : "index"}.html?metrics-i11-project=1`);
+        const id = projectPage.sessionId;
+        if (!compact) await waitForExpression(cdp, id, "appState.workerSession?.isReady()", 60000);
+        await evaluate(cdp, id, `(() => {
+          const transfer = new DataTransfer();
+          for (const item of ${JSON.stringify(projectCases)}) {
+            const file = new File([item.source], item.selected_filename, {type:'text/plain'});
+            Object.defineProperty(file, '_codeprobeRelativePath', {value:'metrics/' + item.selected_filename});
+            transfer.items.add(file);
+          }
+          const input = document.getElementById('folderInput'); input.files = transfer.files;
+          input.dispatchEvent(new Event('change', {bubbles:true}));
+        })()`);
+        await waitForExpression(cdp, id, `${active}.loadingInput === false && !document.getElementById('${button}').disabled`, 60000);
+        await evaluate(cdp, id, `document.getElementById('${button}').click()`);
+        await waitForExpression(cdp, id, `document.getElementById('${status}').textContent === 'Project analysis completed.'`, 60000);
+        if (!compact) await evaluate(cdp, id, "document.getElementById('result-tab-text').click()");
+        const result = await evaluate(cdp, id, "({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value, textVisible:document.getElementById('textReport').getClientRects().length > 0})");
+        assert(result.report.engine_fingerprint.value === engineDigest && result.report.included_file_count === projectCases.length && result.report.excluded_file_count === 0, "I11 project admission differs from actual File inventory");
+        checkNotes(result.report, result.text);
+        assert(result.textVisible, "I11 project notes/text are not visible");
+        const checked = [];
+        for (const item of projectCases) {
+          const child = result.report.files.find(value => value.path.endsWith(item.selected_filename));
+          assert(child && result.text.includes(item.selected_filename), "I11 project member/path missing from JSON/text");
+          const metric = checkMetric(child, item);
+          if (item.metric === "cyclomatic_complexity" && metric.applicable) {
+            assert([metric.method, metric.unit, metric.domain].every(value => result.text.includes(value)), "I11 project child Cyclomatic text lacks metadata");
+          }
+          checked.push({case:item.id, source_sha256:item.source_sha256, path:child.path, metric});
+        }
+        await download(id, compact ? "metrics" : "selected-files", result);
+        assertSingleVerifiedRequests(fixtureState);
+        return {included:projectCases.length, excluded:0, checked, inactive_thresholds:result.report.tool_metadata.inactive_thresholds,
+          engine_sha256:engineDigest, qualification:compact ? "Actual compact project UI and visible text report; no config override control exists on this page." : "Actual main project UI and visible text report using default configuration."};
+      });
+    } finally { if (projectPage) await closeSession(cdp, projectPage); }
+  }
+  console.log("[PASS] browser-metrics-i11: " + JSON.stringify({engine_sha256:engineDigest, runtime:actualRuntime, ownership, observations,
+    qualification:"Three fixed groups cover 41 source-bound metric rows; one group checks six file/project inactive-configuration observations. Six main File/DOM cases and both project UIs transport actual source through the public worker and download exact JSON/text. Native observations are separately qualified. The compact UI exposes notes through its visible text report and has no config override control. Finite structural/lexical proxies and arithmetic do not establish empirical authorship validity."}));
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -2519,6 +3219,7 @@ async function main() {
     await testCLikeStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
     await testScriptStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
     await testDocumentLanguageContracts(cdp, baseUrl, downloads, state, engineDigest);
+    await testMetricContracts(cdp, baseUrl, downloads, state, engineDigest);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);

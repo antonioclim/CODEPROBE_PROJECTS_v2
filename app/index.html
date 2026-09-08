@@ -206,6 +206,13 @@
                 Unknown metrics and unsupported keys are rejected by the engine.
                 Example: <code>{"comment_to_code_ratio":{"weight":0.15,"thresholds":{"ai_peak":0.22}}}</code>
               </p>
+              <p class="help-inline">
+                The legacy thresholds <code>identifier_style.ai_low</code>, <code>identifier_style.ai_high</code>,
+                <code>line_length_uniformity.ai_high</code> and <code>halstead_difficulty.mi_high</code> are inactive.
+                These dotted names abbreviate keys inside each metric's <code>thresholds</code> object.
+                They remain accepted and affect configuration identity, but do not change metric values or scores.
+                Report notes and metadata identify these keys.
+              </p>
               <label class="field-label" for="configOverride">Metric configuration JSON override</label>
               <textarea id="configOverride" placeholder='{}'></textarea>
             </details>
@@ -301,7 +308,7 @@
       <span>Single file → file analysis · Folder or GitHub ZIP → project analysis</span>
     </div>
   </div>
-  <script src="pyodide-loader.js" defer integrity="sha256-F0niXAtcczMOBcLpVqBZM1/xwqBjfgnpriev0qIzaW4="></script>
+  <script src="pyodide-loader.js" defer integrity="sha256-j+rHlWcTJh6JE0ASKJnRnQ6gC5eW2plCtqOZpl1ibuA="></script>
   <script src="codeprobe-ui.js" defer integrity="sha256-PPRcxC5mZWhCUtb8YAe5s13IMlNXU7QVRePALstL3Ns="></script>
 
 </body>
