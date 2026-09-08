@@ -4,6 +4,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -113,6 +114,59 @@ class IntakeProvenanceSchemaTests(unittest.TestCase):
         report = engine.analyse_project_payload({"max_file_bytes": 1, "files": [{"path": "main.py", "content": "print(1)\n", "size_bytes": 0, "intake_provenance": provenance}]})
         self.assertEqual(report["excluded_files"][0]["reason"], "file_too_large")
         self.assertEqual(report["excluded_files"][0]["size_bytes"], 9)
+
+
+class ScriptDiagnosticReportTests(unittest.TestCase):
+    def test_unclosed_script_diagnostics_survive_file_project_json_and_text(self):
+        cases = (("broken.js", 'const message = "unfinished', "JS_UNTERMINATED_STRING"),
+                 ("comment.js", 'function f() {}\n/* unfinished', "JS_UNTERMINATED_COMMENT"),
+                 ("template.js", 'const message = `unfinished', "JS_UNTERMINATED_TEMPLATE"),
+                 ("broken.sh", "echo 'unfinished", "BASH_UNTERMINATED_STRING"))
+        for filename, source, diagnostic in cases:
+            with self.subTest(filename=filename):
+                file_bundle = json.loads(engine.codeprobe_analyze(json.dumps({"code": source, "filename": filename})))
+                project_bundle = json.loads(engine.codeprobe_analyze_project(json.dumps({"files": [{"path": filename, "content": source}]})))
+                reports = (file_bundle["report"], project_bundle["report"]["included_files"][0])
+                for report in reports:
+                    self.assertTrue(any(diagnostic in warning for warning in report["warnings"]))
+                    metrics = {item["name"]: item for item in report["metrics"]}
+                    for name in ("cyclomatic_complexity", "halstead_difficulty"):
+                        self.assertFalse(metrics[name]["applicable"])
+                        self.assertIsNone(metrics[name]["value"])
+                    self.assertNotIn("parse_success", report)
+                self.assertIn(diagnostic, file_bundle["text"])
+                self.assertIn(diagnostic, project_bundle["text"])
+                self.assertTrue(any(filename + ":" in warning and diagnostic in warning for warning in project_bundle["report"]["warnings"]))
+
+    def test_script_feature_requirement_is_a_strict_boolean_before_analysis(self):
+        for value in (None, "false", 0, 1, []):
+            for kind, entry in (("file", engine.codeprobe_analyze), ("project", engine.codeprobe_analyze_project)):
+                with self.subTest(value=value, kind=kind), mock.patch.object(engine, "build_analysis_context") as analyse:
+                    with self.assertRaisesRegex(ValueError, "require_script_features"):
+                        entry(json.dumps({"require_script_features": value}))
+                    analyse.assert_not_called()
+
+    def test_required_and_bound_script_features_refuse_partial_file_and_project_inputs(self):
+        config = engine.merged_metric_config("default")
+        profile = {"profile_id": "owned-script-contract", "scoring_contract": engine.scoring_contract("default", config)}
+        cases = (("broken.js", 'const value = "unfinished'),
+                 ("typed.ts", "function make(): {value: number} { return {value: 1}; }\n"),
+                 ("broken.sh", "cat <<'EOF'\nunfinished\n"))
+        controls = ({"require_script_features": True}, {"calibration_profile": profile, "require_script_features": False})
+        for filename, source in cases:
+            for control in controls:
+                with self.subTest(filename=filename, control=control):
+                    with self.assertRaisesRegex(ValueError, "(?i)script.*features|javascript.*features|bash.*features"):
+                        engine.codeprobe_analyze(json.dumps({"code": source, "filename": filename, **control}))
+                    with self.assertRaisesRegex(ValueError, "(?i)script.*features|javascript.*features|bash.*features"):
+                        engine.codeprobe_analyze_project(json.dumps({"files": [{"path": filename, "content": source}], **control}))
+        for filename, source in (("ordinary.js", "function f() { return 1; }\n"), ("ordinary.sh", "f() { echo ok; }\n")):
+            for control in controls:
+                with self.subTest(ordinary=filename, control=control):
+                    report = json.loads(engine.codeprobe_analyze(json.dumps({"code": source, "filename": filename, **control})))["report"]
+                    self.assertEqual(report["filename"], filename)
+                    project = json.loads(engine.codeprobe_analyze_project(json.dumps({"files": [{"path": filename, "content": source}], **control})))["report"]
+                    self.assertEqual(project["included_file_count"], 1)
 
 
 if __name__ == "__main__":

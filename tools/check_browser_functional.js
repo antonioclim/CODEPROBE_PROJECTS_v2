@@ -1671,6 +1671,454 @@ observed.append(dict(case='multiline-local-typedef', declarations=declarations, 
     qualification:"Five finite C-family context groups ran in the owned authenticated worker interpreter; main file/main project/compact project used actual File/DOM, public worker transport and JSON/text downloads for lexical and extraction warnings. The supported subset is bounded; these fixtures do not establish full compiler semantics or real register/stack measurements."}));
 }
 
+// JavaScript/Bash context metadata has no public worker operation. Fixed lexical
+// oracles inspect the owned authenticated interpreter; warning/export cases
+// separately exercise the existing public UI and worker transport.
+async function testScriptStructureContracts(cdp, baseUrl, downloads, fixtureState, engineDigest) {
+  const deadline = Date.now() + 300000;
+  const observations = [];
+  async function withinCase(name, findings, boundary, operation) {
+    const remaining = Math.min(60000, deadline - Date.now());
+    assert(remaining > 0, "JavaScript/Bash browser group exceeded its 300-second budget");
+    const started = Date.now();
+    let timer;
+    try {
+      const observed = await Promise.race([operation(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`JavaScript/Bash browser case timed out: ${name}`)), remaining);
+      })]);
+      const row = {case:name, findings, boundary, result:"PASS", elapsed_ms:Date.now() - started, observed};
+      observations.push(row);
+      console.log("[PASS] browser-scripts-i09-case: " + JSON.stringify(row));
+    } finally { clearTimeout(timer); }
+  }
+  const directCases = [
+    {name:"bash-hash-and-heredoc-data", finding:"A02-F012", script:`
+cases = [
+    {'id': 'SH-01-comment-control', 'finding': 'F012', 'source': 'echo ok # actual comment\\n', 'language': 'bash', 'filename': 'SH-01-comment-control.sh', 'expected': {'comments': [1], 'lexical_error': False}},
+    {'id': 'SH-03-word-hash', 'finding': 'F012', 'source': 'echo alpha#beta\\n', 'language': 'bash', 'filename': 'SH-03-word-hash.sh', 'expected': {'comments': [], 'lexical_error': False, 'cleaned_contains': ['alpha#beta']}},
+    {'id': 'SH-04-length-expansion', 'finding': 'F012', 'source': 'echo \\u0024{#name}\\n', 'language': 'bash', 'filename': 'SH-04-length-expansion.sh', 'expected': {'comments': [], 'lexical_error': False}},
+    {'id': 'SH-05-prefix-expansion', 'finding': 'F012', 'source': 'echo \\u0024{name#prefix}\\n', 'language': 'bash', 'filename': 'SH-05-prefix-expansion.sh', 'expected': {'comments': [], 'lexical_error': False}},
+    {'id': 'SH-08-heredoc-phantom', 'finding': 'F012', 'source': "cat <<'EOF'\\nphantom() {\\n echo text\\n}\\nEOF\\nreal() {\\n echo ok\\n}\\n", 'language': 'bash', 'filename': 'SH-08-heredoc-phantom.sh', 'expected': {'functions': [['real', 6, 8, 1]], 'lexical_error': False, 'identifiers_absent': ['phantom']}},
+    {'id': 'sh-queued-quoted-heredocs', 'finding': 'A02-F012', 'language': 'bash', 'source': 'cat <<\\'ONE\\' <<-"TWO"\\nPhantom1() { if true; then :; fi; }\\nONE\\n\\tPhantom2() { for x in a; do :; done; }\\n\\tTWO\\nreal() {\\n :\\n}\\n', 'filename': 'sh-queued-quoted-heredocs.sh', 'expected': {'functions': [['real', 6, 8, 1]], 'comments': [], 'lexical_error': False, 'identifiers_absent': ['Phantom1', 'Phantom2']}, 'rationale': 'Two heredocs are consumed in declaration order; the second uses tab-stripped delimiter matching.'}
+]
+
+observed = []
+for case in cases:
+    code, language, expected = case['source'], case['language'], case['expected']
+    context = module.build_analysis_context(code, case['filename'], language)
+    scan = {'javascript': module.scan_javascript, 'bash': module.scan_bash}[language](code)
+    actual = [[f.name, f.lineno, f.end_lineno, f.cyclomatic] for f in context.functions]
+    assert len(context.cleaned_code) == len(code), case['id']
+    assert [i for i, ch in enumerate(context.cleaned_code) if ch == '\\n'] == [i for i, ch in enumerate(code) if ch == '\\n'], case['id']
+    for key, value in [('functions', actual), ('identifiers', context.identifiers), ('comments', sorted(scan.comment_line_numbers)), ('lexical_error', bool(context.tokenizer_error))]:
+        if key in expected:
+            assert value == expected[key], (case['id'], key, value, expected[key])
+    for text in expected.get('cleaned_contains', []):
+        assert text in context.cleaned_code, (case['id'], text)
+    for text in expected.get('cleaned_absent', []):
+        assert text not in context.cleaned_code, (case['id'], text)
+    for name in expected.get('identifiers_absent', []):
+        assert name not in context.identifiers, (case['id'], name)
+    for function in context.functions:
+        physical = '\\n'.join(code.split('\\n')[function.lineno - 1:function.end_lineno])
+        assert function.body == physical and function.length == function.end_lineno - function.lineno + 1, case['id']
+        if case.get('verify_signature'):
+            assert function.signature == physical.split('\\n')[0].strip(), (case['id'], function.signature)
+    metrics = {}
+    if expected.get('lexical_error'):
+        assert not context.script_lexically_safe, case['id']
+        assert expected['diagnostic_code'] in context.tokenizer_error, case['id']
+        result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=code, filename=case['filename'], language_hint=language))))
+        report = result['report']
+        assert any(expected['diagnostic_code'] in warning for warning in report['warnings']), case['id']
+        assert expected['diagnostic_code'] in result['text'], case['id']
+        by_name = {item['name']: item for item in report['metrics']}
+        for name in expected['unavailable']:
+            metric = by_name[name]
+            assert metric['applicable'] is False and metric['value'] is None, (case['id'], name)
+            metrics[name] = dict(applicable=metric['applicable'], value=metric['value'])
+    observed.append(dict(case=case['id'], functions=actual, identifiers=context.identifiers,
+                         comments=sorted(scan.comment_line_numbers), tokenizer_error=context.tokenizer_error,
+                         notes=context.notes, unavailable_metrics=metrics, original_body_and_coordinates_preserved=True))
+`},
+    {name:"javascript-regex-export-arrow-and-template", finding:"A02-F013", script:`
+cases = [
+    {'id': 'JS-03-regex-after-control', 'finding': 'F013', 'source': 'function f(ok, x) {\\n if (ok) /[}]/.test(x);\\n return x;\\n}\\n', 'language': 'javascript', 'filename': 'JS-03-regex-after-control.js', 'expected': {'functions': [['f', 1, 4, 2]], 'lexical_error': False, 'cleaned_absent': ['[}]']}},
+    {'id': 'JS-04-export-function', 'finding': 'F013', 'source': 'export function add(a, b) {\\n return a + b;\\n}\\n', 'language': 'javascript', 'filename': 'a.mjs', 'expected': {'functions': [['add', 1, 3, 1]], 'lexical_error': False}},
+    {'id': 'JS-06-arrow-destructuring', 'finding': 'F013', 'source': 'const pick = ({value}) => {\\n return value;\\n};\\n', 'language': 'javascript', 'filename': 'JS-06-arrow-destructuring.js', 'expected': {'functions': [['pick', 1, 3, 1]], 'lexical_error': False}},
+    {'id': 'JS-08-template-interpolation', 'finding': 'F013', 'source': 'const text = \`value: \\u0024{lookup(value)}\`;\\n', 'language': 'javascript', 'filename': 'JS-08-template-interpolation.js', 'expected': {'identifiers': ['text', 'lookup', 'value'], 'lexical_error': False, 'cleaned_contains': ['lookup(value)']}},
+    {'id': 'JS-19-division-after-call', 'finding': 'F013', 'source': 'function ratio(a, b) {\\n return get(a) / b;\\n}\\n', 'language': 'javascript', 'filename': 'JS-19-division-after-call.js', 'expected': {'functions': [['ratio', 1, 3, 1]], 'lexical_error': False, 'cleaned_contains': ['get(a) / b']}}
+]
+
+observed = []
+for case in cases:
+    code, language, expected = case['source'], case['language'], case['expected']
+    context = module.build_analysis_context(code, case['filename'], language)
+    scan = {'javascript': module.scan_javascript, 'bash': module.scan_bash}[language](code)
+    actual = [[f.name, f.lineno, f.end_lineno, f.cyclomatic] for f in context.functions]
+    assert len(context.cleaned_code) == len(code), case['id']
+    assert [i for i, ch in enumerate(context.cleaned_code) if ch == '\\n'] == [i for i, ch in enumerate(code) if ch == '\\n'], case['id']
+    for key, value in [('functions', actual), ('identifiers', context.identifiers), ('comments', sorted(scan.comment_line_numbers)), ('lexical_error', bool(context.tokenizer_error))]:
+        if key in expected:
+            assert value == expected[key], (case['id'], key, value, expected[key])
+    for text in expected.get('cleaned_contains', []):
+        assert text in context.cleaned_code, (case['id'], text)
+    for text in expected.get('cleaned_absent', []):
+        assert text not in context.cleaned_code, (case['id'], text)
+    for name in expected.get('identifiers_absent', []):
+        assert name not in context.identifiers, (case['id'], name)
+    for function in context.functions:
+        physical = '\\n'.join(code.split('\\n')[function.lineno - 1:function.end_lineno])
+        assert function.body == physical and function.length == function.end_lineno - function.lineno + 1, case['id']
+        if case.get('verify_signature'):
+            assert function.signature == physical.split('\\n')[0].strip(), (case['id'], function.signature)
+    metrics = {}
+    if expected.get('lexical_error'):
+        assert not context.script_lexically_safe, case['id']
+        assert expected['diagnostic_code'] in context.tokenizer_error, case['id']
+        result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=code, filename=case['filename'], language_hint=language))))
+        report = result['report']
+        assert any(expected['diagnostic_code'] in warning for warning in report['warnings']), case['id']
+        assert expected['diagnostic_code'] in result['text'], case['id']
+        by_name = {item['name']: item for item in report['metrics']}
+        for name in expected['unavailable']:
+            metric = by_name[name]
+            assert metric['applicable'] is False and metric['value'] is None, (case['id'], name)
+            metrics[name] = dict(applicable=metric['applicable'], value=metric['value'])
+    observed.append(dict(case=case['id'], functions=actual, identifiers=context.identifiers,
+                         comments=sorted(scan.comment_line_numbers), tokenizer_error=context.tokenizer_error,
+                         notes=context.notes, unavailable_metrics=metrics, original_body_and_coordinates_preserved=True))
+`},
+    {name:"script-cleaned-complexity-and-original-evidence", finding:"A02-F014", script:`
+cases = [
+    {'id': 'JS-14-complexity-comment', 'finding': 'F014', 'source': 'function f() {\\n // if for while catch && ||\\n return 1;\\n}\\n', 'language': 'javascript', 'filename': 'JS-14-complexity-comment.js', 'expected': {'functions': [['f', 1, 4, 1]], 'lexical_error': False}},
+    {'id': 'JS-15-complexity-string', 'finding': 'F014', 'source': 'function f() {\\n return "if for while catch && ||";\\n}\\n', 'language': 'javascript', 'filename': 'JS-15-complexity-string.js', 'expected': {'functions': [['f', 1, 3, 1]], 'lexical_error': False}},
+    {'id': 'JS-16-complexity-regex', 'finding': 'F014', 'source': 'function f() {\\n return /if|for|while|catch|&&|\\\\|\\\\|/;\\n}\\n', 'language': 'javascript', 'filename': 'JS-16-complexity-regex.js', 'expected': {'functions': [['f', 1, 3, 1]], 'lexical_error': False}},
+    {'id': 'JS-17-complexity-template', 'finding': 'F014', 'source': 'function f() {\\n return \`if for while catch && ||\`;\\n}\\n', 'language': 'javascript', 'filename': 'JS-17-complexity-template.js', 'expected': {'functions': [['f', 1, 3, 1]], 'lexical_error': False}},
+    {'id': 'JS-18-real-branch-control', 'finding': 'F014', 'source': 'function f(ok) {\\n if (ok) return 1;\\n return 0;\\n}\\n', 'language': 'javascript', 'filename': 'JS-18-real-branch-control.js', 'expected': {'functions': [['f', 1, 4, 2]], 'lexical_error': False}},
+    {'id': 'SH-11-complexity-comment', 'finding': 'F014', 'source': 'f() {\\n # if for while until && ||\\n echo ok\\n}\\n', 'language': 'bash', 'filename': 'SH-11-complexity-comment.sh', 'expected': {'functions': [['f', 1, 4, 1]], 'lexical_error': False}},
+    {'id': 'SH-12-complexity-string', 'finding': 'F014', 'source': 'f() {\\n echo "if for while until && ||"\\n}\\n', 'language': 'bash', 'filename': 'SH-12-complexity-string.sh', 'expected': {'functions': [['f', 1, 3, 1]], 'lexical_error': False}},
+    {'id': 'SH-13-complexity-heredoc', 'finding': 'F014', 'source': "f() {\\n cat <<'EOF'\\nif for while until && ||\\nEOF\\n}\\n", 'language': 'bash', 'filename': 'SH-13-complexity-heredoc.sh', 'expected': {'functions': [['f', 1, 5, 1]], 'lexical_error': False}},
+    {'id': 'SH-14-real-branch-control', 'finding': 'F014', 'source': 'f() {\\n if test -n "\\u0024value"; then\\n  echo ok\\n fi\\n}\\n', 'language': 'bash', 'filename': 'SH-14-real-branch-control.sh', 'expected': {'functions': [['f', 1, 5, 2]], 'lexical_error': False}},
+    {'id': 'js-template-executable-contrast', 'finding': 'A02-F014', 'language': 'javascript', 'filename': 'js-template-executable-contrast.js', 'source': 'function f(flag) {\\n return \`if for \\u0024{flag && call()}\`;\\n}\\n', 'expected': {'functions': [['f', 1, 3, 2]], 'cleaned_contains': ['flag && call()'], 'identifiers_absent': ['if', 'for'], 'lexical_error': False}, 'rationale': 'Supported template substitution retains executable conjunction while template text containing branch words remains inert.'}
+]
+
+observed = []
+for case in cases:
+    code, language, expected = case['source'], case['language'], case['expected']
+    context = module.build_analysis_context(code, case['filename'], language)
+    scan = {'javascript': module.scan_javascript, 'bash': module.scan_bash}[language](code)
+    actual = [[f.name, f.lineno, f.end_lineno, f.cyclomatic] for f in context.functions]
+    assert len(context.cleaned_code) == len(code), case['id']
+    assert [i for i, ch in enumerate(context.cleaned_code) if ch == '\\n'] == [i for i, ch in enumerate(code) if ch == '\\n'], case['id']
+    for key, value in [('functions', actual), ('identifiers', context.identifiers), ('comments', sorted(scan.comment_line_numbers)), ('lexical_error', bool(context.tokenizer_error))]:
+        if key in expected:
+            assert value == expected[key], (case['id'], key, value, expected[key])
+    for text in expected.get('cleaned_contains', []):
+        assert text in context.cleaned_code, (case['id'], text)
+    for text in expected.get('cleaned_absent', []):
+        assert text not in context.cleaned_code, (case['id'], text)
+    for name in expected.get('identifiers_absent', []):
+        assert name not in context.identifiers, (case['id'], name)
+    for function in context.functions:
+        physical = '\\n'.join(code.split('\\n')[function.lineno - 1:function.end_lineno])
+        assert function.body == physical and function.length == function.end_lineno - function.lineno + 1, case['id']
+        if case.get('verify_signature'):
+            assert function.signature == physical.split('\\n')[0].strip(), (case['id'], function.signature)
+    metrics = {}
+    if expected.get('lexical_error'):
+        assert not context.script_lexically_safe, case['id']
+        assert expected['diagnostic_code'] in context.tokenizer_error, case['id']
+        result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=code, filename=case['filename'], language_hint=language))))
+        report = result['report']
+        assert any(expected['diagnostic_code'] in warning for warning in report['warnings']), case['id']
+        assert expected['diagnostic_code'] in result['text'], case['id']
+        by_name = {item['name']: item for item in report['metrics']}
+        for name in expected['unavailable']:
+            metric = by_name[name]
+            assert metric['applicable'] is False and metric['value'] is None, (case['id'], name)
+            metrics[name] = dict(applicable=metric['applicable'], value=metric['value'])
+    observed.append(dict(case=case['id'], functions=actual, identifiers=context.identifiers,
+                         comments=sorted(scan.comment_line_numbers), tokenizer_error=context.tokenizer_error,
+                         notes=context.notes, unavailable_metrics=metrics, original_body_and_coordinates_preserved=True))
+`},
+    {name:"script-eof-diagnostics-and-availability", finding:"A02-F016", script:`
+cases = [
+    {'id': 'JS-09-unclosed-comment', 'finding': 'F016', 'source': 'function f() {}\\n/* unfinished', 'language': 'javascript', 'filename': 'JS-09-unclosed-comment.js', 'expected': {'lexical_error': True, 'unavailable': ['cyclomatic_complexity', 'halstead_difficulty'], 'diagnostic_code': 'JS_UNTERMINATED_COMMENT'}},
+    {'id': 'JS-10-unclosed-string', 'finding': 'F016', 'source': 'const message = "unfinished', 'language': 'javascript', 'filename': 'JS-10-unclosed-string.js', 'expected': {'lexical_error': True, 'unavailable': ['cyclomatic_complexity', 'halstead_difficulty'], 'diagnostic_code': 'JS_UNTERMINATED_STRING'}},
+    {'id': 'JS-11-unclosed-template', 'finding': 'F016', 'source': 'const message = \`unfinished', 'language': 'javascript', 'filename': 'JS-11-unclosed-template.js', 'expected': {'lexical_error': True, 'unavailable': ['cyclomatic_complexity', 'halstead_difficulty'], 'diagnostic_code': 'JS_UNTERMINATED_TEMPLATE'}},
+    {'id': 'JS-21-eof-line-comment-control', 'finding': 'F016', 'source': 'function f() { return 1; } // EOF', 'language': 'javascript', 'filename': 'JS-21-eof-line-comment-control.js', 'expected': {'functions': [['f', 1, 1, 1]], 'comments': [1], 'lexical_error': False}},
+    {'id': 'SH-10-unclosed-quote', 'finding': 'F016', 'source': "echo 'unfinished", 'language': 'bash', 'filename': 'SH-10-unclosed-quote.sh', 'expected': {'lexical_error': True, 'unavailable': ['cyclomatic_complexity', 'halstead_difficulty'], 'diagnostic_code': 'BASH_UNTERMINATED_STRING'}},
+    {'id': 'SH-16-unclosed-double-quote', 'finding': 'F016', 'source': 'echo "unfinished', 'language': 'bash', 'filename': 'SH-16-unclosed-double-quote.sh', 'expected': {'lexical_error': True, 'unavailable': ['cyclomatic_complexity', 'halstead_difficulty'], 'diagnostic_code': 'BASH_UNTERMINATED_STRING'}},
+    {'id': 'SH-17-eof-comment-control', 'finding': 'F016', 'source': 'f() { echo ok; } # EOF', 'language': 'bash', 'filename': 'SH-17-eof-comment-control.sh', 'expected': {'functions': [['f', 1, 1, 1]], 'comments': [1], 'lexical_error': False}}
+]
+
+observed = []
+for case in cases:
+    code, language, expected = case['source'], case['language'], case['expected']
+    context = module.build_analysis_context(code, case['filename'], language)
+    scan = {'javascript': module.scan_javascript, 'bash': module.scan_bash}[language](code)
+    actual = [[f.name, f.lineno, f.end_lineno, f.cyclomatic] for f in context.functions]
+    assert len(context.cleaned_code) == len(code), case['id']
+    assert [i for i, ch in enumerate(context.cleaned_code) if ch == '\\n'] == [i for i, ch in enumerate(code) if ch == '\\n'], case['id']
+    for key, value in [('functions', actual), ('identifiers', context.identifiers), ('comments', sorted(scan.comment_line_numbers)), ('lexical_error', bool(context.tokenizer_error))]:
+        if key in expected:
+            assert value == expected[key], (case['id'], key, value, expected[key])
+    for text in expected.get('cleaned_contains', []):
+        assert text in context.cleaned_code, (case['id'], text)
+    for text in expected.get('cleaned_absent', []):
+        assert text not in context.cleaned_code, (case['id'], text)
+    for name in expected.get('identifiers_absent', []):
+        assert name not in context.identifiers, (case['id'], name)
+    for function in context.functions:
+        physical = '\\n'.join(code.split('\\n')[function.lineno - 1:function.end_lineno])
+        assert function.body == physical and function.length == function.end_lineno - function.lineno + 1, case['id']
+        if case.get('verify_signature'):
+            assert function.signature == physical.split('\\n')[0].strip(), (case['id'], function.signature)
+    metrics = {}
+    if expected.get('lexical_error'):
+        assert not context.script_lexically_safe, case['id']
+        assert expected['diagnostic_code'] in context.tokenizer_error, case['id']
+        result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=code, filename=case['filename'], language_hint=language))))
+        report = result['report']
+        assert any(expected['diagnostic_code'] in warning for warning in report['warnings']), case['id']
+        assert expected['diagnostic_code'] in result['text'], case['id']
+        by_name = {item['name']: item for item in report['metrics']}
+        for name in expected['unavailable']:
+            metric = by_name[name]
+            assert metric['applicable'] is False and metric['value'] is None, (case['id'], name)
+            metrics[name] = dict(applicable=metric['applicable'], value=metric['value'])
+    observed.append(dict(case=case['id'], functions=actual, identifiers=context.identifiers,
+                         comments=sorted(scan.comment_line_numbers), tokenizer_error=context.tokenizer_error,
+                         notes=context.notes, unavailable_metrics=metrics, original_body_and_coordinates_preserved=True))
+`},
+    {name:"javascript-dollar-and-unicode-spelling", finding:"A02-F017", script:`
+cases = [
+    {'id': 'JS-05-unicode-function', 'finding': 'F017', 'source': 'function λ(value) {\\n return value;\\n}\\n', 'language': 'javascript', 'filename': 'JS-05-unicode-function.js', 'expected': {'functions': [['λ', 1, 3, 1]], 'identifiers': ['λ', 'value', 'value'], 'lexical_error': False}},
+    {'id': 'JS-12-dollar-identifier', 'finding': 'F017', 'source': 'const \\u0024count = 1;\\n\\u0024count;\\n', 'language': 'javascript', 'filename': 'JS-12-dollar-identifier.js', 'expected': {'identifiers': ['\\u0024count', '\\u0024count'], 'lexical_error': False}},
+    {'id': 'JS-13-unicode-identifier', 'finding': 'F017', 'source': 'const π = 1;\\nπ;\\n', 'language': 'javascript', 'filename': 'JS-13-unicode-identifier.js', 'expected': {'identifiers': ['π', 'π'], 'lexical_error': False}},
+    {'id': 'JS-20-distinct-identifier-spellings', 'finding': 'F017', 'source': 'const \\u0024count = 1, count = 2, café = 3, café = 4;\\n\\u0024count + count + café + café;\\n', 'language': 'javascript', 'filename': 'JS-20-distinct-identifier-spellings.js', 'expected': {'identifiers': ['\\u0024count', 'count', 'café', 'café', '\\u0024count', 'count', 'café', 'café'], 'lexical_error': False}}
+]
+
+observed = []
+for case in cases:
+    code, language, expected = case['source'], case['language'], case['expected']
+    context = module.build_analysis_context(code, case['filename'], language)
+    scan = {'javascript': module.scan_javascript, 'bash': module.scan_bash}[language](code)
+    actual = [[f.name, f.lineno, f.end_lineno, f.cyclomatic] for f in context.functions]
+    assert len(context.cleaned_code) == len(code), case['id']
+    assert [i for i, ch in enumerate(context.cleaned_code) if ch == '\\n'] == [i for i, ch in enumerate(code) if ch == '\\n'], case['id']
+    for key, value in [('functions', actual), ('identifiers', context.identifiers), ('comments', sorted(scan.comment_line_numbers)), ('lexical_error', bool(context.tokenizer_error))]:
+        if key in expected:
+            assert value == expected[key], (case['id'], key, value, expected[key])
+    for text in expected.get('cleaned_contains', []):
+        assert text in context.cleaned_code, (case['id'], text)
+    for text in expected.get('cleaned_absent', []):
+        assert text not in context.cleaned_code, (case['id'], text)
+    for name in expected.get('identifiers_absent', []):
+        assert name not in context.identifiers, (case['id'], name)
+    for function in context.functions:
+        physical = '\\n'.join(code.split('\\n')[function.lineno - 1:function.end_lineno])
+        assert function.body == physical and function.length == function.end_lineno - function.lineno + 1, case['id']
+        if case.get('verify_signature'):
+            assert function.signature == physical.split('\\n')[0].strip(), (case['id'], function.signature)
+    metrics = {}
+    if expected.get('lexical_error'):
+        assert not context.script_lexically_safe, case['id']
+        assert expected['diagnostic_code'] in context.tokenizer_error, case['id']
+        result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=code, filename=case['filename'], language_hint=language))))
+        report = result['report']
+        assert any(expected['diagnostic_code'] in warning for warning in report['warnings']), case['id']
+        assert expected['diagnostic_code'] in result['text'], case['id']
+        by_name = {item['name']: item for item in report['metrics']}
+        for name in expected['unavailable']:
+            metric = by_name[name]
+            assert metric['applicable'] is False and metric['value'] is None, (case['id'], name)
+            metrics[name] = dict(applicable=metric['applicable'], value=metric['value'])
+    observed.append(dict(case=case['id'], functions=actual, identifiers=context.identifiers,
+                         comments=sorted(scan.comment_line_numbers), tokenizer_error=context.tokenizer_error,
+                         notes=context.notes, unavailable_metrics=metrics, original_body_and_coordinates_preserved=True))
+`},
+    {name:"bash-physical-function-ranges", finding:"A02-F019", script:`
+cases = [
+    {'id': 'SH-09-leading-trivia', 'finding': 'F019', 'source': 'echo start\\n\\nreal() {\\n echo ok\\n}\\n', 'language': 'bash', 'filename': 'SH-09-leading-trivia.sh', 'expected': {'functions': [['real', 3, 5, 1]], 'lexical_error': False}, 'verify_signature': True},
+    {'id': 'SH-15-comment-trivia', 'finding': 'F019', 'source': '# heading\\n\\n  function real {\\n echo ok\\n}\\n', 'language': 'bash', 'filename': 'SH-15-comment-trivia.sh', 'expected': {'functions': [['real', 3, 5, 1]], 'lexical_error': False}, 'verify_signature': True},
+    {'id': 'SH-08-heredoc-phantom', 'finding': 'F012', 'source': "cat <<'EOF'\\nphantom() {\\n echo text\\n}\\nEOF\\nreal() {\\n echo ok\\n}\\n", 'language': 'bash', 'filename': 'SH-08-heredoc-phantom.sh', 'expected': {'functions': [['real', 6, 8, 1]], 'lexical_error': False, 'identifiers_absent': ['phantom']}, 'verify_signature': True}
+]
+
+observed = []
+for case in cases:
+    code, language, expected = case['source'], case['language'], case['expected']
+    context = module.build_analysis_context(code, case['filename'], language)
+    scan = {'javascript': module.scan_javascript, 'bash': module.scan_bash}[language](code)
+    actual = [[f.name, f.lineno, f.end_lineno, f.cyclomatic] for f in context.functions]
+    assert len(context.cleaned_code) == len(code), case['id']
+    assert [i for i, ch in enumerate(context.cleaned_code) if ch == '\\n'] == [i for i, ch in enumerate(code) if ch == '\\n'], case['id']
+    for key, value in [('functions', actual), ('identifiers', context.identifiers), ('comments', sorted(scan.comment_line_numbers)), ('lexical_error', bool(context.tokenizer_error))]:
+        if key in expected:
+            assert value == expected[key], (case['id'], key, value, expected[key])
+    for text in expected.get('cleaned_contains', []):
+        assert text in context.cleaned_code, (case['id'], text)
+    for text in expected.get('cleaned_absent', []):
+        assert text not in context.cleaned_code, (case['id'], text)
+    for name in expected.get('identifiers_absent', []):
+        assert name not in context.identifiers, (case['id'], name)
+    for function in context.functions:
+        physical = '\\n'.join(code.split('\\n')[function.lineno - 1:function.end_lineno])
+        assert function.body == physical and function.length == function.end_lineno - function.lineno + 1, case['id']
+        if case.get('verify_signature'):
+            assert function.signature == physical.split('\\n')[0].strip(), (case['id'], function.signature)
+    metrics = {}
+    if expected.get('lexical_error'):
+        assert not context.script_lexically_safe, case['id']
+        assert expected['diagnostic_code'] in context.tokenizer_error, case['id']
+        result = json.loads(module.codeprobe_analyze(json.dumps(dict(code=code, filename=case['filename'], language_hint=language))))
+        report = result['report']
+        assert any(expected['diagnostic_code'] in warning for warning in report['warnings']), case['id']
+        assert expected['diagnostic_code'] in result['text'], case['id']
+        by_name = {item['name']: item for item in report['metrics']}
+        for name in expected['unavailable']:
+            metric = by_name[name]
+            assert metric['applicable'] is False and metric['value'] is None, (case['id'], name)
+            metrics[name] = dict(applicable=metric['applicable'], value=metric['value'])
+    observed.append(dict(case=case['id'], functions=actual, identifiers=context.identifiers,
+                         comments=sorted(scan.comment_line_numbers), tokenizer_error=context.tokenizer_error,
+                         notes=context.notes, unavailable_metrics=metrics, original_body_and_coordinates_preserved=True))
+`}
+  ];
+  fixtureState.reset();
+  const pageUrl = `${baseUrl}/app/index.html?scripts-i09=1`;
+  let session = null, workerSession = null, ownership = null, actualRuntime = null;
+  try {
+    await withinCase("scripts-owned-worker", [], "authenticated-worker-ownership", async () => {
+      await cdp.send("Target.setDiscoverTargets", {discover:true});
+      const previous = new Set((await cdp.send("Target.getTargets")).targetInfos.map(item => item.targetId));
+      session = await createSession(cdp, pageUrl);
+      await waitForExpression(cdp, session.sessionId, "appState.workerSession?.isReady()", 60000);
+      assertSingleVerifiedRequests(fixtureState);
+      await cdp.send("Target.setAutoAttach", {autoAttach:true, waitForDebuggerOnStart:false, flatten:true,
+        filter:[{type:"worker"}, {exclude:true}]}, session.sessionId);
+      const discoveryDeadline = Date.now() + 5000;
+      let workers = [], attachments = [];
+      do {
+        workers = (await cdp.send("Target.getTargets")).targetInfos.filter(item => item.type === "worker" && !previous.has(item.targetId) && item.parentId === session.targetId);
+        attachments = [...cdp.attachedTargets.entries()].filter(([, item]) => item.parentSessionId === session.sessionId && workers.some(worker => worker.targetId === item.targetInfo.targetId));
+        if (workers.length && attachments.length) break;
+        await delay(100);
+      } while (Date.now() < discoveryDeadline);
+      assert(workers.length === 1 && attachments.length === 1, "JavaScript/Bash oracle did not locate exactly one owned worker channel");
+      const worker = workers[0];
+      if (worker.openerId) assert(worker.openerId === session.targetId, "JavaScript/Bash oracle worker opener differs from its owned page");
+      assert(attachments[0][1].targetInfo.type === "worker" && attachments[0][1].targetInfo.parentId === session.targetId, "JavaScript/Bash oracle attachment differs from its owned worker");
+      [workerSession] = attachments[0];
+      await cdp.send("Runtime.enable", {}, workerSession);
+      const workerBase = await evaluate(cdp, workerSession, "self.CODEPROBE_BASE_URL");
+      assert(workerBase === pageUrl, "JavaScript/Bash oracle worker bootstrap URL differs from its owned page");
+      ownership = {page_target_id:session.targetId, worker_target_id:worker.targetId, worker_parent_id:worker.parentId, bootstrap_url:workerBase};
+      return ownership;
+    });
+    for (const item of directCases) {
+      await withinCase(item.name, [item.finding], "context-in-authenticated-worker", async () => {
+        const script = "def _codeprobe_scripts_i09_fixture():\n    import json, sys\n    module = sys.modules['codeprobe_runtime']\n" +
+          item.script.trim().split("\n").map(line => "    " + line).join("\n") +
+          "\n    metadata = json.loads(module.codeprobe_engine_metadata('{}'))\n    return json.dumps(dict(observed=observed, runtime=metadata['python_runtime'], measured_sha256=metadata['engine_fingerprint']['value']), allow_nan=False)\n_codeprobe_scripts_i09_fixture()\n";
+        const result = await evaluate(cdp, workerSession, `(async () => {
+          const runtime = await self.CodeProbeRuntime.loadVerifiedPyodide();
+          try { return JSON.parse(runtime.runPython(${JSON.stringify(script)})); }
+          finally { runtime.globals.delete('_codeprobe_scripts_i09_fixture'); }
+        })()`);
+        assert(result.runtime.platform === "emscripten" && result.runtime.version === "3.11.3", "JavaScript/Bash context oracle used an unexpected interpreter");
+        assert(result.measured_sha256 === engineDigest, "JavaScript/Bash context oracle used different engine bytes");
+        actualRuntime = result.runtime;
+        assertSingleVerifiedRequests(fixtureState);
+        return {...result, oracle_sha256:crypto.createHash("sha256").update(script).digest("hex")};
+      });
+    }
+  } finally {
+    if (workerSession) await cdp.send("Target.detachFromTarget", {sessionId:workerSession}, session.sessionId);
+    if (session) await closeSession(cdp, session);
+    await cdp.send("Target.setDiscoverTargets", {discover:false});
+  }
+
+  const warningCases = [
+  {
+    "name": "javascript-unclosed-string",
+    "finding": "A02-F016",
+    "filename": "bounded.js",
+    "code": "const text = \"unfinished",
+    "prefix": "JS_UNTERMINATED_STRING",
+    "language": "javascript"
+  },
+  {
+    "name": "bash-unclosed-string",
+    "finding": "A02-F016",
+    "filename": "bounded.sh",
+    "code": "echo 'unfinished",
+    "prefix": "BASH_UNTERMINATED_STRING",
+    "language": "bash"
+  }
+];
+  for (const mode of ["main-file", "main-project", "compact-project"]) {
+    const compact = mode.startsWith("compact"), kind = mode.endsWith("file") ? "file" : "project";
+    fixtureState.reset();
+    let page = null, id = null;
+    const active = compact ? "state" : "appState";
+    const button = compact ? "analyseBtn" : "analyzeBtn", status = compact ? "status" : "statusText";
+    const exportName = kind === "file" ? "bounded" : compact ? "scripts" : "selected-files";
+    try {
+      for (const item of warningCases) {
+        await withinCase(`${mode}-${item.name}-json-text-downloads`, [item.finding], "public-ui-worker-report-exports", async () => {
+          if (!page) {
+            page = await createSession(cdp, `${baseUrl}/app/${compact ? "project" : "index"}.html?scripts-i09-${mode}=1`);
+            id = page.sessionId;
+            if (!compact) await waitForExpression(cdp, id, "appState.workerSession?.isReady()", 60000);
+          }
+          await evaluate(cdp, id, `(() => {
+            const transfer = new DataTransfer();
+            const file = new File([${JSON.stringify(item.code)}], ${JSON.stringify(item.filename)}, {type:'text/plain'});
+            if (${kind === "project"}) Object.defineProperty(file, '_codeprobeRelativePath', {value:${JSON.stringify('scripts/' + item.filename)}});
+            transfer.items.add(file);
+            const input = document.getElementById('${kind === "file" ? "fileInput" : "folderInput"}');
+            input.files = transfer.files; input.dispatchEvent(new Event('change', {bubbles:true}));
+          })()`);
+          await waitForExpression(cdp, id, `${active}.loadingInput === false && !document.getElementById('${button}').disabled`, 60000);
+          await evaluate(cdp, id, `document.getElementById('${button}').click()`);
+          await waitForExpression(cdp, id, `document.getElementById('${status}').textContent === '${kind === "file" ? "Analysis completed." : "Project analysis completed."}'`, 60000);
+          const result = await evaluate(cdp, id, `({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value,
+            warnings:document.getElementById('${compact ? "reviewPanel" : "warningsList"}').textContent})`);
+          assert(result.report.report_kind === kind && result.report.engine_fingerprint.value === engineDigest, "JavaScript/Bash UI report identity differs");
+          assert(result.report.engine_fingerprint.source === "packaged-verified", "JavaScript/Bash UI report lost authenticated engine provenance");
+          assert(result.report.warnings.some(value => value.includes(item.prefix)), "JavaScript/Bash diagnostic report lost its warning");
+          assert(result.text.includes(item.prefix) && result.warnings.includes(item.prefix), "JavaScript/Bash diagnostic text or rendered warning is absent");
+          if (kind === "project") {
+            assert(result.report.included_file_count === 1 && result.report.included_files[0].warnings.some(value => value.includes(item.prefix)), "JavaScript/Bash project lost its member or child warning");
+            assert(result.report.warnings.some(value => value.includes(item.filename) && value.includes(item.prefix)), "JavaScript/Bash project warning lacks its member path");
+          }
+          const member = kind === "file" ? result.report : result.report.included_files[0];
+          assert(member.language === item.language, "JavaScript/Bash UI report language differs");
+          const unavailable = {};
+          for (const name of ["cyclomatic_complexity", "halstead_difficulty"]) {
+            const metric = member.metrics.find(value => value.name === name);
+            assert(metric && metric.applicable === false && metric.value === null, `unsafe source retained metric ${name}`);
+            unavailable[name] = {applicable:metric.applicable, value:metric.value};
+          }
+          fs.rmSync(downloads, {recursive:true, force:true}); fs.mkdirSync(downloads, {recursive:true});
+          await cdp.send("Browser.setDownloadBehavior", {behavior:"allow", downloadPath:downloads});
+          await evaluate(cdp, id, "document.getElementById('exportJsonBtn').click(); document.getElementById('exportTextBtn').click()");
+          const jsonPath = path.join(downloads, `${exportName}.json`), textPath = path.join(downloads, `${exportName}.txt`);
+          await Promise.all([waitForFile(jsonPath, 60000), waitForFile(textPath, 60000)]);
+          assert(JSON.stringify(JSON.parse(fs.readFileSync(jsonPath, "utf8"))) === JSON.stringify(result.report), "JavaScript/Bash JSON download differs from accepted report");
+          assert(fs.readFileSync(textPath, "utf8") === result.text, "JavaScript/Bash text download differs from accepted report");
+          assertSingleVerifiedRequests(fixtureState);
+          return {warnings:result.report.warnings, source_sha256:crypto.createHash("sha256").update(item.code).digest("hex"), engine_sha256:engineDigest, export_name:exportName, filename:item.filename, language:member.language, unavailable_metrics:unavailable};
+        });
+      }
+    } finally { if (page) await closeSession(cdp, page); }
+  }
+  console.log("[PASS] browser-scripts-i09: " + JSON.stringify({engine_sha256:engineDigest, runtime:actualRuntime, ownership, observations,
+    qualification:"Six finite JavaScript/Bash context groups ran in the owned authenticated worker interpreter; main file/main project/compact project used actual File/DOM, public worker transport and JSON/text downloads for EOF diagnostics and unavailable code metrics. Submitted source was analysed as data. These bounded lexical observations do not establish full language validation, compiler semantics or empirical authorship accuracy."}));
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -1739,6 +2187,7 @@ async function main() {
     await testIntakeContracts(cdp, baseUrl, downloads, state, true, engineDigest);
     await testPythonStructureContracts(cdp, baseUrl, downloads, state, engineDigest, parserFixtures);
     await testCLikeStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
+    await testScriptStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);

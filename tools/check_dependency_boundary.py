@@ -83,6 +83,7 @@ APPROVED_STDLIB_IMPORTS = {
     "argparse",
     "ast",
     "base64",
+    "bisect",
     "collections",
     "contextlib",
     "copy",

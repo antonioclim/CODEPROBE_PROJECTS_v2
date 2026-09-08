@@ -31,6 +31,7 @@ import tokenize
 import unicodedata
 import zipfile
 from abc import ABC, abstractmethod
+from bisect import bisect_right
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Type
@@ -395,47 +396,10 @@ RE_GENERIC_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 RE_CSHARP_IDENTIFIER = re.compile(r"\b@?[A-Za-z_][A-Za-z0-9_]*\b")
 RE_NUMBER = re.compile(r"(?<![A-Za-z_])[-+]?(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)(?![A-Za-z_])")
 RE_PY_FUNCTION_LINE = re.compile(r"^\s*(?:async\s+def|def)\s+")
-JS_FUNCTION_PATTERNS: Tuple[re.Pattern[str], ...] = (
-    re.compile(
-        r"(?:^|[;\n{}])\s*(?:async\s+)?function(?:\s*\*)?\s*(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*\(",
-        re.M,
-    ),
-    re.compile(
-        r"(?:^|[;\n{}])\s*(?:const|let|var)\s+(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*"
-        r"(?:async\s+)?function(?:\s*\*)?(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?\s*\(",
-        re.M,
-    ),
-    re.compile(
-        r"(?:^|[;\n{}])\s*(?:const|let|var)\s+(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*"
-        r"(?:async\s+)?(?:\([^(){};\n]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>\s*\{",
-        re.M,
-    ),
-    re.compile(
-        r"(?:^|[;,{}\n])\s*(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*"
-        r"(?:async\s+)?function(?:\s*\*)?(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?\s*\(",
-        re.M,
-    ),
-    re.compile(
-        r"(?:^|[;,{}\n])\s*(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*"
-        r"(?:async\s+)?(?:\([^(){};\n]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>\s*\{",
-        re.M,
-    ),
-    re.compile(
-        r"(?:^|[;,{}\n])\s*(?:(?:async|static|get|set)\s+){0,3}"
-        r"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*\([^;{}]*\)\s*\{",
-        re.M,
-    ),
-)
-
 JS_CONTROL_WORDS = {
     "if", "for", "while", "switch", "catch", "with", "else", "do", "try",
     "finally", "function", "class", "return", "throw", "await", "yield",
 }
-
-RE_BASH_FUNCTION_START = re.compile(
-    r"(?:^|\n)\s*(?:function\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\(\))?\s*\{|[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{)",
-    re.M,
-)
 
 REFERENCE_LIBRARY: Dict[str, str] = {
     "rahman_detection": "Rahman, M., Khatoonabadi, S. H., Abdellatif, A. and Shihab, E. (2024). Automatic Detection of LLM-Generated Code: A Case Study of Claude 3 Haiku. arXiv. https://doi.org/10.48550/arXiv.2409.01382",
@@ -894,6 +858,9 @@ class AnalysisContext:
     c_family_lexically_safe: bool = True
     c_family_function_issues: List[str] = field(default_factory=list)
     c_family_declaration_issues: List[str] = field(default_factory=list)
+    script_lexically_safe: bool = True
+    script_feature_issues: List[str] = field(default_factory=list)
+    script_function_issues: List[str] = field(default_factory=list)
 
     @property
     def loc(self) -> int:
@@ -1690,6 +1657,7 @@ class ScanResult:
     tokenizer_error: str = ""
 
     notes: List[str] = field(default_factory=list)
+    excluded_spans: List[Tuple[int, int]] = field(default_factory=list)
 
 class ScannerState:
     NORMAL = "normal"
@@ -1715,280 +1683,539 @@ JS_REGEX_PREFIX_WORDS = {
 }
 
 
-def _previous_js_significant_token(cleaned_chars: Sequence[str]) -> Tuple[str, str]:
-    """Return the previous significant JavaScript token and its broad kind.
-
-    The scanner uses this small token look-back only to distinguish division
-    from regex literals. It is deliberately conservative: uncertain slashes are
-    left as source code rather than masked.
-    """
-    index = len(cleaned_chars) - 1
-    while index >= 0 and str(cleaned_chars[index]).isspace():
-        index -= 1
-    if index < 0:
-        return "", "start"
-    char = str(cleaned_chars[index])
-    if re.match(r"[A-Za-z0-9_$]", char):
-        end = index + 1
-        while index >= 0 and re.match(r"[A-Za-z0-9_$]", str(cleaned_chars[index])):
-            index -= 1
-        return "".join(str(item) for item in cleaned_chars[index + 1 : end]), "word"
-    if char == ">" and index >= 1 and str(cleaned_chars[index - 1]) == "=":
-        return "=>", "operator"
-    return char, "punctuation"
+JS_DELIMITER_LIMIT = 32
+JS_TEMPLATE_LIMIT = 16
+JS_FUNCTION_HEADER_LIMIT = 2048
+JSX_SPAN_LIMIT = 65536
+BASH_SUBSTITUTION_LIMIT = 16
+BASH_HEREDOC_QUEUE_LIMIT = 16
+BASH_HEREDOC_DELIMITER_LIMIT = 128
+BASH_HEREDOC_PAYLOAD_LIMIT = 65536
 
 
-def _is_javascript_regex_literal_start(code: str, index: int, cleaned_chars: Sequence[str]) -> bool:
-    """Heuristically decide whether '/' starts a JavaScript regex literal.
+def _js_identifier_start(char: str) -> bool:
+    return bool(char) and (char in "$_" or unicodedata.category(char) in {"Lu", "Ll", "Lt", "Lm", "Lo", "Nl"})
 
-    Static analysis without a full JavaScript parser cannot make this decision
-    perfectly. The rule below covers common classroom cases and, crucially,
-    masks braces inside regexes such as /[{}]/g so that function extraction does
-    not misread them as block delimiters.
-    """
-    nxt = code[index + 1] if index + 1 < len(code) else ""
-    if nxt in {"", "/", "*", "="}:
-        return False
-    token, kind = _previous_js_significant_token(cleaned_chars)
-    if kind == "start":
-        return True
-    if token in JS_REGEX_PREFIX_CHARS or token == "=>":
-        return True
-    if kind == "word" and token in JS_REGEX_PREFIX_WORDS:
-        return True
-    return False
+
+def _js_identifier_continue(char: str) -> bool:
+    return _js_identifier_start(char) or bool(char) and (char in "\u200c\u200d" or unicodedata.category(char) in {"Mn", "Mc", "Nd", "Pc"})
+
+
+def _js_identifier_spans(text: str) -> Iterable[Tuple[str, int, int]]:
+    cursor = 0
+    while cursor < len(text):
+        if _js_identifier_start(text[cursor]) and (not cursor or not _js_identifier_continue(text[cursor - 1])):
+            end = cursor + 1
+            while end < len(text) and _js_identifier_continue(text[end]):
+                end += 1
+            yield text[cursor:end], cursor, end
+            cursor = end
+        else:
+            cursor += 1
+
+
+class _ScriptMask:
+    """Keep physical coordinates while recording bounded lexical uncertainty."""
+
+    def __init__(self, code: str, language: str) -> None:
+        self.code = code
+        self.cleaned = list(code)
+        self.language = language
+        self.line_starts = [0] + [match.end() for match in re.finditer("\n", code)]
+        self.comments: Set[int] = set()
+        self.code_lines: Set[int] = set()
+        self.comment_texts: List[str] = []
+        self.notes: List[str] = []
+        self.excluded_spans: List[Tuple[int, int]] = []
+        self.error = ""
+
+    def line(self, offset: int) -> int:
+        return bisect_right(self.line_starts, offset)
+
+    def mask(self, start: int, end: int) -> None:
+        for index in range(start, min(end, len(self.code))):
+            if self.code[index] != "\n":
+                self.cleaned[index] = " "
+
+    def comment(self, start: int, end: int) -> None:
+        self.comments.update(range(self.line(start), self.line(max(start, end - 1)) + 1))
+        self.comment_texts.append(self.code[start:end].strip())
+        self.mask(start, end)
+
+    def issue(self, code: str, offset: int, detail: str, *, lexical: bool = False) -> None:
+        message = f"{code} at line {self.line(offset)}: {detail}"
+        note = f"{self.language} warning: {message}"
+        if note not in self.notes:
+            self.notes.append(note)
+        if lexical and not self.error:
+            self.error = message
+
+    def result(self) -> ScanResult:
+        cleaned = "".join(self.cleaned)
+        self.code_lines.update(index for index, line in enumerate(cleaned.split("\n"), 1) if line.strip())
+        return ScanResult(cleaned, self.comments, self.code_lines, self.comment_texts, self.error, self.notes, self.excluded_spans)
 
 
 def scan_javascript(code: str) -> ScanResult:
-    cleaned: List[str] = []
-    line_no = 1
-    state = ScannerState.NORMAL
-    comment_line_numbers: Set[int] = set()
-    code_line_numbers: Set[int] = set()
-    comment_texts: List[str] = []
-    comment_buffer: List[str] = []
-    current_quote = ""
-    escaped = False
-    regex_in_class = False
-
-    def flush_comment() -> None:
-        if comment_buffer:
-            comment_texts.append("".join(comment_buffer).strip())
-            comment_buffer[:] = []
-
-    i = 0
+    """Lex a finite JavaScript subset; templates retain executable substitutions."""
+    scan = _ScriptMask(code, "JavaScript")
     length = len(code)
-    while i < length:
-        ch = code[i]
-        nxt = code[i + 1] if i + 1 < length else ""
+    active_delimiters = 0
 
-        if state == ScannerState.NORMAL:
-            if ch == "\n":
-                cleaned.append(ch)
-                line_no += 1
-                i += 1
-                continue
-            if ch in {"'", '"', "`"}:
-                state = {"'": ScannerState.SINGLE, '"': ScannerState.DOUBLE, "`": ScannerState.TEMPLATE}[ch]
-                current_quote = ch
-                cleaned.append(" ")
-                i += 1
-                continue
-            if ch == "/" and nxt == "/":
-                state = ScannerState.LINE_COMMENT
-                comment_line_numbers.add(line_no)
-                comment_buffer.extend([ch, nxt])
-                cleaned.extend([" ", " "])
-                i += 2
-                continue
-            if ch == "/" and nxt == "*":
-                state = ScannerState.BLOCK_COMMENT
-                comment_line_numbers.add(line_no)
-                comment_buffer.extend([ch, nxt])
-                cleaned.extend([" ", " "])
-                i += 2
-                continue
-            if ch == "/" and _is_javascript_regex_literal_start(code, i, cleaned):
-                state = ScannerState.REGEX
-                regex_in_class = False
-                escaped = False
-                code_line_numbers.add(line_no)
-                cleaned.append(" ")
-                i += 1
-                continue
-            if not ch.isspace():
-                code_line_numbers.add(line_no)
-            cleaned.append(ch)
-            i += 1
-            continue
+    def string(start: int) -> int:
+        quote = code[start]
+        cursor = start + 1
+        while cursor < length:
+            if code[cursor] == "\\":
+                cursor += 2
+            elif code[cursor] == quote:
+                scan.mask(start, cursor + 1)
+                return cursor + 1
+            elif code[cursor] == "\n":
+                break
+            else:
+                cursor += 1
+        scan.issue("JS_UNTERMINATED_STRING", start, "quoted string has no closing delimiter before the line ending or EOF", lexical=True)
+        scan.mask(start, length)
+        return length
 
-        if state in {ScannerState.SINGLE, ScannerState.DOUBLE, ScannerState.TEMPLATE}:
-            if ch == "\n":
-                cleaned.append("\n")
-                line_no += 1
-                escaped = False
-                i += 1
+    def regex(start: int) -> int:
+        cursor, in_class = start + 1, False
+        while cursor < length and code[cursor] != "\n":
+            char = code[cursor]
+            if char == "\\":
+                cursor += 2
                 continue
-            cleaned.append(" ")
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == current_quote:
-                state = ScannerState.NORMAL
-            i += 1
-            continue
+            if char == "[":
+                in_class = True
+            elif char == "]":
+                in_class = False
+            elif char == "/" and not in_class:
+                cursor += 1
+                while cursor < length and _js_identifier_continue(code[cursor]):
+                    cursor += 1
+                scan.mask(start, cursor)
+                return cursor
+            cursor += 1
+        scan.issue("JS_UNTERMINATED_REGEX", start, "regular expression has no closing slash before the line ending or EOF", lexical=True)
+        scan.mask(start, length)
+        return length
 
-        if state == ScannerState.REGEX:
-            if ch == "\n":
-                cleaned.append("\n")
-                line_no += 1
-                escaped = False
-                regex_in_class = False
-                state = ScannerState.NORMAL
-                i += 1
+    def jsx(start: int, nesting: int) -> int:
+        nonlocal active_delimiters
+        scan.issue("JS_UNSUPPORTED_JSX", start, "JSX is outside the executable JavaScript subset; dependent features are unavailable")
+        cursor, tags = start, []
+        maximum = min(length, start + JSX_SPAN_LIMIT + 1)
+        while cursor < maximum:
+            if code[cursor] == "{":
+                cursor = executable(cursor + 1, "}", nesting)
                 continue
-            cleaned.append(" ")
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == "[":
-                regex_in_class = True
-            elif ch == "]" and regex_in_class:
-                regex_in_class = False
-            elif ch == "/" and not regex_in_class:
-                state = ScannerState.NORMAL
-                # Consume regex flags as masked source characters.
-                i += 1
-                while i < length and re.match(r"[A-Za-z]", code[i]):
-                    cleaned.append(" ")
-                    i += 1
+            if code[cursor] != "<":
+                cursor += 1
                 continue
-            i += 1
-            continue
+            match = re.match(r"<(/?)([A-Za-z_$][\w$.-]*|)(?=[\s/>])", code[cursor:maximum])
+            if not match:
+                break
+            closing, name = match.groups()
+            if not closing:
+                active_delimiters += 1
+                if active_delimiters > JS_DELIMITER_LIMIT:
+                    scan.issue("JS_DELIMITER_LIMIT", cursor, f"delimiter nesting exceeds {JS_DELIMITER_LIMIT}", lexical=True)
+                    break
+            end = cursor + match.end()
+            while end < maximum and code[end] != ">":
+                if code[end] in "\"'":
+                    quote = code[end]
+                    end += 1
+                    while end < maximum and code[end] != quote:
+                        end += 1
+                elif code[end] == "{":
+                    end = executable(end + 1, "}", nesting)
+                    continue
+                end += 1
+            if end >= maximum:
+                break
+            if closing:
+                if not tags or tags.pop() != name:
+                    break
+                active_delimiters -= 1
+            elif code[end - 1] != "/":
+                tags.append(name)
+            else:
+                active_delimiters -= 1
+            cursor = end + 1
+            if not tags:
+                if cursor - start > JSX_SPAN_LIMIT:
+                    break
+                scan.mask(start, cursor)
+                scan.excluded_spans.append((start, cursor))
+                return cursor
+        identifier = "JS_JSX_LIMIT" if cursor - start >= JSX_SPAN_LIMIT or maximum < length else "JS_UNTERMINATED_JSX"
+        scan.issue(identifier, start, f"JSX recovery requires a balanced span of at most {JSX_SPAN_LIMIT} characters", lexical=True)
+        scan.mask(start, length)
+        return length
 
-        if state == ScannerState.LINE_COMMENT:
-            if ch == "\n":
-                flush_comment()
-                state = ScannerState.NORMAL
-                cleaned.append("\n")
-                line_no += 1
-                i += 1
-                continue
-            comment_line_numbers.add(line_no)
-            comment_buffer.append(ch)
-            cleaned.append(" ")
-            i += 1
-            continue
+    def template(start: int, nesting: int) -> int:
+        if nesting > JS_TEMPLATE_LIMIT:
+            scan.issue("JS_TEMPLATE_LIMIT", start, f"template nesting exceeds {JS_TEMPLATE_LIMIT}", lexical=True)
+            scan.mask(start, length)
+            return length
+        cursor, segment = start + 1, start
+        while cursor < length:
+            if code[cursor] == "\\":
+                cursor += 2
+            elif code[cursor] == "`":
+                scan.mask(segment, cursor + 1)
+                return cursor + 1
+            elif code.startswith("${", cursor):
+                scan.mask(segment, cursor + 2)
+                cursor = executable(cursor + 2, "}", nesting)
+                segment = cursor
+            else:
+                cursor += 1
+        scan.mask(segment, length)
+        scan.issue("JS_UNTERMINATED_TEMPLATE", start, "template literal or substitution has no closing delimiter", lexical=True)
+        return length
 
-        if state == ScannerState.BLOCK_COMMENT:
-            if ch == "\n":
-                comment_line_numbers.add(line_no)
-                comment_buffer.append(ch)
-                cleaned.append("\n")
-                line_no += 1
-                i += 1
+    def executable(start: int, terminator: str = "", nesting: int = 0) -> int:
+        nonlocal active_delimiters
+        cursor, previous, can_regex = start, "", True
+        delimiters: List[Tuple[str, bool]] = []
+        while cursor < length:
+            char = code[cursor]
+            if char.isspace():
+                cursor += 1
                 continue
-            comment_line_numbers.add(line_no)
-            comment_buffer.append(ch)
-            cleaned.append(" ")
-            if ch == "*" and nxt == "/":
-                comment_buffer.append(nxt)
-                cleaned.append(" ")
-                i += 2
-                flush_comment()
-                state = ScannerState.NORMAL
+            if code.startswith("//", cursor):
+                end = code.find("\n", cursor)
+                end = length if end < 0 else end
+                scan.comment(cursor, end)
+                cursor = end
                 continue
-            i += 1
+            if code.startswith("/*", cursor):
+                end = code.find("*/", cursor + 2)
+                if end < 0:
+                    scan.issue("JS_UNTERMINATED_COMMENT", cursor, "block comment has no closing delimiter", lexical=True)
+                    end = length
+                else:
+                    end += 2
+                scan.comment(cursor, end)
+                cursor = end
+                continue
+            scan.code_lines.add(scan.line(cursor))
+            if char in "\"'`":
+                cursor = template(cursor, nesting + 1) if char == "`" else string(cursor)
+                previous, can_regex = "literal", False
+                continue
+            if char == "<" and can_regex and cursor + 1 < length and (_js_identifier_start(code[cursor + 1]) or code[cursor + 1] == ">"):
+                cursor = jsx(cursor, nesting)
+                previous, can_regex = "literal", False
+                continue
+            if char == "/" and can_regex and not code.startswith("/=", cursor):
+                cursor = regex(cursor)
+                previous, can_regex = "literal", False
+                continue
+            if _js_identifier_start(char):
+                end = cursor + 1
+                while end < length and _js_identifier_continue(code[end]):
+                    end += 1
+                previous = code[cursor:end]
+                can_regex = previous in JS_REGEX_PREFIX_WORDS
+                cursor = end
+                continue
+            if char == "\\" or _js_identifier_continue(char) and not char.isdigit() or ord(char) > 127 and not char.isdigit():
+                beginning = cursor
+                while beginning > start and _js_identifier_continue(code[beginning - 1]):
+                    beginning -= 1
+                end = cursor + 1
+                while end < length and (_js_identifier_continue(code[end]) or code[end] in "\\{}"):
+                    end += 1
+                scan.issue("JS_UNSUPPORTED_IDENTIFIER", cursor, "identifier escapes or an unsupported identifier start are not decoded", lexical=True)
+                scan.mask(beginning, end)
+                cursor = end
+                continue
+            if char.isdigit():
+                end = cursor + 1
+                while end < length and (code[end].isalnum() or code[end] in "._"):
+                    end += 1
+                cursor, previous, can_regex = end, "number", False
+                continue
+            if char in "([{":
+                control = previous in {"if", "for", "while", "with", "switch", "catch"}
+                block = char == "{" and (previous in {"control-close", ")", "=>", "else", "try", "finally", "do"} or not previous)
+                delimiters.append((char, control if char == "(" else block))
+                active_delimiters += 1
+                if active_delimiters > JS_DELIMITER_LIMIT:
+                    scan.issue("JS_DELIMITER_LIMIT", cursor, f"delimiter nesting exceeds {JS_DELIMITER_LIMIT}", lexical=True)
+                    scan.mask(cursor, length)
+                    return length
+                previous, can_regex = char, True
+            elif char in ")]}":
+                if not delimiters and char == terminator:
+                    scan.mask(cursor, cursor + 1)
+                    return cursor + 1
+                if not delimiters or delimiters[-1][0] != {")": "(", "]": "[", "}": "{"}[char]:
+                    scan.issue("JS_UNBALANCED_DELIMITER", cursor, "closing delimiter does not match the active lexical context", lexical=True)
+                    scan.mask(cursor, length)
+                    return length
+                _, control = delimiters.pop()
+                active_delimiters -= 1
+                previous, can_regex = ("control-close" if control else char), control
+            elif code.startswith("=>", cursor):
+                previous, can_regex = "=>", True
+                cursor += 1
+            elif code.startswith(("++", "--"), cursor):
+                previous, can_regex = "postfix", False
+                cursor += 1
+            else:
+                previous, can_regex = char, char in JS_REGEX_PREFIX_CHARS or char == "/"
+            cursor += 1
+        if terminator or delimiters:
+            scan.issue("JS_UNBALANCED_DELIMITER", start, "active lexical delimiters are not closed at EOF", lexical=True)
+        return length
 
-    flush_comment()
-    return ScanResult("".join(cleaned), comment_line_numbers, code_line_numbers, comment_texts)
+    executable(0)
+    return scan.result()
 
 
 def scan_bash(code: str) -> ScanResult:
-    cleaned: List[str] = []
-    line_no = 1
-    state = ScannerState.NORMAL
-    comment_line_numbers: Set[int] = set()
-    code_line_numbers: Set[int] = set()
-    comment_texts: List[str] = []
-    comment_buffer: List[str] = []
-    escaped = False
-    current_quote = ""
-
-    def flush_comment() -> None:
-        if comment_buffer:
-            comment_texts.append("".join(comment_buffer).strip())
-            comment_buffer[:] = []
-
-    i = 0
+    """Mask shell data while retaining the finite executable substitution subset."""
+    scan = _ScriptMask(code, "Bash")
     length = len(code)
-    while i < length:
-        ch = code[i]
-        prev = code[i - 1] if i > 0 else "\n"
 
-        if state == ScannerState.NORMAL:
-            if ch == "\n":
-                cleaned.append(ch)
-                line_no += 1
-                i += 1
+    def parameter(start: int) -> int:
+        end, braces = start + 2, 1
+        while end < length and braces:
+            if code[end] == "\\":
+                end += 2
                 continue
-            if ch in {"'", '"'}:
-                state = ScannerState.DOUBLE if ch == '"' else ScannerState.SINGLE
-                current_quote = ch
-                cleaned.append(" ")
-                i += 1
+            if code[end] == "{":
+                braces += 1
+                if braces > JS_DELIMITER_LIMIT:
+                    scan.issue("BASH_UNSUPPORTED_EXPANSION", start, "parameter expansion exceeds the bounded delimiter model", lexical=True)
+                    scan.mask(start, length)
+                    return length
+            elif code[end] == "}":
+                braces -= 1
+            if braces:
+                end += 1
+        if end >= length:
+            scan.issue("BASH_UNTERMINATED_PARAMETER", start, "parameter expansion has no closing brace", lexical=True)
+            scan.mask(start, length)
+            return length
+        content = code[start + 2:end]
+        if not re.fullmatch(r"#?[A-Za-z_][A-Za-z0-9_]*(?:(?:##?|%%?)[^${}`\\]*)?", content):
+            scan.issue("BASH_UNSUPPORTED_EXPANSION", start, "complex parameter expansion is outside the executable subset")
+        scan.mask(start, end + 1)
+        return end + 1
+
+    def quoted(start: int, depth: int) -> int:
+        quote, cursor, segment = code[start], start + 1, start
+        while cursor < length:
+            if quote == '"' and code[cursor] == "\\":
+                cursor += 2
+            elif code[cursor] == quote:
+                scan.mask(segment, cursor + 1)
+                return cursor + 1
+            elif quote == '"' and code.startswith("$(", cursor) and not code.startswith("$((", cursor):
+                scan.mask(segment, cursor + 2)
+                cursor = executable(cursor + 2, depth + 1, True)
+                segment = cursor
+            elif quote == '"' and code.startswith("${", cursor):
+                scan.mask(segment, cursor)
+                cursor = parameter(cursor)
+                segment = cursor
+            elif quote == '"' and code.startswith("$((", cursor):
+                scan.issue("BASH_UNSUPPORTED_EXPANSION", cursor, "arithmetic expansion is outside the retained executable subset")
+                end = code.find("))", cursor + 3)
+                if end < 0:
+                    scan.issue("BASH_UNTERMINATED_SUBSTITUTION", cursor, "arithmetic expansion has no closing delimiter", lexical=True)
+                cursor = length if end < 0 else end + 2
+            elif quote == '"' and code[cursor] == "`":
+                scan.issue("BASH_UNSUPPORTED_EXPANSION", cursor, "backtick substitution is outside the executable subset")
+                end = code.find("`", cursor + 1)
+                cursor = length if end < 0 else end + 1
+            else:
+                cursor += 1
+        scan.mask(segment, length)
+        scan.issue("BASH_UNTERMINATED_STRING", start, "quoted shell string has no closing delimiter", lexical=True)
+        return length
+
+    def heredoc_header(start: int, queue: List[Tuple[str, bool, bool, int]]) -> int:
+        cursor = start + 2
+        strip_tabs = code[cursor:cursor + 1] == "-"
+        cursor += int(strip_tabs)
+        while cursor < length and code[cursor] in " \t":
+            cursor += 1
+        word_start, quoted_word, parts = cursor, False, []
+        while cursor < length and code[cursor] not in " \t\n;|&<>()":
+            char = code[cursor]
+            if char in "\"'":
+                quote = char
+                end = code.find(quote, cursor + 1)
+                if end < 0 or "\n" in code[cursor:end]:
+                    break
+                parts.append(code[cursor + 1:end])
+                quoted_word = True
+                cursor = end + 1
+            elif char == "\\" and cursor + 1 < length and code[cursor + 1] != "\n":
+                parts.append(code[cursor + 1])
+                quoted_word = True
+                cursor += 2
+            else:
+                parts.append(char)
+                cursor += 1
+        delimiter = "".join(parts)
+        identifier = ""
+        if not delimiter or cursor == word_start or any(char in delimiter for char in "\n\r$`"):
+            identifier = "BASH_UNSUPPORTED_HEREDOC"
+        elif len(delimiter) > BASH_HEREDOC_DELIMITER_LIMIT:
+            identifier = "BASH_HEREDOC_DELIMITER_LIMIT"
+        elif len(queue) >= BASH_HEREDOC_QUEUE_LIMIT:
+            identifier = "BASH_HEREDOC_QUEUE_LIMIT"
+        if identifier:
+            scan.issue(identifier, start, f"heredoc requires a literal delimiter up to {BASH_HEREDOC_DELIMITER_LIMIT} characters and at most {BASH_HEREDOC_QUEUE_LIMIT} pending entries", lexical=True)
+            scan.mask(start, length)
+            return length
+        queue.append((delimiter, strip_tabs, quoted_word, start))
+        scan.mask(start, cursor)
+        return cursor
+
+    def heredoc_payload(start: int, queue: List[Tuple[str, bool, bool, int]]) -> int:
+        cursor = start
+        for delimiter, strip_tabs, quoted_word, opening in queue:
+            payload_start = cursor
+            found = False
+            exceeded = False
+            while cursor <= length:
+                end = code.find("\n", cursor)
+                end = length if end < 0 else end
+                line = code[cursor:end]
+                if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                    if cursor - payload_start > BASH_HEREDOC_PAYLOAD_LIMIT:
+                        exceeded = True
+                        break
+                    payload = code[payload_start:cursor]
+                    complex_expansion = any(not re.fullmatch(r"#?[A-Za-z_][A-Za-z0-9_]*(?:(?:##?|%%?)[^${}`\\]*)?", match.group(1))
+                                            for match in re.finditer(r"\$\{([^}]*)\}", payload))
+                    if not quoted_word and ("$(" in payload or "`" in payload or complex_expansion):
+                        scan.issue("BASH_UNSUPPORTED_EXPANSION", payload_start, "executable heredoc expansion is outside the retained substitution subset")
+                    cursor = end + int(end < length)
+                    scan.mask(payload_start, cursor)
+                    found = True
+                    break
+                if end == length or end + 1 - payload_start > BASH_HEREDOC_PAYLOAD_LIMIT:
+                    exceeded = end + int(end < length) - payload_start > BASH_HEREDOC_PAYLOAD_LIMIT
+                    break
+                cursor = end + 1
+            else:
+                end = length
+            if not found:
+                identifier = "BASH_HEREDOC_PAYLOAD_LIMIT" if exceeded else "BASH_UNTERMINATED_HEREDOC"
+                scan.issue(identifier, opening, f"heredoc payload requires a closing delimiter within {BASH_HEREDOC_PAYLOAD_LIMIT} physical characters", lexical=True)
+                scan.mask(payload_start, length)
+                return length
+        queue.clear()
+        return cursor
+
+    def executable(start: int, depth: int = 0, substitution: bool = False) -> int:
+        if depth > BASH_SUBSTITUTION_LIMIT:
+            scan.issue("BASH_SUBSTITUTION_LIMIT", start, f"command-substitution nesting exceeds {BASH_SUBSTITUTION_LIMIT}", lexical=True)
+            scan.mask(start, length)
+            return length
+        cursor, parentheses, word_start = start, 0, True
+        queue: List[Tuple[str, bool, bool, int]] = []
+        while cursor < length:
+            char = code[cursor]
+            if char == "\n":
+                cursor += 1
+                if queue:
+                    cursor = heredoc_payload(cursor, queue)
+                word_start = True
                 continue
-            if ch == "#" and not escaped and prev != "\\":
-                state = ScannerState.LINE_COMMENT
-                comment_line_numbers.add(line_no)
-                comment_buffer.append(ch)
-                cleaned.append(" ")
-                i += 1
+            if char.isspace():
+                word_start = True
+                cursor += 1
                 continue
-            if not ch.isspace():
-                code_line_numbers.add(line_no)
-            cleaned.append(ch)
-            escaped = ch == "\\" and not escaped
-            i += 1
-            continue
-
-        if state in {ScannerState.SINGLE, ScannerState.DOUBLE}:
-            if ch == "\n":
-                cleaned.append("\n")
-                line_no += 1
-                escaped = False
-                i += 1
+            if char == "#" and word_start:
+                end = code.find("\n", cursor)
+                end = length if end < 0 else end
+                scan.comment(cursor, end)
+                cursor = end
                 continue
-            cleaned.append(" ")
-            if state == ScannerState.DOUBLE and ch == "\\" and not escaped:
-                escaped = True
-            elif escaped:
-                escaped = False
-            elif ch == current_quote:
-                state = ScannerState.NORMAL
-            i += 1
-            continue
-
-        if state == ScannerState.LINE_COMMENT:
-            if ch == "\n":
-                flush_comment()
-                state = ScannerState.NORMAL
-                cleaned.append("\n")
-                line_no += 1
-                i += 1
+            scan.code_lines.add(scan.line(cursor))
+            if char == "\\":
+                scan.mask(cursor, min(length, cursor + 2))
+                continuation = code[cursor + 1:cursor + 2] == "\n"
+                cursor += 2
+                if not continuation:
+                    word_start = False
                 continue
-            comment_line_numbers.add(line_no)
-            comment_buffer.append(ch)
-            cleaned.append(" ")
-            i += 1
-            continue
+            if char in "\"'":
+                cursor = quoted(cursor, depth)
+                word_start = False
+                continue
+            if code.startswith("${", cursor):
+                cursor = parameter(cursor)
+                word_start = False
+                continue
+            if code.startswith("$((", cursor) or code.startswith("((", cursor):
+                end = code.find("))", cursor + 2)
+                scan.issue("BASH_UNSUPPORTED_EXPANSION", cursor, "arithmetic expressions are outside the retained executable subset")
+                if end < 0:
+                    scan.issue("BASH_UNTERMINATED_SUBSTITUTION", cursor, "arithmetic expression has no closing delimiter", lexical=True)
+                end = length if end < 0 else end + 2
+                scan.mask(cursor, end)
+                cursor = end
+                word_start = False
+                continue
+            if code.startswith("$(", cursor):
+                scan.mask(cursor, cursor + 2)
+                cursor = executable(cursor + 2, depth + 1, True)
+                word_start = False
+                continue
+            if char == "`":
+                scan.issue("BASH_UNSUPPORTED_EXPANSION", cursor, "backtick substitution is outside the retained executable subset")
+                end = code.find("`", cursor + 1)
+                if end < 0:
+                    scan.issue("BASH_UNTERMINATED_SUBSTITUTION", cursor, "backtick substitution has no closing delimiter", lexical=True)
+                end = length if end < 0 else end + 1
+                scan.mask(cursor, end)
+                cursor = end
+                continue
+            if code.startswith(("<(", ">("), cursor):
+                scan.issue("BASH_UNSUPPORTED_EXPANSION", cursor, "process substitution is outside the retained executable subset")
+                scan.mask(cursor, cursor + 2)
+                cursor = executable(cursor + 2, depth + 1, True)
+                word_start = False
+                continue
+            if code.startswith("<<<", cursor):
+                cursor += 3
+                word_start = True
+                continue
+            if code.startswith("<<", cursor):
+                cursor = heredoc_header(cursor, queue)
+                word_start = True
+                continue
+            if char == "(":
+                parentheses += 1
+            elif char == ")":
+                if substitution and not parentheses:
+                    if queue:
+                        scan.issue("BASH_UNSUPPORTED_HEREDOC", cursor, "pending heredoc crosses a command-substitution boundary", lexical=True)
+                    scan.mask(cursor, cursor + 1)
+                    return cursor + 1
+                parentheses = max(0, parentheses - 1)
+            word_start = char in ";|&<>()"
+            cursor += 1
+        if queue:
+            scan.issue("BASH_UNTERMINATED_HEREDOC", queue[0][3], "heredoc delimiter is still pending at EOF", lexical=True)
+        if substitution:
+            scan.issue("BASH_UNTERMINATED_SUBSTITUTION", start, "command substitution has no closing parenthesis", lexical=True)
+        return length
 
-    flush_comment()
-    return ScanResult("".join(cleaned), comment_line_numbers, code_line_numbers, comment_texts)
-
-
+    executable(0)
+    return scan.result()
 CSHARP_RAW_QUOTE_LIMIT = 16
 CSHARP_INTERPOLATION_LIMIT = 16
 C_LIKE_HEADER_LIMIT = 800
@@ -2461,7 +2688,7 @@ def generic_tokens_and_identifiers(cleaned_code: str, language: str) -> Tuple[Li
     operators: List[str] = []
     operands: List[str] = []
     if language == "javascript":
-        words = RE_JS_IDENTIFIERS.findall(cleaned_code)
+        words = [word for word, _, _ in _js_identifier_spans(cleaned_code)]
     elif language == "bash":
         words = RE_BASH_IDENTIFIERS.findall(cleaned_code)
     elif language in {"c", "cpp", "csharp"}:
@@ -2980,97 +3207,169 @@ def _deduplicate_named_ranges(ranges: Sequence[Tuple[int, int, str]]) -> List[Tu
     return sorted(unique, key=lambda item: (item[0], item[1], item[2]))
 
 
-def _match_pair(text: str, start_index: int, open_char: str, close_char: str) -> int:
-    depth = 0
-    for index in range(start_index, len(text)):
-        char = text[index]
-        if char == open_char:
-            depth += 1
-        elif char == close_char:
-            depth -= 1
-            if depth == 0:
-                return index
-    return -1
-
-
-def _find_js_body_brace(cleaned_code: str, start_index: int, match_end: int) -> int:
-    window_end = min(len(cleaned_code), max(match_end + 500, start_index + 500))
-    open_paren = cleaned_code.find("(", start_index, window_end)
-    first_brace = cleaned_code.find("{", start_index, window_end)
-    if open_paren != -1 and (first_brace == -1 or open_paren < first_brace):
-        close_paren = _match_pair(cleaned_code, open_paren, "(", ")")
-        if close_paren != -1:
-            cursor = close_paren + 1
-            while cursor < len(cleaned_code) and cleaned_code[cursor].isspace():
-                cursor += 1
-            if cleaned_code.startswith("=>", cursor):
-                cursor += 2
-                while cursor < len(cleaned_code) and cleaned_code[cursor].isspace():
-                    cursor += 1
-            if cursor < len(cleaned_code) and cleaned_code[cursor] == "{":
-                return cursor
-    if first_brace != -1:
-        return first_brace
-    return -1
-
-
 def _trim_js_function_start(cleaned_code: str, start_index: int) -> int:
     while start_index < len(cleaned_code) and cleaned_code[start_index] in ";,{}\n\r\t ":
         start_index += 1
     return start_index
 
 
+def _script_pairs(text: str) -> Dict[int, int]:
+    """Index balanced delimiters once; lexical diagnostics own unsafe input."""
+    stack: List[Tuple[str, int]] = []
+    pairs: Dict[int, int] = {}
+    for index, char in enumerate(text):
+        if char in "([{":
+            stack.append((char, index))
+        elif char in ")]}":
+            if stack and stack[-1][0] == {")": "(", "]": "[", "}": "{"}[char]:
+                _, opening = stack.pop()
+                pairs[opening] = index
+            else:
+                stack.clear()
+    return pairs
+
+
+def _javascript_function_spans(cleaned_code: str, diagnostics: Optional[List[str]] = None,
+                               excluded_spans: Sequence[Tuple[int, int]] = ()) -> List[Tuple[int, int, str]]:
+    issues = diagnostics if diagnostics is not None else []
+    pairs = _script_pairs(cleaned_code)
+    name_pattern = r"(?:[^\W\d]|[$])(?:[\w$\u200c\u200d]|[^\x00-\x7f])*"
+    prefix = r"(?:^|[;\n{}])\s*(?:export\s+(?:default\s+)?)?"
+    patterns = (
+        (prefix + rf"(?:async\s+)?function\s*\*?\s*(?P<name>{name_pattern})\s*(?P<args>[<(])", "function"),
+        (prefix + rf"(?:const|let|var)\s+(?P<name>{name_pattern})\s*=\s*(?:async\s+)?function\s*\*?\s*(?:{name_pattern}\s*)?(?P<args>\()", "function"),
+        (prefix + rf"(?:const|let|var)\s+(?P<name>{name_pattern})\s*=\s*(?:async\s+)?(?P<args>\(|{name_pattern})", "arrow"),
+        (rf"(?:^|[;,{{}}\n])\s*(?P<name>{name_pattern})\s*:\s*(?:async\s+)?function\s*\*?\s*(?:{name_pattern}\s*)?(?P<args>\()", "function"),
+        (rf"(?:^|[;,{{}}\n])\s*(?P<name>{name_pattern})\s*:\s*(?:async\s+)?(?P<args>\(|{name_pattern})", "arrow"),
+        (rf"(?:^|[;,{{}}\n])\s*(?:(?:async|static|get|set)\s+){{0,3}}(?P<name>{name_pattern})\s*(?P<args>\()", "method"),
+    )
+    candidates: List[Tuple[int, int, str]] = []
+    omitted = list(excluded_spans)
+
+    def warn(identifier: str, start: int, detail: str) -> None:
+        message = f"{identifier} at line {cleaned_code.count(chr(10), 0, start) + 1}: {detail}"
+        if message not in issues:
+            issues.append(message)
+
+    def whitespace(cursor: int) -> int:
+        while cursor < len(cleaned_code) and cleaned_code[cursor].isspace():
+            cursor += 1
+        return cursor
+
+    for pattern, kind in patterns:
+        for match in re.finditer(pattern, cleaned_code, re.M):
+            name = match.group("name")
+            if name in JS_CONTROL_WORDS or list(_js_identifier_spans(name)) != [(name, 0, len(name))]:
+                continue
+            start = _trim_js_function_start(cleaned_code, match.start())
+            cursor = match.start("args")
+            typed = cleaned_code[cursor] == "<"
+            if typed:
+                end = cleaned_code.find(">", cursor + 1, min(len(cleaned_code), start + JS_FUNCTION_HEADER_LIMIT + 1))
+                cursor = whitespace(end + 1) if end >= 0 else len(cleaned_code)
+            if cursor >= len(cleaned_code):
+                warn("JS_UNSUPPORTED_TYPESCRIPT", start, "generic header is outside the block-function subset")
+                continue
+            if cleaned_code[cursor] == "(":
+                end = pairs.get(cursor)
+                if end is None:
+                    continue
+                parameter_cursor, initialiser = cursor + 1, False
+                while parameter_cursor < end:
+                    char = cleaned_code[parameter_cursor]
+                    if char in "([{":
+                        parameter_cursor = pairs.get(parameter_cursor, end) + 1
+                        continue
+                    if char == ",":
+                        initialiser = False
+                    elif char == "=":
+                        initialiser = True
+                    elif char == ":" and not initialiser:
+                        typed = True
+                    parameter_cursor += 1
+                cursor = whitespace(end + 1)
+            elif kind == "arrow":
+                cursor = whitespace(match.end("args"))
+            else:
+                continue
+            if cursor < len(cleaned_code) and cleaned_code[cursor] == ":":
+                typed = True
+                cursor = whitespace(cursor + 1)
+                if cursor < len(cleaned_code) and cleaned_code[cursor] == "{":
+                    cursor = whitespace(pairs.get(cursor, len(cleaned_code) - 1) + 1)
+                else:
+                    end = cleaned_code.find("{", cursor, min(len(cleaned_code), start + JS_FUNCTION_HEADER_LIMIT + 1))
+                    cursor = end if end >= 0 else len(cleaned_code)
+            if kind == "arrow":
+                if cleaned_code.startswith("=>", cursor):
+                    cursor = whitespace(cursor + 2)
+                elif not typed:
+                    continue
+            if cursor >= len(cleaned_code) or cleaned_code[cursor] != "{":
+                if typed:
+                    warn("JS_UNSUPPORTED_TYPESCRIPT", start, "typed header is outside the block-function subset")
+                elif kind == "arrow":
+                    warn("JS_UNSUPPORTED_FUNCTION", start, "expression-bodied arrow is outside the block-function subset")
+                continue
+            end = pairs.get(cursor)
+            if end is None:
+                warn("JS_UNSUPPORTED_FUNCTION", start, "function body has no balanced closing brace")
+                continue
+            if typed:
+                warn("JS_UNSUPPORTED_TYPESCRIPT", start, "typed or generic header is outside the block-function subset; the candidate is omitted")
+                omitted.append((start, end + 1))
+            elif cursor - start > JS_FUNCTION_HEADER_LIMIT:
+                warn("JS_FUNCTION_HEADER_LIMIT", start, f"header exceeds {JS_FUNCTION_HEADER_LIMIT} physical characters; the candidate is omitted")
+                omitted.append((start, end + 1))
+            else:
+                candidates.append((start, end + 1, name))
+    return sorted(set(item for item in candidates if not any(item[0] < end and item[1] > start for start, end in omitted)))
+
+
 def extract_javascript_function_candidates(cleaned_code: str) -> List[Tuple[int, int, str]]:
-    ranges: List[Tuple[int, int, str]] = []
-    for pattern in JS_FUNCTION_PATTERNS:
-        for match in pattern.finditer(cleaned_code):
-            name = (match.groupdict().get("name") or "").split(".")[-1].strip()
-            if not name or name in JS_CONTROL_WORDS:
-                continue
-            start_index = _trim_js_function_start(cleaned_code, match.start())
-            brace_index = _find_js_body_brace(cleaned_code, start_index, match.end())
-            if brace_index == -1:
-                continue
-            prefix = cleaned_code[max(0, start_index - 24):brace_index].strip()
-            if re.match(r"^(?:if|for|while|switch|catch|with)\s*\(", prefix):
-                continue
-            end_index = _match_braces(cleaned_code, brace_index)
-            if end_index == -1:
-                continue
-            start_line = cleaned_code.count("\n", 0, start_index) + 1
-            end_line = cleaned_code.count("\n", 0, end_index) + 1
-            if end_line >= start_line:
-                ranges.append((start_line, end_line, name))
-    return _deduplicate_named_ranges(ranges)
+    return _deduplicate_named_ranges([
+        (cleaned_code.count("\n", 0, start) + 1, cleaned_code.count("\n", 0, end - 1) + 1, name)
+        for start, end, name in _javascript_function_spans(cleaned_code)
+    ])
 
 
 def extract_javascript_function_ranges(cleaned_code: str) -> List[Tuple[int, int]]:
-    """Return JavaScript function and method line ranges without name metadata."""
-    return [(start, end) for start, end, _name in extract_javascript_function_candidates(cleaned_code)]
+    """Return physical line ranges for the bounded block-function subset."""
+    return [(start, end) for start, end, _ in extract_javascript_function_candidates(cleaned_code)]
+
+
+def _bash_function_spans(cleaned_code: str, diagnostics: Optional[List[str]] = None) -> List[Tuple[int, int, str]]:
+    issues = diagnostics if diagnostics is not None else []
+    pairs = _script_pairs(cleaned_code)
+    spans = []
+    pattern = r"(?:^|[\n;])[^\S\n]*(?:function[ \t]+(?P<keyword>[A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\))?|(?P<direct>[A-Za-z_][A-Za-z0-9_]*)\s*\(\))\s*\{"
+    for match in re.finditer(pattern, cleaned_code, re.M):
+        start = match.start()
+        while start < match.end() and (cleaned_code[start].isspace() or cleaned_code[start] == ";"):
+            start += 1
+        brace = match.end() - 1
+        end = pairs.get(brace)
+        if end is None:
+            issues.append(f"BASH_UNBALANCED_DELIMITER at line {cleaned_code.count(chr(10), 0, start) + 1}: function body has no balanced closing brace")
+        else:
+            spans.append((start, end + 1, match.group("keyword") or match.group("direct")))
+    return sorted(set(spans))
 
 
 def extract_bash_function_ranges(cleaned_code: str) -> List[Tuple[int, int]]:
-    ranges: List[Tuple[int, int]] = []
-    for match in RE_BASH_FUNCTION_START.finditer(cleaned_code):
-        start_index = match.start()
-        brace_index = cleaned_code.find("{", match.start(), min(len(cleaned_code), match.end() + 120))
-        if brace_index == -1:
-            continue
-        end_index = _match_braces(cleaned_code, brace_index)
-        if end_index == -1:
-            continue
-        start_line = cleaned_code.count("\n", 0, start_index) + 1
-        end_line = cleaned_code.count("\n", 0, end_index) + 1
-        if end_line >= start_line:
-            ranges.append((start_line, end_line))
-    return _deduplicate_ranges(ranges)
+    return _deduplicate_ranges([
+        (cleaned_code.count("\n", 0, start) + 1, cleaned_code.count("\n", 0, end - 1) + 1)
+        for start, end, _ in _bash_function_spans(cleaned_code)
+    ])
 
 
 def approx_cyclomatic_from_text(text: str, language: str) -> int:
     if not text.strip():
         return 1
     if language == "javascript":
-        count = len(re.findall(r"\b(?:if|else\s+if|for|while|catch|switch|case)\b|&&|\|\||\?\?", text))
+        count = sum(word in {"if", "for", "while", "catch", "switch", "case"}
+                    for word, _, _ in _js_identifier_spans(text))
+        count += len(re.findall(r"&&|\|\||\?\?", text))
         return max(1, count + 1)
     if language in {"c", "cpp", "csharp"}:
         decisions = {"if", "for", "while", "switch", "case", "catch"}
@@ -3240,13 +3539,13 @@ def parse_markdown(code: str) -> MarkdownInfo:
     info.prose_word_count = len(re.findall(r"\b[A-Za-z][A-Za-z'-]*\b", info.prose_text))
     return info
 
-def _range_to_function_info(lines: List[str], start_line: int, end_line: int, language: str, name_hint: str = "") -> FunctionInfo:
+def _range_to_function_info(lines: List[str], start_line: int, end_line: int, language: str, name_hint: str = "", *, cleaned_text: Optional[str] = None) -> FunctionInfo:
     start_line = max(1, start_line)
     end_line = max(start_line, end_line)
     snippet = "\n".join(lines[start_line - 1 : end_line])
     header = lines[start_line - 1] if lines and start_line - 1 < len(lines) else ""
     name = name_hint
-    if language == "javascript":
+    if language == "javascript" and not name:
         match = re.search(r"function\s+([A-Za-z_$][A-Za-z0-9_$]*)", header)
         if not match:
             match = re.search(r"(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=", header)
@@ -3256,18 +3555,20 @@ def _range_to_function_info(lines: List[str], start_line: int, end_line: int, la
             candidate = match.group(1)
             if candidate not in JS_CONTROL_WORDS:
                 name = candidate
-    elif language == "bash":
+    elif language == "bash" and not name:
         match = re.search(r"(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\))?\s*\{", header)
         if match:
             name = match.group(1)
     if not name:
         name = f"{language}_function_{start_line}"
+    if cleaned_text is None:
+        cleaned_text = (scan_javascript(snippet) if language == "javascript" else scan_bash(snippet)).cleaned_code
     return FunctionInfo(
         name=name,
         lineno=start_line,
         end_lineno=end_line,
         length=max(1, end_line - start_line + 1),
-        cyclomatic=approx_cyclomatic_from_text(snippet, language),
+        cyclomatic=approx_cyclomatic_from_text(cleaned_text, language),
         signature=header.strip(),
         body=snippet,
         parameters=[],
@@ -3374,14 +3675,18 @@ def extract_c_like_functions(cleaned_code: str, lines: List[str], language: str,
     return functions
 
 
-def extract_generic_functions(lines: List[str], cleaned_code: str, language: str) -> List[FunctionInfo]:
-    if language == "javascript":
+def extract_generic_functions(lines: List[str], cleaned_code: str, language: str,
+                              diagnostics: Optional[List[str]] = None,
+                              excluded_spans: Sequence[Tuple[int, int]] = ()) -> List[FunctionInfo]:
+    if language in {"javascript", "bash"}:
+        spans = (_javascript_function_spans(cleaned_code, diagnostics, excluded_spans)
+                 if language == "javascript" else _bash_function_spans(cleaned_code, diagnostics))
         return [
-            _range_to_function_info(lines, start, end, language, name_hint=name)
-            for start, end, name in extract_javascript_function_candidates(cleaned_code)
+            _range_to_function_info(lines, cleaned_code.count("\n", 0, start) + 1,
+                                    cleaned_code.count("\n", 0, end - 1) + 1, language,
+                                    name_hint=name, cleaned_text=cleaned_code[start:end])
+            for start, end, name in spans
         ]
-    if language == "bash":
-        return [_range_to_function_info(lines, start, end, language) for start, end in extract_bash_function_ranges(cleaned_code)]
     if language in {"c", "cpp", "csharp"}:
         return extract_c_like_functions(cleaned_code, lines, language)
     return []
@@ -3923,6 +4228,9 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
     c_family_lexically_safe = True
     c_family_function_issues: List[str] = []
     c_family_declaration_issues: List[str] = []
+    script_lexically_safe = True
+    script_feature_issues: List[str] = []
+    script_function_issues: List[str] = []
 
     if language == "python":
         scan = scan_python(normalised_code)
@@ -3936,14 +4244,17 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
             imported_names = collector.imported_names
             used_names = collector.used_names
             python_import_usage = _python_import_usage(ast_tree)
-    elif language == "javascript":
-        scan = scan_javascript(normalised_code)
+    elif language in {"javascript", "bash"}:
+        scan = scan_javascript(normalised_code) if language == "javascript" else scan_bash(normalised_code)
+        script_lexically_safe = not bool(scan.tokenizer_error)
+        script_feature_issues = list(scan.notes)
+        notes.extend(scan.notes)
+        label = LANGUAGE_LABELS[language]
+        notes.append(f"{label} scope: lexical analysis and block-function extraction cover a finite subset, not complete syntax validation. Complexity uses exact cleaned character spans; original function body and signature evidence retain physical-line scope.")
         identifiers, operators, operands = generic_tokens_and_identifiers(scan.cleaned_code, language)
-        functions = extract_generic_functions(lines, scan.cleaned_code, language)
-    elif language == "bash":
-        scan = scan_bash(normalised_code)
-        identifiers, operators, operands = generic_tokens_and_identifiers(scan.cleaned_code, language)
-        functions = extract_generic_functions(lines, scan.cleaned_code, language)
+        functions = extract_generic_functions(lines, scan.cleaned_code, language, script_function_issues, scan.excluded_spans)
+        script_function_issues = list(dict.fromkeys(script_function_issues))
+        notes.extend(f"{label} warning: {issue}" for issue in script_function_issues)
     elif language in {"c", "cpp", "csharp"}:
         scan = scan_c_like(normalised_code, language)
         c_family_lexically_safe = not bool(scan.tokenizer_error)
@@ -4001,7 +4312,7 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
         elif index in scan.comment_line_numbers and index not in scan.code_line_numbers:
             category = "comment"
         else:
-            category_line = masked_lines[index - 1] if language in {"c", "cpp", "csharp"} else line
+            category_line = masked_lines[index - 1] if language in {"javascript", "bash", "c", "cpp", "csharp"} else line
             category = line_category(language, category_line)
             if language == "python" and ast_tree is not None and re.match(r"^\s*(?:match|case)\b", line):
                 # Only complete accepted statements supply contextual control roles.
@@ -4047,6 +4358,9 @@ def build_analysis_context(code: str, filename: str, language_hint: Optional[str
         c_family_lexically_safe=c_family_lexically_safe,
         c_family_function_issues=c_family_function_issues,
         c_family_declaration_issues=c_family_declaration_issues,
+        script_lexically_safe=script_lexically_safe,
+        script_feature_issues=script_feature_issues,
+        script_function_issues=script_function_issues,
         notes=notes,
         tokenizer_error=scan.tokenizer_error or token_error,
         markdown=markdown_info,
@@ -4587,7 +4901,7 @@ class NestingDepthMetric(BaseMetric):
         if lang == "python":
             depth = float(python_max_nesting(context.ast_tree))
         elif lang == "bash":
-            depth = float(approx_bash_nesting(context.lines))
+            depth = float(approx_bash_nesting(context.cleaned_code.split("\n")))
         else:
             depth = float(approx_brace_nesting(context.cleaned_code))
         score = 0.15 if depth <= 1.0 else band_score(depth, float(self.threshold("ai_low", 2.0)), float(self.threshold("ai_high", 4.0)), softness=0.8)
@@ -6051,7 +6365,8 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     project_fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
     engine = AnalysisEngine(config, calibration_profile=None, engine_fingerprint=project_fingerprint,
                             require_python_ast=bool(calibration_profile.get("scoring_contract")) or bool(payload.get("require_python_ast")),
-                            require_c_family_features=bool(calibration_profile.get("scoring_contract")) or bool(payload.get("require_c_family_features")))
+                            require_c_family_features=bool(calibration_profile.get("scoring_contract")) or bool(payload.get("require_c_family_features")),
+                            require_script_features=bool(calibration_profile.get("scoring_contract")) or bool(payload.get("require_script_features")))
     warnings: List[str] = list(calibration_profile.get("warnings", []))
     if scope_warning:
         warnings.append(scope_warning + " The generic project policy was used instead.")
@@ -6124,7 +6439,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             hint = None
         report = engine.analyse(candidate.text, path, language_hint=hint, profile=profile)
         warnings.extend(f"{path}: {warning}" for warning in report.warnings
-                        if warning.startswith(("Tokenizer warning:", "AST warning:", "C-family scope:", "C-family extraction warning:", "C-family declaration warning:")))
+                        if warning.startswith(("Tokenizer warning:", "AST warning:", "C-family scope:", "C-family extraction warning:", "C-family declaration warning:", "JavaScript scope:", "JavaScript warning:", "Bash scope:", "Bash warning:")))
         report.intake_provenance = candidate.intake_provenance
         for warning in candidate.intake_provenance.get("warnings", []):
             report.warnings.append(f"{candidate.intake_provenance['source']} intake: {warning}")
@@ -6363,13 +6678,14 @@ def format_project_report_text(report: Dict[str, Any]) -> str:
 class AnalysisEngine:
     """Run all enabled metrics on a shared analysis context."""
 
-    def __init__(self, config: Dict[str, Dict[str, Any]], calibration_profile: Any = None, engine_fingerprint: Any = None, *, require_python_ast: bool = False, require_c_family_features: bool = False) -> None:
+    def __init__(self, config: Dict[str, Dict[str, Any]], calibration_profile: Any = None, engine_fingerprint: Any = None, *, require_python_ast: bool = False, require_c_family_features: bool = False, require_script_features: bool = False) -> None:
         self.config = config
         self.calibration_profile = normalise_calibration_profile(calibration_profile)
         self.review_policy = self.calibration_profile.get("review_policy")
         self.engine_fingerprint = effective_engine_fingerprint(engine_fingerprint)
         self.require_python_ast = require_python_ast or bool(self.calibration_profile.get("scoring_contract"))
         self.require_c_family_features = require_c_family_features or bool(self.calibration_profile.get("scoring_contract"))
+        self.require_script_features = require_script_features or bool(self.calibration_profile.get("scoring_contract"))
 
     def _review_policy_for_language(self, language: str) -> Dict[str, Dict[str, float]]:
         language_policies = self.calibration_profile.get("language_review_policy") or {}
@@ -6389,6 +6705,9 @@ class AnalysisEngine:
         if self.require_c_family_features and context.language in {"c", "cpp", "csharp"} and (
                 not context.c_family_lexically_safe or context.c_family_function_issues or context.c_family_declaration_issues):
             raise ValueError("Calibrated C-family analysis requires available lexical, function and declaration features within the bounded subset.")
+        if self.require_script_features and context.language in {"javascript", "bash"} and (
+                not context.script_lexically_safe or context.script_feature_issues or context.script_function_issues):
+            raise ValueError("Calibrated JavaScript/Bash analysis requires available lexical and function features within the bounded subset.")
         active_review_policy = self._review_policy_for_language(context.language)
         metrics: List[MetricResult] = []
         warnings: List[str] = list(context.notes)
@@ -6400,6 +6719,15 @@ class AnalysisEngine:
             if not metric.supports(context.language):
                 metrics.append(metric.not_applicable("This metric does not apply to the detected language."))
                 continue
+            if context.language in {"javascript", "bash"}:
+                unavailable = bool(context.script_feature_issues or not context.script_lexically_safe) and metric.name not in {
+                    "line_length_uniformity", "blank_line_regularity", "indentation_consistency"}
+                unavailable = unavailable or bool(context.script_function_issues) and metric.name in {
+                    "function_length", "cyclomatic_complexity", "function_complexity_uniformity",
+                    "structural_self_similarity", "code_elegance"}
+                if unavailable:
+                    metrics.append(metric.not_applicable("JavaScript/Bash features required by this metric are unavailable within the bounded subset.", "See the lexical or extraction warnings; missing features are not zero-valued measurements."))
+                    continue
             if context.language in {"c", "cpp", "csharp"}:
                 unavailable = not context.c_family_lexically_safe and metric.name not in {
                     "line_length_uniformity", "blank_line_regularity", "indentation_consistency"}
@@ -6648,7 +6976,7 @@ def validate_analysis_payload(payload: Any, report_kind: str = "file") -> Dict[s
     _optional_text_fields(clean, ("profile", "language_hint"), report_kind)
     if clean.get("profile") not in (None, "") and clean["profile"] not in SCORING_PROFILES:
         raise ValueError("Unknown scoring profile.")
-    for key in ("include_documentation", "require_python_ast", "require_c_family_features"):
+    for key in ("include_documentation", "require_python_ast", "require_c_family_features", "require_script_features"):
         if key in clean and type(clean[key]) is not bool:
             raise ValueError(f"{key} must be true or false")
     for key in ("engine_fingerprint", "engine_integrity"):
@@ -6743,7 +7071,8 @@ def codeprobe_analyze(payload_json: str) -> str:
     fingerprint = effective_engine_fingerprint(payload.get("engine_fingerprint") or payload.get("engine_integrity"))
     engine = AnalysisEngine(config, calibration_profile=calibration_profile, engine_fingerprint=fingerprint,
                             require_python_ast=bool(payload.get("require_python_ast")),
-                            require_c_family_features=bool(payload.get("require_c_family_features")))
+                            require_c_family_features=bool(payload.get("require_c_family_features")),
+                            require_script_features=bool(payload.get("require_script_features")))
     report = engine.analyse(code, filename, language_hint=language_hint, profile=profile)
     provenance = validate_intake_provenance(payload.get("intake_provenance"))
     if provenance:

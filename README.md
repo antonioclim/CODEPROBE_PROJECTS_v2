@@ -34,8 +34,8 @@ This table follows the extension sets and language detector in [the runtime](src
 | Analysis family / Language option | Recognised source extensions | Scope and qualifications |
 |---|---|---|
 | **Python** / `python` | `.py`, `.pyw` | Token and structure analysis, with AST-based metrics where parsing succeeds. Calibration and bound calibrated application require a successful Python AST parse on the executing runtime. Unbound analysis can return warning-bearing fallback diagnostics. |
-| **JavaScript** / `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx` | JavaScript-family lexical and structural heuristics. **TypeScript, JSX and TSX are admitted through this family**, not through separate full TypeScript/React parsers. No type-checking, transpilation, module resolution or framework validation is performed. |
-| **Bash** / `bash` | `.sh`, `.bash`, `.zsh`, `.ksh` | Shell-text heuristics. zsh and ksh extensions are admitted, but this is not a complete dialect-specific parser or a shell-execution validator. |
+| **JavaScript** / `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx` | Bounded lexical and structural extraction. TypeScript/JSX/TSX files are admitted; detected typed/generic headers and JSX require qualification. No type-checking, transpilation, module resolution or framework validation is performed. |
+| **Bash** / `bash` | `.sh`, `.bash`, `.zsh`, `.ksh` | Bounded shell-text extraction. zsh/ksh files are admitted with the Bash subset below; dialect-specific syntax and shell execution are not validated. |
 | **C** / `c` | `.c`, `.h` | Lexical and structural heuristics; no compiler, preprocessor execution, linking or binary analysis. A `.h` header may be classified as C++ from its contents. |
 | **C++** / `cpp` | `.cpp`, `.cxx`, `.cc`, `.hpp`, `.hxx`, `.hh`; content-sensitive `.h` | C++ structural and quality heuristics, not standards-complete semantic analysis, template instantiation or build validation. |
 | **C#** / `csharp` | `.cs` | C# lexical and structural heuristics. No Roslyn/.NET compilation, dependency resolution or runtime execution. |
@@ -46,6 +46,59 @@ Extension matching is case-insensitive. Auto detection also examines first-line/
 For an ambiguous snippet, choose its actual supported language. For a mixed-language project, leave **Language = Auto** in the main interface; a forced language hint can be applied across its files. The compact project page uses per-file detection. In particular, `.h` classification is a heuristic, so inspect `language` in the report rather than assuming every header is C.
 
 There are no dedicated analysers for Java, Go, Rust, R, PHP, Ruby, Swift, Kotlin, SQL, PowerShell, HTML, CSS or notebook JSON in this version. A text box accepting pasted text, an unknown-language fallback or the application itself using HTML/CSS does **not** establish support for those languages. Not every metric applies to every supported language; inspect metric applicability and warnings.
+
+### JavaScript and Bash extraction boundaries
+
+These families use finite static extractors. A recognised unsupported form or
+lexical error produces a warning; a partial inventory is not evidence that no
+other functions or branches exist. The following boundaries govern extraction,
+not the full syntax or behaviour of either language.
+
+| Family | Supported extraction | Qualified forms |
+|---|---|---|
+| JavaScript literals | Ordinary strings/comments, regex literals in expression and control-parenthesis contexts, and template text with executable `${...}` expressions retained. Division after ordinary call/expression parentheses stays code. | Unterminated or unsafe delimiters and exceeded bounds. Regex/division classification is a contextual heuristic, not a complete ECMAScript parser. |
+| JavaScript functions | Named declarations, including named exports; function expressions and block-bodied arrows in variable declarations or named object properties; ordinary methods. Balanced destructured parameters are recognised. | Typed/generic TypeScript headers and recognised unsupported function forms. Following ordinary functions can be recovered when their boundaries remain safe. |
+| JSX | Detected simple expression spans are masked and explicitly qualified. | The enclosing function is a qualified omission; following ordinary functions can be recovered when their boundaries remain safe. Unsafe or unclosed spans prevent a safe later inventory. |
+| Bash words and substitutions | `#` starts a comment at an unquoted token boundary; `alpha#beta` remains word data. Simple `${#name}` and `${name#prefix}` are data. Ordinary `$()` retains executable child code, including inside double quotes. | Backticks, process substitution, arithmetic and complex expansion forms. |
+| Bash functions | Brace-delimited `name()`, `function name` and `function name()` forms, with ASCII names matching `[A-Za-z_][A-Za-z0-9_]*`; original names and physical start/end lines are retained. | Other shell function forms are outside this inventory; the admitted file extension does not establish dialect-specific support. |
+| Bash here documents | Quoted/unquoted delimiters, queued documents and leading-tab removal for `<<-`; here strings and arithmetic shifts are distinguished from here documents. | Apparent executable or complex expansions in unquoted payloads are conservatively qualified, including escaped apparent forms. Payload text does not become ordinary shell structure. |
+
+JavaScript delimiter nesting is bounded cumulatively to **32**, active template nesting to
+**16**, function headers to **2,048 physical characters** before the body brace
+and JSX recovery spans to **65,536 physical characters**. Bash command
+substitutions are bounded to **16 active levels**, pending here documents to
+**16**, each quote-removed delimiter to **128 characters** and each payload to
+**65,536 physical characters**, including newlines before its terminator.
+Header length starts at the first header character, including `export`/`async`
+when present, and includes whitespace before `{`. JavaScript's delimiter budget
+is shared across executable/template-expression/JSX contexts, including open
+JSX tags; template `${...}` wrappers do not themselves consume that budget.
+Bash parameter-text masking is bounded to **32 brace levels**; this does not
+make nested or complex parameter expressions supported executable features.
+The first value above each bound is diagnostic, not a silently truncated input.
+
+JavaScript names retain `$`, `_` and Unicode spelling. The admitted start
+categories are `Lu`, `Ll`, `Lt`, `Lm`, `Lo` and `Nl`; continuation adds `Mn`,
+`Mc`, `Nd`, `Pc`, ZWNJ and ZWJ. Detected escapes and unsupported identifier forms
+are diagnosed rather than converted to a valid-looking suffix. No Unicode
+normalisation or escape decoding is performed; this is not semantic name
+resolution. The Unicode category database belongs to the executing Python.
+
+Function complexity uses the cleaned character interval of each extracted function.
+Stored body/signature evidence remains original, line-based source and can
+include neighbouring content on the same line. Comment, literal and here-document
+masking preserves physical line positions; executable substitutions remain code
+within the supported subset. These corrections do not validate every metric's
+formula or imply that every score is invariant to changes in literal text.
+
+File and project JSON/text preserve `JavaScript scope:`, `Bash scope:` and
+language warning messages; project warnings identify the member path and appear
+in both browser interfaces. Scope notes describe the finite contract. Detected
+feature issues make dependent metrics unavailable and are refused by calibration
+and bound profile application. See the [diagnostic and applicability contract](docs/03-report-schema.md#javascript-and-bash-diagnostics).
+The language distinctions are described by the
+[ECMAScript lexical grammar](https://tc39.es/ecma262/multipage/ecmascript-language-lexical-grammar.html)
+and [Bash reference manual](https://tiswww.case.edu/php/chet/bash/bashref.html).
 
 ### C, C++ and C# extraction boundaries
 
@@ -309,6 +362,14 @@ when scoring corpus samples and when applying a bound profile. An unresolved
 feature issue aborts sample analysis or bound application; an ordinary scope
 qualification alone does not. Re-fitting uses the actual source samples and
 engine identity, not edited fingerprint fields in an older profile.
+
+JavaScript/Bash calibration and bound application require available lexical and
+function features within the documented subset, including admitted project
+members. Both fitting routes request `require_script_features: true`; detected
+feature issues abort sample analysis or bound application. An ordinary scope
+note alone does not cause refusal. Engine/configuration identity changes require
+re-fitting from the original curated corpus; editing profile hashes is not a
+migration. Unbound diagnostic reports can retain qualified partial results.
 
 Fresh opaque sample/group identifiers are assigned for export after partitioning and fitting. They do not anonymise scores, labels, row ordering or group sizes. See [calibration guide](docs/06-calibration-guide.md) and [contract reconciliation](docs/22-contract-reconciliation.md).
 

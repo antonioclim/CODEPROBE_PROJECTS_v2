@@ -296,6 +296,85 @@ for the whole parser or browser. Invalid input remains diagnostic fallback;
 [the tokenizer documentation](https://docs.python.org/3/library/tokenize.html)
 does not promise stable tokenisation of syntactically invalid Python.
 
+## JavaScript and Bash diagnostics
+
+The existing JSON envelope and schema versions are unchanged. JavaScript and
+Bash reports use the following `warnings` prefixes:
+
+| Prefix | Meaning |
+|---|---|
+| `JavaScript scope:` / `Bash scope:` | Describes the finite extraction subset. A scope note alone does not suppress metrics or refuse a calibrated request. |
+| `JavaScript warning:` / `Bash warning:` | A detected lexical, executable-feature or function-inventory issue, with a diagnostic code and physical start line. Read its explanation and metric applicability before interpreting a partial result. |
+
+EOF errors also populate the existing internal `tokenizer_error` field. Internal
+context records `script_lexically_safe`, `script_feature_issues` and
+`script_function_issues`; these do not add public function or token inventories.
+Detected unsafe lexical or unsupported executable features make code metrics
+unavailable, leaving only `line_length_uniformity`, `blank_line_regularity` and
+`indentation_consistency` eligible. The file aggregate is then N/A because fewer
+than four contributing metrics can remain. Detected function omissions with safe
+lexical boundaries make
+`function_length`, `cyclomatic_complexity`, `function_complexity_uniformity`,
+`structural_self_similarity` and `code_elegance` unavailable. An unavailable value
+is not a measured zero; consumers must read `applicable`, `detail` and
+`explanation` together.
+Absence of a specific omission warning does not establish a complete callable
+inventory; the named-form subset still applies.
+
+The optional request field `require_script_features` is a strict Boolean,
+defaulting to false for unbound analysis. True requires available JavaScript/Bash
+lexical, executable and function features. An applied bound profile imposes the
+same requirement; false cannot override it. Both file and project requests carry
+the requirement, including every admitted project member. A recorded feature
+issue raises `ValueError` before a complete report envelope is returned.
+Calibration sample analysis requests true for both file and project samples;
+refusal is a sample error and aborts profile preparation. Python AST and C-family
+availability requirements remain separate and unchanged.
+
+Completed file JSON/text retain diagnostics. Project JSON retains member
+warnings in `included_files` and promotes them with the member path to project
+`warnings`. Project text, the native CLI and both browser interfaces consume the
+same promoted list; browser exports retain the report JSON/text. A worker failure
+is displayed as a failed operation and does not produce an accepted report; its
+error presentation need not expose the internal exception text. Completion of a
+warning-bearing unbound report does not establish successful compilation or a
+complete inventory.
+
+Promoted scope notes and warnings enter the existing project-confidence
+calculation. Its evidence-coverage label can therefore change independently of
+the concern score. No weights, thresholds or aggregation rules are retuned by
+these extraction changes. Confidence remains a heuristic rather than a
+statistical interval or an authorship probability.
+
+| Extraction boundary | Exact bound or qualification |
+|---|---|
+| JavaScript delimiters | At most 32 active delimiters cumulatively across executable/template-expression/JSX contexts, including open JSX tags. Template `${...}` wrappers do not consume this budget. Unsafe or excessive nesting is diagnostic. |
+| JavaScript templates | At most 16 active templates. Text is masked and supported `${...}` expressions remain executable code. |
+| JavaScript function headers | At most 2,048 physical characters from the first header character, including `export`/`async` when present, through whitespace before the body-opening brace. Leading whitespace and statement separators are excluded; a truncated header is not accepted as complete. |
+| JavaScript function forms | Named declarations, including named exports; function expressions/block-bodied arrows in variable declarations or named object properties; ordinary methods with balanced parameter delimiters. Typed/generic TypeScript headers are qualified omissions. |
+| JSX | Simple detected expression spans are qualified and masked, bounded to 65,536 physical characters. The enclosing function is a qualified omission; ordinary following functions can be recovered when boundaries are safe. Unknown, unterminated or excessive spans cannot establish a safe later inventory. |
+| JavaScript names | `$`, `_`, `Lu`, `Ll`, `Lt`, `Lm`, `Lo`, `Nl` initially; continuation adds `Mn`, `Mc`, `Nd`, `Pc`, ZWNJ and ZWJ. Source spelling is retained without normalisation or escape decoding. Unsupported forms are diagnosed. |
+| Bash command substitutions | Ordinary `$()` in code/double quotes retains child code through 16 active levels. Backticks, process substitutions, arithmetic and complex expansions are qualified. |
+| Bash parameter masking | At most 32 brace levels while masking parameter text. Nested/complex forms remain qualified within this budget; the limit is not executable-expression support. |
+| Bash functions | Brace-delimited `name()`, `function name` and `function name()` forms; names match `[A-Za-z_][A-Za-z0-9_]*`. Names and physical start/end lines are extraction metadata, not shell execution or binding validation. |
+| Bash here documents | At most 16 pending documents, 128 characters per quote-removed delimiter and 65,536 physical payload characters including newlines before the terminator. Quoted delimiters and `<<-` leading tabs are recognised. Apparent unquoted executable/complex payload expansions are conservatively qualified, including escaped apparent forms. |
+
+Each first value above a numeric bound is diagnostic. These are CodeProbe
+resource boundaries, not limits imposed by ECMAScript or Bash. See the
+[README support matrix](../README.md#javascript-and-bash-extraction-boundaries)
+for the corresponding language references and qualified syntax.
+
+Coordinates refer to newline-normalised physical source. Masking preserves
+positions and supplies structural line categories. Each function's complexity
+uses the extracted function's cleaned character interval; stored body/signature
+evidence remains original line-based source, which can contain neighbouring same-line content.
+The existing metric uses mean per-function complexity when functions are
+available and a density fallback otherwise; extraction corrections do not make
+those two quantities identical or validate every metric formula. Unicode
+database versions can differ between executing Python runtimes. Nested callable
+bodies can remain in an enclosing lexical complexity count; this is not a
+scope-resolved complexity model.
+
 ## C, C++ and C# diagnostics
 
 The existing JSON envelope and report schema versions remain unchanged. These

@@ -747,5 +747,103 @@ class CFamilyStructuralContractTests(unittest.TestCase):
                     self.assertIn(note, output["text"])
 
 
+class BashLexicalContractTests(unittest.TestCase):
+    """Shell sources are scanned as text, never run by a shell."""
+
+    def context(self, source):
+        return engine.build_analysis_context(source, "fixture.sh", "bash")
+
+    def test_hash_comments_require_an_unquoted_token_boundary(self):
+        cases = (("echo ok # actual comment\n", {1}), ("echo alpha#beta\n", set()),
+                 ("echo '# literal'\n", set()), ("echo \\#literal\n", set()),
+                 ("echo ${#name}\n", set()), ("echo ${name#prefix}\n", set()))
+        for source, comments in cases:
+            with self.subTest(source=source):
+                scan = engine.scan_bash(source)
+                self.assertEqual(scan.comment_line_numbers, comments)
+                self.assertFalse(scan.tokenizer_error)
+                self.assertEqual(len(scan.cleaned_code), len(source))
+        self.assertIn("alpha#beta", engine.scan_bash(cases[1][0]).cleaned_code)
+
+    def test_quoted_and_unquoted_heredoc_data_cannot_create_phantom_functions(self):
+        for delimiter in ("EOF", "'EOF'", '"EOF"'):
+            source = "cat <<" + delimiter + "\nphantom() {\n echo text\n}\nEOF\nreal() {\n echo ok\n}\n"
+            with self.subTest(delimiter=delimiter):
+                context = self.context(source)
+                self.assertEqual([(f.name, f.lineno, f.end_lineno, f.length) for f in context.functions], [("real", 6, 8, 3)])
+                self.assertEqual(context.functions[0].body, "real() {\n echo ok\n}")
+                self.assertNotIn("phantom", context.identifiers)
+                self.assertFalse(context.tokenizer_error)
+
+    def test_tab_stripped_heredoc_terminator_preserves_physical_coordinates(self):
+        source = "cat <<-'EOF'\n\tphantom() { echo text; }\n\tEOF\nreal() {\n echo ok\n}\n"
+        context = self.context(source)
+        self.assertEqual([(f.name, f.lineno, f.end_lineno) for f in context.functions], [("real", 4, 6)])
+        self.assertEqual(engine.scan_bash(source).comment_line_numbers, set())
+        self.assertEqual([i for i, ch in enumerate(context.cleaned_code) if ch == "\n"],
+                         [i for i, ch in enumerate(source) if ch == "\n"])
+
+    def test_leading_trivia_does_not_replace_function_names_or_expand_bodies(self):
+        cases = (("echo start\n\nreal() {\n echo ok\n}\n", "real() {"),
+                 ("# heading\n\n  function real {\n echo ok\n}\n", "function real {"))
+        for source, signature in cases:
+            with self.subTest(source=source):
+                functions = self.context(source).functions
+                self.assertEqual([(f.name, f.lineno, f.end_lineno, f.length) for f in functions], [("real", 3, 5, 3)])
+                self.assertEqual(functions[0].signature, signature)
+                self.assertEqual(functions[0].body, "\n".join(source.split("\n")[2:5]))
+
+    def test_unclosed_quotes_and_heredocs_have_stable_diagnostics(self):
+        cases = (("echo 'unfinished", "BASH_UNTERMINATED_STRING"),
+                 ('echo "unfinished', "BASH_UNTERMINATED_STRING"),
+                 ("cat <<'EOF'\nphantom() { echo ok; }\n", "BASH_UNTERMINATED_HEREDOC"))
+        for source, diagnostic in cases:
+            with self.subTest(source=source):
+                context = self.context(source)
+                self.assertIn(diagnostic, context.tokenizer_error)
+                self.assertEqual(context.functions, [])
+        closed = self.context("f() { echo ok; } # EOF")
+        self.assertFalse(closed.tokenizer_error)
+        self.assertEqual([f.name for f in closed.functions], ["f"])
+
+    def test_heredoc_queue_and_delimiter_limits_have_finite_endpoints(self):
+        for count in (15, 16, 17):
+            source = ("cat " + " ".join("<<'E%d'" % i for i in range(count)) + "\n"
+                      + "".join("payload\nE%d\n" % i for i in range(count)) + "real() {\n echo ok\n}\n")
+            with self.subTest(queued=count):
+                context = self.context(source)
+                self.assertEqual(bool(context.tokenizer_error), count > 16)
+                self.assertEqual([(f.name, f.lineno, f.end_lineno) for f in context.functions],
+                                 [("real", 2 * count + 2, 2 * count + 4)] if count <= 16 else [])
+                if count > 16:
+                    self.assertIn("BASH_HEREDOC_QUEUE_LIMIT", context.tokenizer_error)
+        for width in (127, 128, 129):
+            delimiter = "E" * width
+            with self.subTest(delimiter_width=width):
+                context = self.context("cat <<'" + delimiter + "'\npayload\n" + delimiter + "\nreal() {\n echo ok\n}\n")
+                self.assertEqual(bool(context.tokenizer_error), width > 128)
+                if width > 128:
+                    self.assertIn("BASH_HEREDOC_DELIMITER_LIMIT", context.tokenizer_error)
+
+    def test_heredoc_payload_and_substitution_depth_count_documented_units(self):
+        for width in (65535, 65536, 65537):
+            payload = "x" * (width - 1) + "\n"
+            with self.subTest(payload_characters=width):
+                context = self.context("cat <<'EOF'\n" + payload + "EOF\nreal() {\n echo ok\n}\n")
+                self.assertEqual(bool(context.tokenizer_error), width > 65536)
+                self.assertEqual([f.name for f in context.functions], ["real"] if width <= 65536 else [])
+                if width > 65536:
+                    self.assertIn("BASH_HEREDOC_PAYLOAD_LIMIT", context.tokenizer_error)
+        for depth in (15, 16, 17):
+            expression = "printf ok"
+            for _ in range(depth):
+                expression = "$(" + expression + ")"
+            with self.subTest(substitution_depth=depth):
+                context = self.context("echo " + expression + "\n")
+                self.assertEqual(bool(context.tokenizer_error), depth > 16)
+                if depth > 16:
+                    self.assertIn("BASH_SUBSTITUTION_LIMIT", context.tokenizer_error)
+
+
 if __name__ == "__main__":
     unittest.main()

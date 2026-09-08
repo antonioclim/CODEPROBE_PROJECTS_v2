@@ -175,5 +175,38 @@ class PythonImportBindingTests(unittest.TestCase):
                 self.assertRegex(metric.explanation + " " + metric.detail, "(?i)unavailable|ambiguous|dynamic|conservative")
 
 
+class ScriptComplexityControls(unittest.TestCase):
+    """Inert text and executable decisions are separate source facts."""
+
+    def assert_complexity(self, source, language, expected):
+        filename = "fixture.js" if language == "javascript" else "fixture.sh"
+        context = engine.build_analysis_context(source, filename, language)
+        self.assertEqual([(f.name, f.cyclomatic) for f in context.functions], [("f", expected)])
+        self.assertEqual(context.functions[0].body, source.rstrip("\n"))
+        report = engine.AnalysisEngine(engine.merged_metric_config("default")).analyse(source, filename, language)
+        metric = next(item for item in report.metrics if item.name == "cyclomatic_complexity")
+        self.assertTrue(metric.applicable)
+        self.assertEqual(metric.value, expected)
+        self.assertEqual(metric.group, "context")
+        self.assertFalse(metric.contributes_to_overall)
+
+    def test_javascript_inert_comments_strings_regex_and_templates_do_not_add_decisions(self):
+        bodies = (" return 1;", " // if for while catch && ||\n return 1;",
+                  ' return "if for while catch && ||";', ' return /if|for|while|catch|&&|\\|\\|/;',
+                  ' return `if for while catch && ||`;')
+        for body in bodies:
+            with self.subTest(body=body):
+                self.assert_complexity("function f() {\n" + body + "\n}\n", "javascript", 1)
+        self.assert_complexity("function f(ok) {\n if (ok) return 1;\n return 0;\n}\n", "javascript", 2)
+
+    def test_bash_inert_comments_strings_and_heredocs_do_not_add_decisions(self):
+        bodies = (" echo ok", " # if for while until && ||\n echo ok",
+                  ' echo "if for while until && ||"', " cat <<'EOF'\nif for while until && ||\nEOF")
+        for body in bodies:
+            with self.subTest(body=body):
+                self.assert_complexity("f() {\n" + body + "\n}\n", "bash", 1)
+        self.assert_complexity('f() {\n if test -n "$value"; then\n  echo ok\n fi\n}\n', "bash", 2)
+
+
 if __name__ == "__main__":
     unittest.main()
