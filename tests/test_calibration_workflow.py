@@ -352,33 +352,52 @@ class CalibrationWorkflowTests(unittest.TestCase):
         command = commands()["server"]
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp).resolve()
-            log = base / "server.log"
-            with log.open("wb") as output:
-                process = subprocess.Popen([sys.executable, *command_args(command, base)], cwd=ROOT,
-                                           stdin=subprocess.DEVNULL, stdout=output, stderr=output)
-                try:
-                    deadline = time.monotonic() + 10
-                    urls = []
-                    while time.monotonic() < deadline:
-                        text = log.read_text(encoding="utf-8")
-                        urls = re.findall(r"^(?:Open|Project): (http://127\.0\.0\.1:\d+/app/(?:index|project)\.html)$", text, re.M)
-                        if len(urls) == 2 or process.poll() is not None:
-                            break
-                        time.sleep(.02)
-                    self.assertEqual(len(urls), 2, text)
-                    for url, page in zip(urls, ("index.html", "project.html")):
-                        with urllib.request.urlopen(url, timeout=5) as response:
-                            self.assertEqual(response.status, 200)
-                            self.assertEqual(response.read(), (ROOT / "app" / page).read_bytes())
-                finally:
-                    if process.poll() is None:
-                        process.terminate()
+            process = subprocess.Popen(
+                [sys.executable, *command_args(command, base)],
+                cwd=ROOT,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            try:
+                deadline = time.monotonic() + 10
+                urls = []
+                text = ""
+                while time.monotonic() < deadline:
+                    remaining = deadline - time.monotonic()
                     try:
-                        process.wait(timeout=3)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=3)
-                self.assertIsNotNone(process.returncode)
+                        captured, _ = process.communicate(timeout=min(0.10, max(0.01, remaining)))
+                        completed = True
+                    except subprocess.TimeoutExpired as exc:
+                        captured = exc.output or b""
+                        completed = False
+                    if isinstance(captured, bytes):
+                        text = captured.decode("utf-8", errors="replace")
+                    else:
+                        text = captured or ""
+                    text = text.replace("\r\n", "\n").replace("\r", "\n")
+                    urls = re.findall(
+                        r"^(?:Open|Project): "
+                        r"(http://127\.0\.0\.1:\d+/app/(?:index|project)\.html)$",
+                        text,
+                        re.M,
+                    )
+                    if len(urls) == 2 or completed:
+                        break
+                self.assertEqual(len(urls), 2, text)
+                for url, page in zip(urls, ("index.html", "project.html")):
+                    with urllib.request.urlopen(url, timeout=5) as response:
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(response.read(), (ROOT / "app" / page).read_bytes())
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                try:
+                    process.communicate(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate(timeout=3)
+            self.assertIsNotNone(process.returncode)
 
 
 class ReportConsumerDocumentationTests(unittest.TestCase):
