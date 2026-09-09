@@ -9,8 +9,9 @@ import socket
 import stat
 from dataclasses import dataclass
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _StdlibThreadingHTTPServer
 from pathlib import Path, PurePosixPath
+from socketserver import TCPServer
 from urllib.parse import unquote_to_bytes, urlsplit
 
 from .release import ReleaseSetError, read_regular_file
@@ -267,6 +268,20 @@ def handler_for_root(root: Path) -> type[CodeProbeRequestHandler]:
         root = root_path
 
     return BoundCodeProbeRequestHandler
+
+
+class ThreadingHTTPServer(_StdlibThreadingHTTPServer):
+    """HTTP server that does not perform reverse DNS after binding."""
+
+    def server_bind(self) -> None:
+        # HTTPServer.server_bind() calls socket.getfqdn(host).  The local tool
+        # never needs a reverse-DNS name, and that lookup can block startup on
+        # otherwise healthy hosts.  Bind at the TCP layer and retain the two
+        # attributes HTTPServer normally publishes from the bound socket.
+        TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
 
 
 class _LocalThreadingHTTPServer(ThreadingHTTPServer):
