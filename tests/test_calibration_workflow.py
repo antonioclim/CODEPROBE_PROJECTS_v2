@@ -7,11 +7,13 @@ import csv
 import hashlib
 import io
 import json
+import queue
 import re
 import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import urllib.request
@@ -358,31 +360,50 @@ class CalibrationWorkflowTests(unittest.TestCase):
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
             )
+            self.assertIsNotNone(process.stdout)
+            line_queue: queue.Queue[str | None] = queue.Queue()
+
+            def capture_output() -> None:
+                try:
+                    assert process.stdout is not None
+                    for line in process.stdout:
+                        line_queue.put(line)
+                finally:
+                    line_queue.put(None)
+
+            reader = threading.Thread(
+                target=capture_output,
+                name="codeprobe-server-output",
+                daemon=True,
+            )
+            reader.start()
             try:
                 deadline = time.monotonic() + 10
                 urls = []
+                lines = []
                 text = ""
                 while time.monotonic() < deadline:
                     remaining = deadline - time.monotonic()
                     try:
-                        captured, _ = process.communicate(timeout=min(0.10, max(0.01, remaining)))
-                        completed = True
-                    except subprocess.TimeoutExpired as exc:
-                        captured = exc.output or b""
-                        completed = False
-                    if isinstance(captured, bytes):
-                        text = captured.decode("utf-8", errors="replace")
-                    else:
-                        text = captured or ""
-                    text = text.replace("\r\n", "\n").replace("\r", "\n")
+                        line = line_queue.get(timeout=min(0.10, max(0.01, remaining)))
+                    except queue.Empty:
+                        continue
+                    if line is None:
+                        break
+                    lines.append(line)
+                    text = "".join(lines).replace("\r\n", "\n").replace("\r", "\n")
                     urls = re.findall(
                         r"^(?:Open|Project): "
                         r"(http://127\.0\.0\.1:\d+/app/(?:index|project)\.html)$",
                         text,
                         re.M,
                     )
-                    if len(urls) == 2 or completed:
+                    if len(urls) == 2:
                         break
                 self.assertEqual(len(urls), 2, text)
                 for url, page in zip(urls, ("index.html", "project.html")):
@@ -393,10 +414,14 @@ class CalibrationWorkflowTests(unittest.TestCase):
                 if process.poll() is None:
                     process.terminate()
                 try:
-                    process.communicate(timeout=3)
+                    process.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     process.kill()
-                    process.communicate(timeout=3)
+                    process.wait(timeout=3)
+                if process.stdout is not None:
+                    process.stdout.close()
+                reader.join(timeout=1)
+            self.assertFalse(reader.is_alive(), "server output reader did not stop")
             self.assertIsNotNone(process.returncode)
 
 
