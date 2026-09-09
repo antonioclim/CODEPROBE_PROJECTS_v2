@@ -1,13 +1,13 @@
 """Exercise the documented workflow on owned synthetic inputs, not an authorship corpus."""
 from __future__ import annotations
 
+import collections
 import contextlib
 import copy
 import csv
 import hashlib
 import io
 import json
-import queue
 import re
 import shlex
 import subprocess
@@ -366,15 +366,22 @@ class CalibrationWorkflowTests(unittest.TestCase):
                 bufsize=1,
             )
             self.assertIsNotNone(process.stdout)
-            line_queue: queue.Queue[str | None] = queue.Queue()
+            line_buffer: collections.deque[str] = collections.deque()
+            line_condition = threading.Condition()
+            stream_finished = False
 
             def capture_output() -> None:
+                nonlocal stream_finished
                 try:
                     assert process.stdout is not None
                     for line in process.stdout:
-                        line_queue.put(line)
+                        with line_condition:
+                            line_buffer.append(line)
+                            line_condition.notify()
                 finally:
-                    line_queue.put(None)
+                    with line_condition:
+                        stream_finished = True
+                        line_condition.notify_all()
 
             reader = threading.Thread(
                 target=capture_output,
@@ -388,14 +395,13 @@ class CalibrationWorkflowTests(unittest.TestCase):
                 lines = []
                 text = ""
                 while time.monotonic() < deadline:
-                    remaining = deadline - time.monotonic()
-                    try:
-                        line = line_queue.get(timeout=min(0.10, max(0.01, remaining)))
-                    except queue.Empty:
-                        continue
-                    if line is None:
-                        break
-                    lines.append(line)
+                    with line_condition:
+                        remaining = deadline - time.monotonic()
+                        if not line_buffer and not stream_finished:
+                            line_condition.wait(timeout=min(0.10, max(0.01, remaining)))
+                        while line_buffer:
+                            lines.append(line_buffer.popleft())
+                        finished = stream_finished
                     text = "".join(lines).replace("\r\n", "\n").replace("\r", "\n")
                     urls = re.findall(
                         r"^(?:Open|Project): "
@@ -403,7 +409,7 @@ class CalibrationWorkflowTests(unittest.TestCase):
                         text,
                         re.M,
                     )
-                    if len(urls) == 2:
+                    if len(urls) == 2 or finished:
                         break
                 self.assertEqual(len(urls), 2, text)
                 for url, page in zip(urls, ("index.html", "project.html")):
