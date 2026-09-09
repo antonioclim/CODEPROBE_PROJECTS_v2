@@ -112,18 +112,28 @@ Markdown remains outside the overall code aggregate, and ordinary project
 admission still excludes documentation. Enabling an inapplicable metric does not
 invent a measured value.
 
+For a file report, `aggregation.nominal_weight` is the configured positive-weight
+contributor sum, `aggregation.effective_weight` is the denominator formed only
+from applicable contributors, and `aggregation.aggregate_applied_weight` equals
+that eligible denominator only when the code aggregate is applicable; otherwise
+it is zero. These are metric-weight quantities, not source-line counts. For a
+project report, `aggregation.effective_weight_sloc` is instead the sum of the
+retained capped per-file SLOC weights used by the project aggregate. It must not
+be interpreted as an effective metric weight, sample size or independent-trial
+denominator.
+
 ## References and source-level proxies
 
-Metric `detail.references` records descriptive attribution entries with `text`,
-`doi`, `url`, `relationship` and `scope`. The relationship is one of `definition`,
-`motivation` or `context`: a source can define a family of measures without
-validating CodeProbe's particular vocabulary, normalisation, thresholds or
-weights. `detail.reference_scope` states that distinction, which text exports
-retain. A verified DOI or URL is not evidence that the cited work validates a
-review trigger, a hardware claim or authorship detection. The revised reference
-metadata does not alter the effective metric configuration digest; the changed
-engine file still changes the engine identity and requires refitting bound
-profiles.
+Metric `references` retains the compatible bibliographic citation strings. The
+additive `reference_usage` list associates each citation with a `role`
+(`definition`, `motivation` or `context`) and an explicit `scope`. A source can
+define a family of measures without validating CodeProbe's particular
+vocabulary, normalisation, thresholds or weights. JSON keeps those fields at the
+metric-record level, and text exports render the same role and scope. A verified
+DOI or URL is not evidence that the cited work validates a review trigger, a
+hardware claim or authorship detection. The revised reference metadata does not
+alter the effective metric configuration digest; the changed engine file still
+changes the engine identity and requires refitting bound profiles.
 
 Applicable memory-related observations additionally carry optional
 `measurement_method`, `measurement_unit` and `measurement_domain` metadata.
@@ -479,7 +489,7 @@ do not create identifiers. Syntax unsupported by the active interpreter remains
 diagnosed; the absence of an AST does not justify discarding every identifier
 with a soft-keyword spelling.
 The language specification describes these roles in
-[Python's soft-keyword rules](https://docs.python.org/3/reference/lexical_analysis.html#soft-keywords).
+[Python's soft-keyword rules]([https://docs.python.org/3/reference/lexical_analysis.html#soft-keywords](https://docs.python.org/3/reference/lexical_analysis.html#soft-keywords)).
 
 `FunctionInfo.parameters` is internal structural metadata, ordered as
 positional-only parameters, ordinary positional parameters, the variadic
@@ -488,7 +498,7 @@ parameter. The `/` and bare `*` separators are not parameter names. This restore
 signature fidelity without adding a public parameter field or establishing an
 effect on an existing score.
 The corresponding fields are defined in
-[the Python AST argument reference](https://docs.python.org/3/library/ast.html#ast.arguments).
+[the Python AST argument reference]([https://docs.python.org/3/library/ast.html#ast.arguments](https://docs.python.org/3/library/ast.html#ast.arguments)).
 
 ## Python used-import ratio
 
@@ -519,7 +529,7 @@ prove that an import succeeds, a callable runs or a branch is reachable.
 Annotation and type-parameter scopes also require qualification: their evaluation
 rules differ across supported interpreter versions, including deferred
 annotations in Python 3.14. They cannot automatically be treated as ordinary
-immediate reads. See [Python's execution model](https://docs.python.org/3/reference/executionmodel.html).
+immediate reads. See [Python's execution model]([https://docs.python.org/3/reference/executionmodel.html](https://docs.python.org/3/reference/executionmodel.html)).
 The current conservative rule makes this metric unavailable for the whole file
 when such a scope limitation is found, including an explicit AST annotation or type
 parameter even if it appears unrelated to an import. It does not track aliases
@@ -569,7 +579,7 @@ Masking preserves character positions, line classifications and comment text;
 normal context construction first normalises newlines. The bounded operation
 count concerns this offset work and does not establish a wall-clock guarantee
 for the whole parser or browser. Invalid input remains diagnostic fallback;
-[the tokenizer documentation](https://docs.python.org/3/library/tokenize.html)
+[the tokenizer documentation]([https://docs.python.org/3/library/tokenize.html](https://docs.python.org/3/library/tokenize.html))
 does not promise stable tokenisation of syntactically invalid Python.
 
 ## Finite metric extraction

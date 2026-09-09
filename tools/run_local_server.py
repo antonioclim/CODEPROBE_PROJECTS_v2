@@ -57,9 +57,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     actual_port = int(server.server_address[1])
     display_host = f"[{host}]" if ":" in host else host
     url = f"http://{display_host}:{actual_port}{DEFAULT_ENTRY_PATH}"
-    print(f"Serving the declared CodeProbe browser surface from: {ROOT}")
-    print(f"Open: {url}")
-    print(f"Project: http://{display_host}:{actual_port}/app/project.html")
+    print(f"Serving the declared CodeProbe browser surface from: {ROOT}", flush=True)
+    print(f"Open: {url}", flush=True)
+    print(f"Project: http://{display_host}:{actual_port}/app/project.html", flush=True)
     if not args.no_browser:
         try:
             webbrowser.open(url)
