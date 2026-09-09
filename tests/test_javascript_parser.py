@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -113,6 +114,151 @@ function renderItems(items, target) {
         self.assertTrue(report.overall_applicable)
         self.assertLess(report.overall_score, 0.60)
         self.assertNotEqual(report.verdict_class, "high")
+
+
+class JavaScriptLexicalContractTests(unittest.TestCase):
+    """Literal fixtures are source data; no JavaScript program is executed."""
+
+    def context(self, source, filename="fixture.js"):
+        return engine.build_analysis_context(source, filename, "javascript")
+
+    def test_control_parenthesis_regex_and_call_division_keep_function_ranges(self):
+        cases = (
+            ("function f(ok, x) {\n if (ok) /[}]/.test(x);\n return x;\n}\n", "f", 4, 2),
+            ("function ratio(a, b) {\n return get(a) / b;\n}\n", "ratio", 3, 1),
+        )
+        for source, name, end, complexity in cases:
+            with self.subTest(name=name):
+                context = self.context(source)
+                self.assertEqual([(f.name, f.lineno, f.end_lineno, f.cyclomatic) for f in context.functions],
+                                 [(name, 1, end, complexity)])
+                self.assertFalse(context.tokenizer_error)
+                self.assertEqual(context.functions[0].body, source.rstrip("\n"))
+                self.assertEqual(len(context.cleaned_code), len(source))
+        self.assertIn("get(a) / b", self.context(cases[1][0]).cleaned_code)
+        self.assertNotIn("[}]", self.context(cases[0][0]).cleaned_code)
+
+    def test_exported_function_and_destructured_arrow_have_exact_names(self):
+        cases = (("export function add(a, b) {\n return a + b;\n}\n", "add"),
+                 ("const pick = ({value}) => {\n return value;\n};\n", "pick"))
+        for source, name in cases:
+            with self.subTest(name=name):
+                context = self.context(source)
+                self.assertEqual([(f.name, f.lineno, f.end_lineno, f.length) for f in context.functions], [(name, 1, 3, 3)])
+                self.assertFalse(context.tokenizer_error)
+
+    def test_dollar_unicode_and_combining_spellings_remain_distinct(self):
+        source = "const $count = 1, count = 2, café = 3, cafe\u0301 = 4;\n$count + count + café + cafe\u0301;\n"
+        self.assertEqual(self.context(source).identifiers,
+                         ["$count", "count", "café", "cafe\u0301", "$count", "count", "café", "cafe\u0301"])
+        context = self.context("function λ(value) {\n return value;\n}\n")
+        self.assertEqual([(f.name, f.lineno, f.end_lineno) for f in context.functions], [("λ", 1, 3)])
+        self.assertEqual(context.identifiers, ["λ", "value", "value"])
+        joiners = self.context("const a\u200cb = 1, a\u200db = 2;\na\u200cb + a\u200db;\n")
+        self.assertEqual(joiners.identifiers, ["a\u200cb", "a\u200db", "a\u200cb", "a\u200db"])
+
+    def test_template_substitution_retains_executable_tokens(self):
+        source = 'const text = `value: ${lookup(value)}`;\n'
+        context = self.context(source)
+        self.assertEqual(context.identifiers, ["text", "lookup", "value"])
+        self.assertIn("lookup(value)", context.cleaned_code)
+        self.assertFalse(context.tokenizer_error)
+        self.assertNotIn("value:", context.cleaned_code)
+
+    def test_typescript_and_jsx_omissions_are_qualified_with_later_recovery(self):
+        cases = (
+            ("function identity<T>(value: T): T {\n return value;\n}\n", "generic.ts", "JS_UNSUPPORTED_TYPESCRIPT"),
+            ("function make(): {value: number} {\n return {value: 1};\n}\n", "object.ts", "JS_UNSUPPORTED_TYPESCRIPT"),
+            ("function render() {\n return <p>don't stop</p>;\n}\n", "render.jsx", "JS_UNSUPPORTED_JSX"),
+        )
+        for prefix, filename, diagnostic in cases:
+            with self.subTest(filename=filename):
+                context = self.context(prefix + "function after() {\n return 1;\n}\n", filename)
+                self.assertEqual([(f.name, f.lineno, f.end_lineno) for f in context.functions], [("after", 4, 6)])
+                self.assertIn(diagnostic, " ".join(context.notes))
+                self.assertFalse(context.tokenizer_error)
+
+    def test_unsupported_identifier_forms_do_not_yield_suffix_names(self):
+        for source in (r"function caf\u00e9() { return 1; }", "function bad😀name() { return 1; }"):
+            with self.subTest(source=source):
+                context = self.context(source)
+                self.assertEqual(context.functions, [])
+                self.assertIn("JS_UNSUPPORTED_IDENTIFIER", context.tokenizer_error)
+
+    def test_javascript_delimiter_template_and_header_endpoints_are_explicit(self):
+        for depth in (31, 32, 33):
+            with self.subTest(delimiter_depth=depth):
+                context = self.context("const value = " + "(" * depth + "1" + ")" * depth + ";\n")
+                self.assertEqual(bool(context.tokenizer_error), depth > 32)
+                if depth > 32:
+                    self.assertIn("JS_DELIMITER_LIMIT", context.tokenizer_error)
+        for depth in (15, 16, 17):
+            value = "1"
+            for _ in range(depth):
+                value = "`text ${" + value + "}`"
+            with self.subTest(template_depth=depth):
+                context = self.context("const value = " + value + ";\n")
+                self.assertEqual(bool(context.tokenizer_error), depth > 16)
+                if depth > 16:
+                    self.assertIn("JS_TEMPLATE_LIMIT", context.tokenizer_error)
+        for width in (2047, 2048, 2049):
+            left, right = "function boundary(", "value) "
+            header = left + " " * (width - len(left) - len(right)) + right
+            self.assertEqual(len(header), width)
+            with self.subTest(header_width=width):
+                context = self.context(header + "{\n return value;\n}\n")
+                self.assertEqual([f.name for f in context.functions], ["boundary"] if width <= 2048 else [])
+                if width > 2048:
+                    self.assertIn("JS_FUNCTION_HEADER_LIMIT", " ".join(context.notes))
+
+
+
+class JavaScriptMetricInputTests(unittest.TestCase):
+    """Import and syntax counts use executable lexical regions."""
+
+    def check_metric(self, source, filename, name, expected, details):
+        bundle = json.loads(engine.codeprobe_analyze(json.dumps({"code": source, "filename": filename})))
+        result = next(item for item in bundle["report"]["metrics"] if item["name"] == name)
+        for key, value in expected.items():
+            if isinstance(value, float):
+                self.assertAlmostEqual(result[key], round(value, 4) if key == "score" else value, places=9)
+            else:
+                self.assertEqual(result[key], value)
+        for key, value in details.items():
+            self.assertRegex(result["detail"], rf"(?:^|[,;] ){key}={value}(?:[,; ]|$)")
+        self.assertIn(result["display_name"], bundle["text"])
+        if not expected["applicable"]:
+            self.assertTrue(result["explanation"])
+
+    def test_import_reads_ignore_comments_strings_and_similar_names(self):
+        cases = (
+            ("import value from 'module';\nconst result = 1;", 'fixture.js', 'used_import_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ("import value from 'module';\nconst result = 1;\n// value", 'fixture.js', 'used_import_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ('import value from \'module\';\nconst result = 1;\nconst text = "value";', 'fixture.js', 'used_import_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ("import value from 'module';\nconst result = 1;\nvalue_other();", 'fixture.js', 'used_import_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ("import value from 'module';\nconst result = 1;\nvalue();", 'fixture.js', 'used_import_ratio', {'value': 1.0, 'applicable': True, 'score': 1.0}, {}),
+            ("import {left as used, right} from 'module';\nused();\n", 'fixture.js', 'used_import_ratio', {'value': 0.5, 'applicable': True, 'score': 0.0}, {}),
+            ("import * as module from 'module';\nmodule.run();\n", 'fixture.js', 'used_import_ratio', {'value': 1.0, 'applicable': True, 'score': 1.0}, {}),
+            ("import 'side-effect';\n", 'fixture.js', 'used_import_ratio', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_modern_markers_keep_template_expressions_active_and_literal_text_inert(self):
+        cases = (
+            ('var value = 1;', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+            ('var value = 1;\n// const const => ?. ?? ...', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+            ('var value = "const let => ?. ?? ...";\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+            ('var value = /const|let|=>|[.][.][.]/;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+            ('const add = value => value;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.6666666666666666, 'applicable': True}, {'modern': 2, 'legacy': 0}),
+            ('const {value} = source;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.6666666666666666, 'applicable': True}, {'modern': 2, 'legacy': 0}),
+            ('const text = `value: ${value?.item}`;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.75, 'applicable': True}, {'modern': 3, 'legacy': 0}),
+            ('var text = `const let => ?. ?? ...`;\n', 'fixture.js', 'javascript_modern_syntax', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'modern': 0, 'legacy': 1}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
 
 
 if __name__ == "__main__":

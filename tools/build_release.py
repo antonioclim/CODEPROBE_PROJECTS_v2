@@ -607,7 +607,7 @@ def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _read_control_json(path: Path) -> dict[str, Any]:
     try:
-        content = read_regular_file(path)
+        content = read_regular_file(path, max_bytes=CONTROL_FILE_LIMIT_BYTES)
     except ReleaseSetError as exc:
         raise PublicationError(f"unsafe or unreadable recovery control file: {path}: {exc}") from exc
     if len(content) > CONTROL_FILE_LIMIT_BYTES:

@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
+import math
 import sys
+import tokenize
 import unittest
+import zipfile
+from contextlib import ExitStack
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
 
 import codeprobe_runtime as engine  # noqa: E402
+from codeprobe_engine import api  # noqa: E402
 
 
 class PhaseOneSmokeTests(unittest.TestCase):
@@ -96,6 +104,1087 @@ def main(argv: list[str]) -> int:
         output = json.loads(engine.codeprobe_analyze(json.dumps(payload)))
         self.assertFalse(output["report"]["overall_applicable"])
         self.assertEqual(output["report"]["verdict_class"], "documentation")
+
+
+class RuntimeInputContractTests(unittest.TestCase):
+    SOURCE = "def add(left, right):\n    return left + right\n"
+    ENTRYPOINTS = {
+        "file": engine.codeprobe_analyze,
+        "project": engine.codeprobe_analyze_project,
+        "metadata": engine.codeprobe_engine_metadata,
+    }
+
+    def assert_rejected_before_resources(self, raw, kind="file", *, direct=False):
+        with ExitStack() as stack:
+            probes = [stack.enter_context(mock.patch.object(engine, name)) for name in
+                      ("engine_source_fingerprint", "detect_language", "collect_project_files")]
+            probes.append(stack.enter_context(mock.patch.object(engine.base64, "b64decode")))
+            with self.assertRaises(ValueError):
+                if direct:
+                    engine.analyse_project_payload(raw)
+                else:
+                    self.ENTRYPOINTS[kind](raw)
+            for probe in probes:
+                probe.assert_not_called()
+
+    def test_non_object_roots_are_rejected_before_resources(self):
+        for kind in self.ENTRYPOINTS:
+            for raw in ("null", "[]", '"source"', "17", "true"):
+                with self.subTest(kind=kind, raw=raw):
+                    self.assert_rejected_before_resources(raw, kind)
+        for raw in (None, [], "source", 17, True):
+            with self.subTest(direct=raw):
+                self.assert_rejected_before_resources(raw, "project", direct=True)
+
+    def test_ambiguous_and_nonfinite_json_is_rejected_for_every_entry(self):
+        inputs = ('{"extra":1,"extra":2}', '{"extra":{"a":1,"a":2}}',
+                  '{"extra":NaN}', '{"extra":Infinity}', '{"extra":-Infinity}',
+                  '{"extra":1e999}', '{"extra":-1e999}', '{broken')
+        for kind in self.ENTRYPOINTS:
+            for raw in inputs:
+                with self.subTest(kind=kind, raw=raw):
+                    self.assert_rejected_before_resources(raw, kind)
+
+    def test_file_fields_have_explicit_types(self):
+        fields = {
+            "code": (None, 17, {}, []), "filename": (None, 17, {}),
+            "language_hint": (17, [], {}), "profile": (17, [], "unknown"),
+            "require_python_ast": (None, 1, "false"),
+        }
+        for name, values in fields.items():
+            for value in values:
+                with self.subTest(name=name, value=value):
+                    self.assert_rejected_before_resources(json.dumps({name: value}))
+
+    def test_project_fields_and_all_entries_are_checked_before_collection(self):
+        invalid = ({"project_name": 17}, {"include_documentation": "false"},
+                   {"zip_base64": 17}, {"ignore_text": []}, {"files": None},
+                   {"files": {}}, {"files": [None]},
+                   {"files": [{"path": 17, "content": ""}]},
+                   {"files": [{"name": [], "text": ""}]},
+                   {"files": [{"path": "a.py", "content": 17}]},
+                   {"files": [{"path": "a.py", "text": []}]},
+                   {"files": [{"path": "a.py", "content": self.SOURCE},
+                              {"path": "b.py", "content": 17}]})
+        for payload in invalid:
+            with self.subTest(payload=payload):
+                self.assert_rejected_before_resources(payload, "project", direct=True)
+                self.assert_rejected_before_resources(json.dumps(payload), "project")
+
+    def test_invalid_declared_sizes_cannot_reach_resources(self):
+        for size in (True, -1, 1.9, "1.9", float("nan"), float("inf"), [], {}):
+            payload = {"files": [{"path": "a.py", "content": self.SOURCE, "size_bytes": size}]}
+            with self.subTest(size=size):
+                self.assert_rejected_before_resources(payload, "project", direct=True)
+
+    def test_invalid_metadata_only_records_fail_during_preflight(self):
+        valid = {"path": "large.py", "size_bytes": 1000001,
+                 "intake_rejection": {"reason": "file_too_large"}}
+        for changes in ({"size_bytes": "1000001"}, {"size_bytes": 1000001.0},
+                        {"size_bytes": 2**53}, {"content": "print(1)"},
+                        {"intake_rejection": {"reason": "unknown"}},
+                        {"intake_rejection": {"reason": "file_too_large", "extra": True}}):
+            with self.subTest(changes=changes):
+                self.assert_rejected_before_resources({"files": [dict(valid, **changes)]}, "project", direct=True)
+
+    def test_invalid_configuration_is_not_replaced_by_defaults(self):
+        invalid = ([], "{}", {"unknown": {}}, {"comment_density": {"group": []}},
+                   {"comment_density": {"weight": float("nan")}},
+                   {"comment_density": {"thresholds": {"ai_low": float("inf")}}})
+        for override in invalid:
+            for kind in self.ENTRYPOINTS:
+                with self.subTest(override=override, kind=kind):
+                    self.assert_rejected_before_resources(json.dumps({"config_override": override}), kind)
+        self.assert_rejected_before_resources({"config_override": invalid[-1]}, "project", direct=True)
+
+    def test_embedded_calibration_json_uses_the_strict_parser(self):
+        invalid = ('{"profile_id":"one","profile_id":"two"}', "null", "[]",
+                   '{"validation":{"sample_count":NaN}}', '{broken')
+        invalid_policy_aliases = (
+            {"review_policy": []}, {"review_thresholds": False}, {"review_bands": 0},
+            {"language_review_policy": []}, {"review_policy_by_language": ""},
+            {"language_review_policy": {"python": []}},
+            {"review_policy_by_language": {"invalid": {}}},
+            {"language_review_policy": {"python": {}}, "review_policy_by_language": {"python": False}},
+            {"review_policy": {}, "review_thresholds": []},
+        )
+        for field in ("calibration_profile", "calibration_profile_json"):
+            for value in (*invalid, [], True, 17, {"metric_overrides": []}, *invalid_policy_aliases):
+                with self.subTest(field=field, value=value):
+                    self.assert_rejected_before_resources(json.dumps({field: value}))
+
+    def test_metadata_optional_defaults_and_fingerprint_types(self):
+        default = json.loads(engine.codeprobe_engine_metadata())
+        self.assertEqual(json.loads(engine.codeprobe_engine_metadata("")), default)
+        self.assertEqual(json.loads(engine.codeprobe_engine_metadata('{"engine_fingerprint":null}')), default)
+        for value in (None, [], 17):
+            with self.subTest(argument=value):
+                self.assert_rejected_before_resources(value, "metadata")
+        for fingerprint in ([], 17, {"value": []}, {"available": "yes"}, {"source": 17}):
+            with self.subTest(fingerprint=fingerprint):
+                self.assert_rejected_before_resources(json.dumps({"engine_fingerprint": fingerprint}), "metadata")
+
+    def test_ordinary_file_payload_and_null_controls_preserve_reports(self):
+        payload = {"code": self.SOURCE, "filename": "sum.py", "language_hint": None,
+                   "profile": None, "config_override": None, "calibration_profile": None}
+        output = json.loads(engine.codeprobe_analyze(json.dumps(payload)))
+        report = output["report"]
+        self.assertEqual((report["filename"], report["language"], report["profile"]),
+                         ("sum.py", "python", "default"))
+        self.assertIn("File: sum.py", output["text"])
+        self.assertEqual(report["metric_config_digest"], engine.metric_config_digest(engine.merged_metric_config("default")))
+        payload["calibration_profile"] = {"review_policy": {}, "review_thresholds": None,
+                                          "review_bands": {}, "language_review_policy": None,
+                                          "review_policy_by_language": {"python": {}}}
+        default_policy_report = json.loads(engine.codeprobe_analyze(json.dumps(payload)))["report"]
+        self.assertEqual(default_policy_report["review_policy"], report["review_policy"])
+        self.assertEqual(default_policy_report["metric_config_digest"], report["metric_config_digest"])
+        empty = json.loads(engine.codeprobe_analyze("{}"))["report"]
+        self.assertEqual((empty["filename"], empty["loc"]), ("fragment.py", 0))
+
+    def test_project_aliases_text_alias_and_browser_rejections_remain_valid(self):
+        payload = {"project_name": "exercise", "profile": None, "config_override": None,
+                   "calibration_profile": None, "include_documentation": False,
+                   "files": [{"path": "sum.py", "content": self.SOURCE, "size_bytes": 1.0},
+                             {"name": "copy.py", "content": None, "text": self.SOURCE},
+                             {"path": "large.py", "size_bytes": 1000001,
+                              "intake_rejection": {"reason": "file_too_large"}}]}
+        before = json.dumps(payload, sort_keys=True)
+        output = json.loads(engine.codeprobe_analyze_project(json.dumps(payload)))
+        self.assertEqual(output["report"], output["project_report"])
+        self.assertIn("Project: exercise", output["text"])
+        self.assertEqual({item["path"] for item in output["report"]["included_files"]}, {"sum.py", "copy.py"})
+        self.assertEqual(output["report"]["excluded_files"][0]["reason"], "browser_file_too_large")
+        self.assertTrue(any("actual UTF-8 size" in item for item in output["report"]["warnings"]))
+        self.assertEqual(json.dumps(payload, sort_keys=True), before)
+        empty = json.loads(engine.codeprobe_analyze_project("{}"))
+        self.assertEqual(empty["report"], empty["project_report"])
+        self.assertEqual((empty["report"]["project_name"], empty["report"]["candidate_file_count"]), ("project", 0))
+
+    def test_integer_compatibility_is_explicit_and_never_truncates(self):
+        accepted = ((0, 0), (0.0, 0), (1, 1), (1.0, 1), (" +1 ", 1),
+                    ("1_000", 1000), ("١", 1))
+        for raw, expected in accepted:
+            with self.subTest(raw=raw):
+                self.assertEqual(engine.integer_value(raw, "limit"), expected)
+        for raw in (True, False, 1.9, "1.9", "1e0", float("nan"), float("inf"),
+                    "nan", "inf", None, b"1", [], {}):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                engine.integer_value(raw, "limit")
+
+    def test_every_project_integer_limit_is_checked_before_resources(self):
+        keys = ("max_files", "max_file_bytes", "max_total_bytes", "max_zip_bytes",
+                "max_zip_entries", "max_ignore_bytes", "max_ignore_rules")
+        for key in keys:
+            for value in (True, 0, 1.9, "1.9", float("nan"), float("inf")):
+                with self.subTest(key=key, value=value):
+                    self.assert_rejected_before_resources({key: value}, "project", direct=True)
+
+    def test_project_limit_endpoints_and_integral_forms_remain_compatible(self):
+        maximums = {"max_files": 10000, "max_file_bytes": 16000000,
+                    "max_total_bytes": 256000000, "max_zip_bytes": 64000000,
+                    "max_zip_entries": 20000, "max_ignore_bytes": 1000000,
+                    "max_ignore_rules": 10000}
+        for key, maximum in maximums.items():
+            for value in (1, 1.0, " +1 ", maximum, float(maximum), str(maximum)):
+                with self.subTest(key=key, value=value):
+                    self.assertEqual(engine.project_limits({key: value})[key], int(value))
+            for value in (0, maximum + 1):
+                with self.subTest(key=key, rejected=value), self.assertRaises(ValueError):
+                    engine.project_limits({key: value})
+
+    def compressed_fixture(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("blank.py", "\n" * 4096)
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    def test_nonfinite_ratio_is_refused_before_zip_decoding_or_member_reads(self):
+        encoded = self.compressed_fixture()
+        for value in (float("nan"), float("inf"), -float("inf"), "nan", "Infinity", "-inf", "1e999", True):
+            payload = {"zip_base64": encoded, "max_compression_ratio": value}
+            with self.subTest(value=value), mock.patch.object(engine, "_read_zip_member_bounded") as read:
+                self.assert_rejected_before_resources(payload, "project", direct=True)
+                self.assert_rejected_before_resources(json.dumps(payload), "project")
+                read.assert_not_called()
+
+    def test_finite_ratio_controls_keep_the_declared_zip_exclusion(self):
+        encoded = self.compressed_fixture()
+        for ratio, expected_reads, reason in ((None, 0, "compression_ratio_exceeded"),
+                                              (1, 0, "compression_ratio_exceeded"),
+                                              (1000, 1, "empty_file")):
+            payload = {"zip_base64": encoded}
+            if ratio is not None:
+                payload["max_compression_ratio"] = ratio
+            with self.subTest(ratio=ratio), mock.patch.object(engine, "_read_zip_member_bounded", wraps=engine._read_zip_member_bounded) as read:
+                report = engine.analyse_project_payload(payload)
+                self.assertEqual(read.call_count, expected_reads)
+                self.assertEqual(report["excluded_files"][0]["reason"], reason)
+                limits = report["input_packaging"]["limits"]
+                self.assertEqual(limits["max_compression_ratio"], 100 if ratio is None else ratio)
+                self.assertTrue(all(math.isfinite(value) for value in limits.values()))
+                json.dumps(report, allow_nan=False)
+
+    def test_bound_calibration_replay_keeps_the_engine_identity_check(self):
+        config = engine.merged_metric_config("strict")
+        profile = {"profile_id": "owned-runtime-fixture",
+                   "scoring_contract": engine.scoring_contract("strict", config)}
+        payload = {"code": self.SOURCE, "filename": "sum.py", "calibration_profile": profile}
+        report = json.loads(engine.codeprobe_analyze(json.dumps(payload)))["report"]
+        self.assertEqual((report["profile"], report["calibration_profile_id"]), ("strict", "owned-runtime-fixture"))
+        self.assertEqual(report["metric_config_digest"], engine.metric_config_digest(config))
+        profile["scoring_contract"]["engine_sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "engine identity.*recalibrate"):
+            engine.codeprobe_analyze(json.dumps(payload))
+
+
+class PythonStructuralContractTests(unittest.TestCase):
+    """Finite source fixtures are inspected, never executed."""
+
+    def assert_tokenizer_diagnostic(self, source, actual):
+        # Invalid-source locations belong to the installed Python tokenizer.
+        with self.assertRaises(tokenize.TokenError) as raised:
+            list(tokenize.generate_tokens(io.StringIO(source).readline))
+        message, (line, column) = raised.exception.args
+        self.assertEqual(actual, f"TokenError at line {line}, column {column + 1}: {message}")
+
+    def test_lexical_dedent_errors_are_controlled_by_both_tokenisers(self):
+        source = "def broken():\n    if True:\n        return 1\n  return 0\n"
+        scan = engine.scan_python(source)
+        identifiers, operators, operands, diagnostic = engine.python_tokens_and_identifiers(source)
+        self.assertRegex(scan.tokenizer_error, r"^IndentationError at line 4, column [1-9][0-9]*:")
+        self.assertEqual(scan.tokenizer_error, diagnostic)
+        self.assertIn("broken", identifiers)
+        self.assertIn("def", operators)
+        self.assertIn("1", operands)
+        context = engine.build_analysis_context(source, "broken.py", "python")
+        self.assertIsNone(context.ast_tree)
+        self.assertEqual(context.functions, [])
+        self.assertEqual(context.tokenizer_error, diagnostic)
+        self.assertRegex(context.ast_error, r"^IndentationError at line 4,")
+        self.assertEqual(context.notes.count("Tokenizer warning: " + diagnostic), 1)
+
+    def test_invalid_python_diagnostics_reach_json_text_and_python_api(self):
+        cases = (
+            ("if True:\n\tpass\n        pass\n", "TabError", 3),
+            ("value = (\n    1,\n", "SyntaxError", 1),
+        )
+        for source, category, line in cases:
+            with self.subTest(category=category):
+                context = engine.build_analysis_context(source, "invalid.py", "python")
+                self.assertIsNone(context.ast_tree)
+                self.assertRegex(context.ast_error, rf"^{category} at line {line}, column [1-9][0-9]*:")
+                if category == "SyntaxError":
+                    self.assert_tokenizer_diagnostic(source, context.tokenizer_error)
+                payload = {"code": source, "filename": "invalid.py", "language_hint": "python"}
+                for entry in (api.analyse_file, lambda item: json.loads(engine.codeprobe_analyze(json.dumps(item)))):
+                    result = entry(payload)
+                    diagnostic = "AST warning: " + context.ast_error
+                    self.assertIn(diagnostic, result["report"]["warnings"])
+                    self.assertIn(diagnostic, result["text"])
+                    self.assertFalse(result["report"]["overall_applicable"])
+                    with self.assertRaisesRegex(ValueError, "requires a successful AST parse"):
+                        entry({**payload, "require_python_ast": True})
+
+    def test_soft_keyword_identifiers_and_lexical_noise_are_distinguished(self):
+        source = 'match = 1\ncase = 2\ntype = 3\nvalue = match + case + type\n# match case type\nlabel = "match case type"\n'
+        context = engine.build_analysis_context(source, "names.py", "python")
+        self.assertIsNotNone(context.ast_tree)
+        for name in ("match", "case", "type"):
+            self.assertEqual(context.identifiers.count(name), 2)
+            self.assertNotIn(name, context.tokens_operators)
+        self.assertEqual(context.identifiers, ["match", "case", "type", "value", "match", "case", "type", "label"])
+        unfinished = "match = (\ncase = type\n"
+        invalid = engine.build_analysis_context(unfinished, "unfinished.py", "python")
+        self.assertIsNone(invalid.ast_tree)
+        self.assertEqual(invalid.identifiers, ["match", "case", "type"])
+        self.assert_tokenizer_diagnostic(unfinished, invalid.tokenizer_error)
+
+    def test_pattern_keywords_and_capture_names_keep_their_source_roles(self):
+        source = 'match caf\u00e9:\n    case {"\u00e9": match}:\n        case = match\n    case _:\n        case = 0\n'
+        context = engine.build_analysis_context(source, "patterns.py", "python")
+        self.assertIsNotNone(context.ast_tree)
+        self.assertEqual(context.identifiers.count("match"), 2)
+        self.assertEqual(context.identifiers.count("case"), 2)
+        self.assertEqual(context.identifiers.count("caf\u00e9"), 1)
+        self.assertEqual(context.tokens_operators.count("match"), 1)
+        self.assertEqual(context.tokens_operators.count("case"), 2)
+
+    def test_type_alias_keyword_tracks_the_actual_interpreter_grammar(self):
+        context = engine.build_analysis_context("type Alias = tuple[int, str]\n", "alias.py", "python")
+        if sys.version_info >= (3, 12):
+            self.assertIsNotNone(context.ast_tree)
+            self.assertNotIn("type", context.identifiers)
+            self.assertEqual(context.tokens_operators.count("type"), 1)
+        else:
+            self.assertIsNone(context.ast_tree)
+            self.assertRegex(context.ast_error, r"^SyntaxError at line 1,")
+            self.assertIn("type", context.identifiers)
+        self.assertIn("Alias", context.identifiers)
+
+    def test_parameter_order_and_decorated_async_ranges_are_source_faithful(self):
+        source = ('@decorator\n'
+                  'async def work(first: int, /, second: str = "x", *items: float, flag: bool = False, **options: int) -> int:\n'
+                  '    return first\n\n'
+                  'def simple(left, *, right):\n    return left + right\n')
+        context = engine.build_analysis_context(source, "parameters.py", "python")
+        self.assertEqual([item.name for item in context.functions], ["work", "simple"])
+        work, simple = context.functions
+        self.assertEqual(work.parameters, ["first", "second", "items", "flag", "options"])
+        self.assertEqual(simple.parameters, ["left", "right"])
+        self.assertEqual((work.lineno, work.end_lineno, work.length), (1, 3, 3))
+        self.assertEqual((simple.lineno, simple.end_lineno, simple.length), (5, 6, 2))
+        self.assertTrue(work.has_type_hints)
+        self.assertFalse(simple.has_type_hints)
+        self.assertEqual([item.cyclomatic for item in context.functions], [1, 1])
+
+    def test_comment_masks_preserve_unicode_crlf_and_last_line_coordinates(self):
+        cases = (
+            ('# first\r\n\r\ncaf\u00e9 = "# literal"  # tail\r\n# last',
+             '       \r\n\r\ncaf\u00e9 = "# literal"        \r\n      ', {1, 3, 4}, {3}, ['# first', '# tail', '# last']),
+            ('\u03c0 = 1 # \u03a9\n\n# eof', '\u03c0 = 1    \n\n     ', {1, 3}, {1}, ['# \u03a9', '# eof']),
+        )
+        for source, masked, comment_lines, code_lines, comments in cases:
+            with self.subTest(source=source):
+                scan = engine.scan_python(source)
+                self.assertEqual(scan.cleaned_code, masked)
+                self.assertEqual(scan.comment_line_numbers, comment_lines)
+                self.assertEqual(scan.code_line_numbers, code_lines)
+                self.assertEqual(scan.comment_texts, comments)
+                self.assertEqual(len(scan.cleaned_code), len(source))
+                context = engine.build_analysis_context(source, "comments.py", "python")
+                self.assertEqual(context.cleaned_code, masked.replace("\r\n", "\n"))
+
+    def test_nested_callable_complexity_is_separate_from_structural_signature(self):
+        source = ('def outer():\n    def inner(flag):\n        if flag:\n            return 1\n'
+                  '        return 0\n    return inner\n')
+        functions = engine.build_analysis_context(source, "nested.py", "python").functions
+        self.assertEqual([(item.name, item.cyclomatic) for item in functions], [("outer", 1), ("inner", 2)])
+        self.assertEqual(dict(functions[0].ast_signature), {
+            "FunctionDef": 2, "arguments": 2, "arg": 1, "If": 1,
+            "Name": 2, "Load": 2, "Return": 3, "Constant": 2,
+        })
+        inverse = 'def outer(flag):\n    if flag:\n        return 1\n    def inner():\n        return 0\n    return inner\n'
+        self.assertEqual([(item.name, item.cyclomatic) for item in engine.build_analysis_context(inverse, "inverse.py").functions], [("outer", 2), ("inner", 1)])
+
+    def test_definition_time_expressions_belong_to_the_enclosing_callable(self):
+        cases = (
+            ('def outer(value=1 if flag else 0):\n    return value\n', {"outer": 1}),
+            ('def outer(flag):\n    def inner(value=1 if flag else 0):\n        return value\n    return inner\n', {"outer": 2, "inner": 1}),
+            ('def outer(flag):\n    @decorate(1 if flag else 0)\n    def inner():\n        return 1\n    return inner\n', {"outer": 2, "inner": 1}),
+            ('def outer(flag):\n    return lambda value: 1 if value else 0\n', {"outer": 1}),
+            ('def outer(flag):\n    return lambda value=(1 if flag else 0): value\n', {"outer": 2}),
+            ('def outer(flag):\n    class Inner:\n        if flag:\n            value = 1\n    return Inner\n', {"outer": 1}),
+            ('def outer(flag):\n    class Inner(Left if flag else Right):\n        pass\n    return Inner\n', {"outer": 2}),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                context = engine.build_analysis_context(source, "definitions.py", "python")
+                self.assertEqual({item.name: item.cyclomatic for item in context.functions}, expected)
+
+
+class CFamilyStructuralContractTests(unittest.TestCase):
+    """Authored source fixtures are data; no compiler or submitted code runs."""
+
+    def context(self, source, language="c"):
+        extension = {"c": "c", "cpp": "cpp", "csharp": "cs"}[language]
+        return engine.build_analysis_context(source, "fixture." + extension, language)
+
+    def assert_functions(self, context, expected):
+        self.assertEqual([(item.name, item.lineno, item.end_lineno, item.cyclomatic)
+                          for item in context.functions], expected)
+        self.assertEqual(len(context.cleaned_code), len(context.code))
+        self.assertEqual([i for i, ch in enumerate(context.cleaned_code) if ch == "\n"],
+                         [i for i, ch in enumerate(context.code) if ch == "\n"])
+
+    def test_c_and_cpp_spliced_comments_preserve_physical_coordinates(self):
+        source = "// continued " + "\\" + "\nint phantom(void) { if (1) return 1; }\nint real(void) { return 2; }\n"
+        for language in ("c", "cpp"):
+            for newline in ("\n", "\r\n"):
+                with self.subTest(language=language, newline=newline):
+                    context = self.context(source.replace("\n", newline), language)
+                    self.assert_functions(context, [("real", 3, 3, 1)])
+                    self.assertNotIn("phantom", context.identifiers)
+                    self.assertEqual(engine.scan_c_like(context.code, language).comment_line_numbers, {1, 2})
+        formed = self.context("/\\\n/ comment\nint real() { return 1; }\n", "cpp")
+        self.assert_functions(formed, [("real", 3, 3, 1)])
+        self.assertNotIn("comment", formed.identifiers)
+        ordinary = self.context("// comment\nint real(void) { return 1; }\n")
+        self.assert_functions(ordinary, [("real", 2, 2, 1)])
+
+    def test_cpp_raw_closing_delimiter_is_not_created_by_line_splicing(self):
+        source = ('const char *s = R"tag(\n)ta\\\ng"; int phantom() { if (1) return 9; }\n'
+                  ')tag";\nint real() { return 1; }\n')
+        context = self.context(source, "cpp")
+        self.assert_functions(context, [("real", 5, 5, 1)])
+        self.assertEqual(context.comment_texts, [])
+        self.assertNotIn("phantom", context.identifiers)
+
+    def test_csharp_raw_three_and_four_quotes_keep_literal_structure_inert(self):
+        sources = (
+            ('class Sample {\n string s = """\n// text with " quote\n'
+             'int Phantom() { if (true) return 9; }\n""";\n int Real() { return 1; }\n}\n', 6),
+            ('class Sample {\n string s = """"\n""" int Phantom() { if (true) return 9; } // text\n'
+             '"""";\n int Real() { return 1; }\n}\n', 5),
+        )
+        for source, line in sources:
+            with self.subTest(line=line):
+                context = self.context(source, "csharp")
+                self.assert_functions(context, [("Real", line, line, 1)])
+                self.assertEqual(context.comment_texts, [])
+                self.assertNotIn("Phantom", context.identifiers)
+                self.assertTrue(context.c_family_lexically_safe)
+        raw_source = sources[0][0]
+        for literal_text in ("if (true) { return 1; }", "class Fake { }"):
+            context = self.context(raw_source.replace('// text with " quote', literal_text), "csharp")
+            self.assertEqual(context.control_line_count, 0)
+            self.assertEqual(context.declarative_line_count, 1)
+
+    def test_csharp_nested_interpolation_and_verbatim_quotes_own_their_slashes(self):
+        literals = ('$"{F("// not a comment")}"',
+                    '$@"before {F("// inside")} after"',
+                    '@"int Phantom() { } ""quoted"" // literal"')
+        for literal in literals:
+            with self.subTest(literal=literal):
+                context = self.context('class Sample {\n string s = ' + literal + ';\n int Real() { return 1; }\n}\n', "csharp")
+                self.assert_functions(context, [("Real", 3, 3, 1)])
+                self.assertEqual(context.comment_texts, [])
+                self.assertNotIn("Phantom", context.identifiers)
+
+    def test_unclosed_csharp_literals_have_diagnostics_and_no_method_ranges(self):
+        sources = ('class Sample { string s = """\nint Phantom() { return 9; }\n',
+                   'class Sample { string s = """"\nint Phantom() { return 9; }\n""";\nint Real() { return 1; }\n}\n',
+                   'class Sample { string s = $"{F("// inner");')
+        for source in sources:
+            with self.subTest(source=source):
+                context = self.context(source, "csharp")
+                self.assert_functions(context, [])
+                self.assertFalse(context.c_family_lexically_safe)
+                self.assertTrue(context.tokenizer_error)
+                self.assertTrue(any(note.startswith("Tokenizer warning:") for note in context.notes))
+
+    def test_csharp_raw_quote_budget_has_an_explicit_endpoint(self):
+        for width in (15, 16, 17):
+            delimiter = '"' * width
+            source = ('class Sample {\n string s = ' + delimiter + '\nint Phantom() { return 9; }\n'
+                      + delimiter + ';\n int Real() { return 1; }\n}\n')
+            with self.subTest(width=width):
+                context = self.context(source, "csharp")
+                self.assert_functions(context, [("Real", 5, 5, 1)] if width <= 16 else [])
+                self.assertEqual(context.c_family_lexically_safe, width <= 16)
+                if width > 16:
+                    self.assertTrue(context.tokenizer_error)
+
+    def test_csharp_interpolation_depth_counts_active_expressions(self):
+        for depth in (15, 16, 17):
+            expression = '"// inside"'
+            for _ in range(depth):
+                expression = '$"{F(' + expression + ')}"'
+            source = 'class Sample {\n string s = ' + expression + ';\n int Real() { return 1; }\n}\n'
+            with self.subTest(depth=depth):
+                context = self.context(source, "csharp")
+                self.assert_functions(context, [("Real", 3, 3, 1)] if depth <= 16 else [])
+                self.assertEqual(context.comment_texts, [])
+                self.assertEqual(context.c_family_lexically_safe, depth <= 16)
+
+    def test_unicode_names_keep_distinct_lexical_spellings_in_all_three_languages(self):
+        for language in ("c", "cpp", "csharp"):
+            source = 'int café(int λ) { return λ; }\nint cafe\u0301(int λ) { return λ; }\n'
+            first = 1
+            if language == "csharp":
+                source = "class Sample {\n" + source + "}\n"
+                first = 2
+            with self.subTest(language=language):
+                context = self.context(source, language)
+                self.assert_functions(context, [("café", first, first, 1), ("cafe\u0301", first + 1, first + 1, 1)])
+                self.assertEqual(context.identifiers.count("λ"), 4)
+                self.assertIn("café", context.identifiers)
+                self.assertIn("cafe\u0301", context.identifiers)
+                self.assertNotIn("cafe", context.identifiers)
+                self.assertEqual([item.parameters for item in context.functions], [["int λ"], ["int λ"]])
+
+    def test_csharp_verbatim_names_are_not_reclassified_as_keywords(self):
+        context = self.context("class Sample {\n int @class() { int @return = 1; return @return; }\n}\n", "csharp")
+        self.assert_functions(context, [("@class", 2, 2, 1)])
+        self.assertEqual(context.identifiers.count("@class"), 1)
+        self.assertEqual(context.identifiers.count("@return"), 2)
+        self.assertEqual(context.tokens_operators.count("class"), 1)
+        self.assertEqual(context.tokens_operators.count("return"), 1)
+        self.assertNotIn("@class", context.tokens_operators)
+
+    def test_cpp_parameter_type_commas_preserve_the_existing_raw_parameter_contract(self):
+        context = self.context("int f(std::pair<int,int> value, const int *items) { return 0; }\n", "cpp")
+        self.assertEqual([(item.name, item.parameters) for item in context.functions],
+                         [("f", ["std::pair<int,int> value", "const int *items"])])
+
+    def test_unsupported_identifier_forms_do_not_become_partial_names(self):
+        cases = (("cpp", r"int caf\u00e9() { return 1; }"),
+                 ("csharp", "class Sample { int bad😀name() { return 1; } }"),
+                 ("csharp", "class Sample { int na\u200bme() { return 1; } }"),
+                 ("cpp", "int fo\\\no() { return 1; }"))
+        for language, source in cases:
+            with self.subTest(language=language, source=source):
+                context = self.context(source, language)
+                self.assert_functions(context, [])
+                self.assertTrue(context.tokenizer_error)
+                self.assertFalse(context.c_family_lexically_safe)
+
+    def test_known_function_omissions_are_qualified_and_keep_ordinary_methods(self):
+        cases = (("cpp", "struct Box {\n int operator+(int x) const { return x; }\n int Real() { return 1; }\n};\n", "operator"),
+                 ("csharp", "class Sample {\n int Add(int x) => x + 1;\n int Real() { return 1; }\n}\n", "expression"))
+        for language, source, marker in cases:
+            with self.subTest(language=language):
+                context = self.context(source, language)
+                self.assert_functions(context, [("Real", 3, 3, 1)])
+                self.assertTrue(context.c_family_function_issues)
+                self.assertIn(marker, " ".join(context.notes).lower())
+        long_source = "int long_signature(" + ", ".join("int p%d" % i for i in range(105)) + ") { return p0; }\n"
+        context = self.context(long_source, "cpp")
+        self.assert_functions(context, [])
+        self.assertTrue(context.c_family_function_issues)
+
+    def test_complete_function_header_limit_does_not_accept_a_truncated_prefix(self):
+        for width in (799, 800, 801):
+            left, right = "int boundary(", "int value) "
+            header = left + " " * (width - len(left) - len(right)) + right
+            self.assertEqual(len(header), width)
+            with self.subTest(width=width):
+                context = self.context(header + "{\n return value;\n}\n", "cpp")
+                self.assert_functions(context, [("boundary", 1, 3, 1)] if width <= 800 else [])
+                if width > 800:
+                    self.assertTrue(context.c_family_function_issues)
+
+    def test_comparison_initialisers_cannot_substitute_the_read_operand_for_a_local(self):
+        for expression in ("x < y", "x > y", "x <= y", "x >= y", "(x, y)", "call(x, y)"):
+            with self.subTest(expression=expression):
+                context = self.context("int f(int x, int y) {\n int a = " + expression + ", b = 2;\n return a + b;\n}\n")
+                function = context.functions[0]
+                declarations = engine.extract_local_declarations(function, "c")
+                self.assertEqual([(item["name"], item["absolute_line"], item["size"]) for item in declarations], [("a", 2, 4), ("b", 2, 4)])
+                self.assertEqual(engine.register_pressure_profile(function, "c")["locals"], 2)
+                frame = engine.stack_frame_profile(function, "c")
+                self.assertEqual((frame["locals"], frame["frame_bytes"]), (2, 8))
+
+    def test_multiline_declarations_and_simple_typedefs_are_not_object_aliases(self):
+        cases = (("int f(void) {\n int\n value = 1,\n other = 2;\n return value + other;\n}\n", ["value", "other"]),
+                 ("typedef int count;\nint f(void) {\n count value = 1;\n return value;\n}\n", ["value"]),
+                 ("int f(void) {\n typedef int count;\n count value = 1;\n return value;\n}\n", ["value"]))
+        for source, names in cases:
+            with self.subTest(source=source):
+                function = self.context(source).functions[0]
+                self.assertEqual([item["name"] for item in engine.extract_local_declarations(function, "c")], names)
+
+    def test_typedef_bindings_do_not_escape_their_scope_or_survive_an_object_shadow(self):
+        source = ("int f(int x) {\n { typedef int count; count inside = 1; }\n count * value;\n"
+                  " int after = x;\n return after;\n}\nint g(void) { count * elsewhere; return 0; }\n")
+        context = self.context(source)
+        self.assertEqual({item.name: [decl["name"] for decl in engine.extract_local_declarations(item, "c")]
+                          for item in context.functions}, {"f": ["inside", "after"], "g": []})
+        shadow = self.context("typedef int count;\nint f(void) {\n int count = 1;\n count * value;\n return count;\n}\n")
+        self.assertEqual([item["name"] for item in engine.extract_local_declarations(shadow.functions[0], "c")], ["count"])
+        separate = self.context("int f(void) { count * value; return 0; }\n")
+        self.assertEqual(engine.extract_local_declarations(separate.functions[0], "c"), [])
+
+    def test_declaration_statement_and_delimiter_limits_refuse_uncertain_names(self):
+        for width in (4095, 4096, 4097):
+            statement = "int value =" + " " * (width - len("int value =") - 1) + "1"
+            with self.subTest(width=width):
+                context = self.context("int f(void) {\n " + statement + ";\n return value;\n}\n")
+                names = [item["name"] for item in engine.extract_local_declarations(context.functions[0], "c")]
+                self.assertEqual(names, ["value"] if width <= 4096 else [])
+                if width > 4096:
+                    self.assertTrue(context.c_family_declaration_issues)
+        for depth in (31, 32, 33):
+            with self.subTest(depth=depth):
+                context = self.context("int f(void) { int value = " + "(" * depth + "1" + ")" * depth + "; return value; }\n")
+                names = [item["name"] for item in engine.extract_local_declarations(context.functions[0], "c")]
+                self.assertEqual(names, ["value"] if depth <= 32 else [])
+                if depth > 32:
+                    self.assertTrue(context.c_family_declaration_issues)
+
+    def test_typedef_budget_counts_bindings_without_counting_them_as_memory(self):
+        for aliases in (63, 64, 65):
+            source = ("int f(void) {\n" + "\n".join(" typedef int t%d;" % i for i in range(aliases))
+                      + "\n t%d value = 1;\n return value;\n}\n" % (aliases - 1))
+            with self.subTest(aliases=aliases):
+                context = self.context(source)
+                names = [item["name"] for item in engine.extract_local_declarations(context.functions[0], "c")]
+                if aliases <= 64:
+                    self.assertEqual(names, ["value"])
+                else:
+                    self.assertTrue(context.c_family_declaration_issues)
+                    self.assertFalse(set(names).intersection("t%d" % i for i in range(aliases)))
+
+    def test_complex_declarators_are_qualified_without_fabricated_type_names(self):
+        context = self.context("int f(void) {\n int (*callback)(int), ordinary = 1;\n return ordinary;\n}\n")
+        self.assertTrue(context.c_family_declaration_issues)
+        self.assertNotIn("int", [item["name"] for item in engine.extract_local_declarations(context.functions[0], "c")])
+
+    def test_c_family_diagnostics_reach_file_api_project_and_text(self):
+        cases = (("csharp", 'class Sample {\n string s = """\nint Phantom() { return 9; }\n'),
+                 ("cpp", "struct Box { int operator+(int x) const { return x; } };\n"),
+                 ("csharp", "class Sample { int Add(int x) => x + 1; }\n"),
+                 ("c", "int f(void) { int (*callback)(int); return 0; }\n"))
+        for language, source in cases:
+            context = self.context(source, language)
+            self.assertTrue(context.notes)
+            payload = {"code": source, "filename": context.filename, "language_hint": language}
+            with self.subTest(language=language, source=source):
+                for entry in (api.analyse_file, lambda item: json.loads(engine.codeprobe_analyze(json.dumps(item)))):
+                    output = entry(payload)
+                    for note in context.notes:
+                        self.assertIn(note, output["report"]["warnings"])
+                        self.assertIn(note, output["text"])
+                    if not context.c_family_lexically_safe:
+                        metrics = {item["name"]: item for item in output["report"]["metrics"]}
+                        for name in ("cyclomatic_complexity", "halstead_difficulty", "stack_frame_depth"):
+                            self.assertFalse(metrics[name]["applicable"])
+                output = api.analyse_project({"files": [{"path": context.filename, "content": source}]})
+                member = output["report"]["included_files"][0]
+                for note in context.notes:
+                    self.assertIn(note, member["warnings"])
+                    self.assertTrue(any(note in warning for warning in output["report"]["warnings"]))
+                    self.assertIn(note, output["text"])
+
+
+class BashLexicalContractTests(unittest.TestCase):
+    """Shell sources are scanned as text, never run by a shell."""
+
+    def context(self, source):
+        return engine.build_analysis_context(source, "fixture.sh", "bash")
+
+    def test_hash_comments_require_an_unquoted_token_boundary(self):
+        cases = (("echo ok # actual comment\n", {1}), ("echo alpha#beta\n", set()),
+                 ("echo '# literal'\n", set()), ("echo \\#literal\n", set()),
+                 ("echo ${#name}\n", set()), ("echo ${name#prefix}\n", set()))
+        for source, comments in cases:
+            with self.subTest(source=source):
+                scan = engine.scan_bash(source)
+                self.assertEqual(scan.comment_line_numbers, comments)
+                self.assertFalse(scan.tokenizer_error)
+                self.assertEqual(len(scan.cleaned_code), len(source))
+        self.assertIn("alpha#beta", engine.scan_bash(cases[1][0]).cleaned_code)
+
+    def test_quoted_and_unquoted_heredoc_data_cannot_create_phantom_functions(self):
+        for delimiter in ("EOF", "'EOF'", '"EOF"'):
+            source = "cat <<" + delimiter + "\nphantom() {\n echo text\n}\nEOF\nreal() {\n echo ok\n}\n"
+            with self.subTest(delimiter=delimiter):
+                context = self.context(source)
+                self.assertEqual([(f.name, f.lineno, f.end_lineno, f.length) for f in context.functions], [("real", 6, 8, 3)])
+                self.assertEqual(context.functions[0].body, "real() {\n echo ok\n}")
+                self.assertNotIn("phantom", context.identifiers)
+                self.assertFalse(context.tokenizer_error)
+
+    def test_tab_stripped_heredoc_terminator_preserves_physical_coordinates(self):
+        source = "cat <<-'EOF'\n\tphantom() { echo text; }\n\tEOF\nreal() {\n echo ok\n}\n"
+        context = self.context(source)
+        self.assertEqual([(f.name, f.lineno, f.end_lineno) for f in context.functions], [("real", 4, 6)])
+        self.assertEqual(engine.scan_bash(source).comment_line_numbers, set())
+        self.assertEqual([i for i, ch in enumerate(context.cleaned_code) if ch == "\n"],
+                         [i for i, ch in enumerate(source) if ch == "\n"])
+
+    def test_leading_trivia_does_not_replace_function_names_or_expand_bodies(self):
+        cases = (("echo start\n\nreal() {\n echo ok\n}\n", "real() {"),
+                 ("# heading\n\n  function real {\n echo ok\n}\n", "function real {"))
+        for source, signature in cases:
+            with self.subTest(source=source):
+                functions = self.context(source).functions
+                self.assertEqual([(f.name, f.lineno, f.end_lineno, f.length) for f in functions], [("real", 3, 5, 3)])
+                self.assertEqual(functions[0].signature, signature)
+                self.assertEqual(functions[0].body, "\n".join(source.split("\n")[2:5]))
+
+    def test_unclosed_quotes_and_heredocs_have_stable_diagnostics(self):
+        cases = (("echo 'unfinished", "BASH_UNTERMINATED_STRING"),
+                 ('echo "unfinished', "BASH_UNTERMINATED_STRING"),
+                 ("cat <<'EOF'\nphantom() { echo ok; }\n", "BASH_UNTERMINATED_HEREDOC"))
+        for source, diagnostic in cases:
+            with self.subTest(source=source):
+                context = self.context(source)
+                self.assertIn(diagnostic, context.tokenizer_error)
+                self.assertEqual(context.functions, [])
+        closed = self.context("f() { echo ok; } # EOF")
+        self.assertFalse(closed.tokenizer_error)
+        self.assertEqual([f.name for f in closed.functions], ["f"])
+
+    def test_heredoc_queue_and_delimiter_limits_have_finite_endpoints(self):
+        for count in (15, 16, 17):
+            source = ("cat " + " ".join("<<'E%d'" % i for i in range(count)) + "\n"
+                      + "".join("payload\nE%d\n" % i for i in range(count)) + "real() {\n echo ok\n}\n")
+            with self.subTest(queued=count):
+                context = self.context(source)
+                self.assertEqual(bool(context.tokenizer_error), count > 16)
+                self.assertEqual([(f.name, f.lineno, f.end_lineno) for f in context.functions],
+                                 [("real", 2 * count + 2, 2 * count + 4)] if count <= 16 else [])
+                if count > 16:
+                    self.assertIn("BASH_HEREDOC_QUEUE_LIMIT", context.tokenizer_error)
+        for width in (127, 128, 129):
+            delimiter = "E" * width
+            with self.subTest(delimiter_width=width):
+                context = self.context("cat <<'" + delimiter + "'\npayload\n" + delimiter + "\nreal() {\n echo ok\n}\n")
+                self.assertEqual(bool(context.tokenizer_error), width > 128)
+                if width > 128:
+                    self.assertIn("BASH_HEREDOC_DELIMITER_LIMIT", context.tokenizer_error)
+
+    def test_heredoc_payload_and_substitution_depth_count_documented_units(self):
+        for width in (65535, 65536, 65537):
+            payload = "x" * (width - 1) + "\n"
+            with self.subTest(payload_characters=width):
+                context = self.context("cat <<'EOF'\n" + payload + "EOF\nreal() {\n echo ok\n}\n")
+                self.assertEqual(bool(context.tokenizer_error), width > 65536)
+                self.assertEqual([f.name for f in context.functions], ["real"] if width <= 65536 else [])
+                if width > 65536:
+                    self.assertIn("BASH_HEREDOC_PAYLOAD_LIMIT", context.tokenizer_error)
+        for depth in (15, 16, 17):
+            expression = "printf ok"
+            for _ in range(depth):
+                expression = "$(" + expression + ")"
+            with self.subTest(substitution_depth=depth):
+                context = self.context("echo " + expression + "\n")
+                self.assertEqual(bool(context.tokenizer_error), depth > 16)
+                if depth > 16:
+                    self.assertIn("BASH_SUBSTITUTION_LIMIT", context.tokenizer_error)
+
+
+class MarkdownExtractionContractTests(unittest.TestCase):
+    """Selected CommonMark forms are inspected as text, never rendered or run."""
+
+    def assert_features(self, source, fences, headings, links=0):
+        info = engine.parse_markdown(source)
+        self.assertEqual(info.code_fence_count, fences)
+        self.assertEqual([item[2] for item in info.headings], headings)
+        self.assertEqual(info.link_count, links)
+        return info
+
+    def test_fences_require_matching_character_length_and_whitespace_suffix(self):
+        cases = (
+            "````\n```\n# Hidden\n````\n# Visible\n",
+            "```\n``` not-a-close\n# Hidden\n```\n# Visible\n",
+            "```\n~~~\n# Hidden\n```\n# Visible\n",
+            "~~~ language\n# Hidden\n~~~~\n# Visible\n",
+            "```\n# Hidden\n``` \t\n# Visible\n",
+            "```\n    ```\n# Hidden\n```\n# Visible\n",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                self.assert_features(source, 1, ["Visible"])
+
+    def test_fence_indentation_distinguishes_zero_to_three_spaces_from_code(self):
+        for width in range(4):
+            pad = " " * width
+            with self.subTest(width=width):
+                self.assert_features(pad + "```js\n# Hidden\n" + pad + "```\n# Visible\n", 1, ["Visible"])
+        for pad in ("    ", "\t"):
+            with self.subTest(pad=pad):
+                self.assert_features(pad + "```\n" + pad + "# Hidden\n" + pad + "```\n# Visible\n", 0, ["Visible"])
+        self.assert_features("``\n# Visible\n~~\n", 0, ["Visible"])
+        self.assert_features("```js\n# Hidden\n[a link](https://example.invalid)\n", 1, [])
+
+    def test_code_spans_mask_links_with_exact_runs_across_prose_lines(self):
+        cases = (
+            ("`[not a link](https://example.invalid)`\n", 0),
+            ("`` literal ` [hidden](https://example.invalid) `` [shown](https://example.invalid)\n", 1),
+            ("`first\n[hidden](https://example.invalid)\nlast`\n", 0),
+            ("`unmatched [shown](https://example.invalid)\n", 1),
+            ("\\`literal [shown](https://example.invalid)\n", 1),
+        )
+        for source, links in cases:
+            with self.subTest(source=source):
+                self.assert_features(source, 0, [], links)
+
+    def test_single_line_setext_and_atx_headings_preserve_ordinals(self):
+        info = self.assert_features("Visible\n=======\n\nSecond\n---\n\n# Third ###\n", 0, ["Visible", "Second", "Third"])
+        self.assertEqual(info.headings, [(1, 1, "Visible"), (2, 2, "Second"), (1, 3, "Third")])
+        self.assert_features("---\n\nVisible prose\n", 0, [])
+        self.assert_features("    # Hidden\n\n# Visible\n", 0, ["Visible"])
+        for source in ("# ###\n", "# \t###\n"):
+            with self.subTest(empty_title=source):
+                self.assertEqual(self.assert_features(source, 0, [""]).headings, [(1, 1, "")])
+
+    def test_flat_reference_forms_resolve_definitions_and_exclude_images(self):
+        cases = (
+            ("[a link][ref]\n\n[ref]: https://example.invalid\n", 1),
+            ("[ref][]\n\n[ref]: https://example.invalid\n", 1),
+            ("[ref]\n\n[ref]: https://example.invalid\n", 1),
+            ("[a link][ REf   label ]\n\n[ref label]: https://example.invalid\n", 1),
+            ("[no target][missing]\n", 0),
+            ("`[hidden][ref]`\n\n[ref]: https://example.invalid\n", 0),
+            ("![alt](https://example.invalid/image.png)\n", 0),
+            ("![ref]\n\n[ref]: https://example.invalid/image.png\n", 0),
+        )
+        for source, links in cases:
+            with self.subTest(source=source):
+                self.assert_features(source, 0, [], links)
+        self.assert_features("[no target][ref]\n\n```\n[ref]: https://example.invalid\n```\n", 1, [], 0)
+
+    def test_reference_label_limit_has_fixed_character_endpoints(self):
+        for width in (998, 999, 1000):
+            label = "r" * width
+            source = "[link][" + label + "]\n\n[" + label + "]: https://example.invalid\n"
+            with self.subTest(width=width):
+                self.assert_features(source, 0, [], 1 if width <= 999 else 0)
+
+    def test_fenced_programme_remains_documentation_in_context_api_and_text(self):
+        source = "# Notes\n\n```python\ndef phantom():\n    raise RuntimeError('never execute')\nphantom()\n```\n\nRead [guide](https://example.invalid).\n"
+        with mock.patch.object(engine, "python_parse") as parse, mock.patch.object(engine, "scan_javascript") as javascript:
+            context = engine.build_analysis_context(source, "notes.md")
+            self.assertEqual(context.functions, [])
+            for entry in (api.analyse_file, lambda item: json.loads(engine.codeprobe_analyze(json.dumps(item)))):
+                output = entry({"filename": "notes.md", "code": source})
+                report = output["report"]
+                self.assertEqual((report["language"], report["verdict_class"]), ("markdown", "documentation"))
+                self.assertFalse(report["overall_applicable"])
+                self.assertEqual(report["decision_score"], 0)
+                self.assertTrue(all(not item["contributes_to_overall"] for item in report["metrics"] if item["group"] == "documentation"))
+                self.assertIn("code_fence_blocks=1", output["text"])
+                self.assertIn("links=1", output["text"])
+            parse.assert_not_called()
+            javascript.assert_not_called()
+
+
+class LanguageDetectionContractTests(unittest.TestCase):
+    """Interpreter names are literal cues; no shebang command is executed."""
+
+    def test_hint_extension_and_header_precedence_remains_explicit(self):
+        cases = (
+            ("README.md", "# Notes", "javascript", "javascript"),
+            ("sample.JS", "#!/usr/bin/python3\n", None, "javascript"),
+            ("sample.JS", "#!/usr/bin/python3\n", "bash", "bash"),
+            ("Component.TSX", "", None, "javascript"),
+            ("sample.MARKDOWN", "#!/usr/bin/python3\n", None, "markdown"),
+            ("sample.H", "int add(int value);\n", None, "c"),
+            ("sample.h", "namespace one {}\nnamespace two {}\n", None, "cpp"),
+        )
+        for filename, source, hint, language in cases:
+            with self.subTest(filename=filename, hint=hint):
+                self.assertEqual(engine.detect_language(filename, source, hint), language)
+
+    def test_direct_shebangs_use_exact_case_sensitive_interpreter_names(self):
+        for name, language in (("python", "python"), ("python3", "python"), ("python3.12", "python"),
+                               ("node", "javascript"), ("nodejs", "javascript"), ("deno", "javascript"),
+                               ("sh", "bash"), ("bash", "bash"), ("zsh", "bash"), ("ksh", "bash")):
+            with self.subTest(name=name):
+                self.assertEqual(engine.detect_language("sample.txt", "#!/usr/bin/" + name + "\n"), language)
+        for name in ("python-tools", "bashful", "node-helper", "denoising", "shadow", "Python3"):
+            with self.subTest(lookalike=name):
+                self.assertEqual(engine.detect_language("sample.txt", "#!/usr/bin/" + name + "\n"), "unknown")
+
+    def test_env_support_is_a_literal_subset_and_does_not_expand_arguments(self):
+        cases = (
+            ("#!/usr/bin/env python3.12\n", "python"),
+            ("#!/usr/bin/env -S node --trace-warnings\n", "javascript"),
+            ("#!/usr/bin/env\tpython3\r\n", "python"),
+            ("#! /usr/bin/python3 -I\n", "python"),
+            ("#!/usr/bin/env OPTION=x python3\n", "unknown"),
+            ("#!/usr/bin/env -i python3\n", "unknown"),
+            ('#!/usr/bin/env -S "python3 -I"\n', "unknown"),
+            ("#!/opt/bin/env python3\n", "unknown"),
+            ("#!/usr/bin/env python3 -I\n", "unknown"),
+            ("#!/usr/bin/env -S python3 ${ARGS}\n", "unknown"),
+        )
+        for source, language in cases:
+            with self.subTest(source=source):
+                self.assertEqual(engine.detect_language("sample.txt", source), language)
+
+    def test_only_an_offset_zero_first_line_can_supply_a_shebang_cue(self):
+        cases = (" #!/usr/bin/python3\n", "Plain prose\n#!/usr/bin/python3\n",
+                 "Plain prose\n#!/bin/sh\n", "\ufeff#!/usr/bin/python3\n", "#!python3\n")
+        for source in cases:
+            with self.subTest(source=source):
+                self.assertEqual(engine.detect_language("sample.txt", source), "unknown")
+
+    def test_prose_mentions_remain_ambiguous_in_context_json_and_text(self):
+        note = "The language could not be detected with strong confidence."
+        for marker in ("python", "node", "deno", "bash", "/shell"):
+            source = "The " + marker + " tutorial explains syntax."
+            with self.subTest(marker=marker):
+                context = engine.build_analysis_context(source, "sample.txt")
+                self.assertEqual(context.language, "unknown")
+                self.assertIn(note, context.notes)
+                for entry in (api.analyse_file, lambda item: json.loads(engine.codeprobe_analyze(json.dumps(item)))):
+                    output = entry({"filename": "sample.txt", "code": source})
+                    self.assertEqual(output["report"]["language"], "unknown")
+                    self.assertIn(note, output["report"]["warnings"])
+                    self.assertIn(note, output["text"])
+
+    def test_content_scoring_continues_after_a_plain_interpreter_mention(self):
+        cases = (("def add(value):\n    return value\n", "python"),
+                 ("function add(value) { return value; }\n", "javascript"),
+                 ("The python tutorial explains syntax.\nfunction add(value) { return value; }\n", "javascript"))
+        for source, language in cases:
+            with self.subTest(source=source):
+                self.assertEqual(engine.detect_language("sample.txt", source), language)
+
+
+
+class MetricExtractionContractTests(unittest.TestCase):
+    """Finite source fixtures are analysed as text and never executed."""
+
+    def check_metric(self, source, filename, name, expected, details):
+        bundle = json.loads(engine.codeprobe_analyze(json.dumps({"code": source, "filename": filename})))
+        result = next(item for item in bundle["report"]["metrics"] if item["name"] == name)
+        for key, value in expected.items():
+            if isinstance(value, float):
+                self.assertAlmostEqual(result[key], round(value, 4) if key == "score" else value, places=9)
+            else:
+                self.assertEqual(result[key], value)
+        for key, value in details.items():
+            self.assertRegex(result["detail"], rf"(?:^|[,;] ){key}={value}(?:[,; ]|$)")
+        self.assertIn(result["display_name"], bundle["text"])
+        if not expected["applicable"]:
+            self.assertTrue(result["explanation"])
+
+    def test_numeric_literals_exclude_identifier_digits_and_inert_text(self):
+        cases = (
+            ('value123 = 0\n', 'fixture.py', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('item_2026 = 0\n', 'fixture.py', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('value = 42\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\npass\n', 'fixture.py', 'magic_numbers', {'value': 1.0, 'applicable': True, 'score': 0.36363636363636365}, {'numbers': 1, 'magic_candidates': 1}),
+            ("# 123 456\nlabel = '789 42'\nvalue = 0\n", 'fixture.py', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('value = 3.5\n', 'fixture.py', 'magic_numbers', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'numbers': 1, 'magic_candidates': 1}),
+            ('value = 3e2\n', 'fixture.py', 'magic_numbers', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'numbers': 1, 'magic_candidates': 1}),
+            ('value = 0x2A\n', 'fixture.py', 'magic_numbers', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'numbers': 1, 'magic_candidates': 1}),
+            ('value = 1_000\n', 'fixture.py', 'magic_numbers', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'numbers': 1, 'magic_candidates': 1}),
+            ('const value123 = 0;\nconst text = "42";\n// 99\n', 'fixture.js', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('int value123 = 0;\nconst char *text = "42";\n// 99\n', 'fixture.c', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('int value123 = 0;\nconst char *text = "42";\n// 99\n', 'fixture.cpp', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ('class Sample { int value123 = 0; string text = "42"; }\n', 'fixture.cs', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+            ("value123=0\nprintf '%s' '42'\n# 99\n", 'fixture.sh', 'magic_numbers', {'value': 0.0, 'applicable': True, 'score': 1.0}, {'numbers': 1, 'magic_candidates': 0}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_unsupported_numeric_forms_remain_unavailable(self):
+        cases = (
+            ('value = 3j\n', 'fixture.py', 'magic_numbers', {'value': None, 'applicable': False}, {}),
+            ('int value = 123abc;\n', 'fixture.c', 'magic_numbers', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_main_guards_require_module_ast_and_keep_separate_wrapper_channels(self):
+        cases = (
+            ('label = \'if __name__ == "__main__"\'\n', 'fixture.py', 'boilerplate_presence', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'indicators': '0/5'}),
+            ('# if __name__ == "__main__":\nvalue = 0\n', 'fixture.py', 'boilerplate_presence', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'indicators': '0/5'}),
+            ('if __name__ == "__main__":\n    pass\n', 'fixture.py', 'boilerplate_presence', {'value': 0.2, 'applicable': True, 'score': 0.0}, {'indicators': '1/5'}),
+            ('if "__main__" == __name__:\n    pass\n', 'fixture.py', 'boilerplate_presence', {'value': 0.2, 'applicable': True, 'score': 0.0}, {'indicators': '1/5'}),
+            ('def work():\n    if __name__ == "__main__":\n        pass\n', 'fixture.py', 'boilerplate_presence', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'indicators': '0/5'}),
+            ('from __future__ import annotations\nif __name__ == "__main__":\n    pass\n', 'fixture.py', 'boilerplate_presence', {'value': 0.4, 'applicable': True, 'score': 0.3333333333333333}, {'indicators': '2/5'}),
+            ('"""Module documentation."""\nvalue = 0\n', 'fixture.py', 'boilerplate_presence', {'value': 0.2, 'applicable': True, 'score': 0.0}, {'indicators': '1/5'}),
+            ('#!/usr/bin/env python3\nvalue = 0\n', 'fixture.py', 'boilerplate_presence', {'value': 0.2, 'applicable': True, 'score': 0.0}, {'indicators': '1/5'}),
+            ('if __name__ == "__main__"\n    pass\n', 'fixture.py', 'boilerplate_presence', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_defensive_cues_use_ast_nodes_and_actual_none_constants(self):
+        cases = (
+            ('# if not ready\nvalue = 1\n', 'fixture.py', 'defensive_programming', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'guards': 0}),
+            ('label = "if not ready"\nvalue = 1\n', 'fixture.py', 'defensive_programming', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'guards': 0}),
+            ('if not ready:\n    pass\n', 'fixture.py', 'defensive_programming', {'value': 10.0, 'applicable': True, 'score': 0.0}, {'guards': 1}),
+            ('if not all(items):\n    pass\n', 'fixture.py', 'defensive_programming', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'guards': 2}),
+            ('value = len(items)\n', 'fixture.py', 'defensive_programming', {'value': 20.0, 'applicable': True, 'score': 0.0}, {'guards': 1}),
+            ('if value is None:\n    pass\n', 'fixture.py', 'defensive_programming', {'value': 10.0, 'applicable': True, 'score': 0.0}, {'guards': 1}),
+            ('if value == "None":\n    pass\n', 'fixture.py', 'defensive_programming', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'guards': 0}),
+            ('if not ready\n    pass\n', 'fixture.py', 'defensive_programming', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_bash_nesting_counts_blocks_and_refuses_mismatched_terminators(self):
+        cases = (
+            ('if true; then\n  :\nfi\n', 'fixture.sh', 'nesting_depth', {'value': 1.0, 'applicable': True, 'score': 0.15}, {}),
+            ('if true\nthen\n  :\nfi\n', 'fixture.sh', 'nesting_depth', {'value': 1.0, 'applicable': True, 'score': 0.15}, {}),
+            ('if true\nthen\n while true\n do\n  :\n done\nfi\n', 'fixture.sh', 'nesting_depth', {'value': 2.0, 'applicable': True, 'score': 1.0}, {}),
+            ('if true; then\n :\nfi\nif true; then\n :\nfi\n', 'fixture.sh', 'nesting_depth', {'value': 1.0, 'applicable': True, 'score': 0.15}, {}),
+            ("# then do\nprintf '%s' 'then do'\ncat <<'EOF'\nthen\ndo\nEOF\n", 'fixture.sh', 'nesting_depth', {'value': 0.0, 'applicable': True, 'score': 0.15}, {}),
+            ('if true; then\n :\ndone\n', 'fixture.sh', 'nesting_depth', {'value': None, 'applicable': False}, {}),
+            ('while true; do\n :\n', 'fixture.sh', 'nesting_depth', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_lttr_uses_log_types_and_retains_the_twenty_token_minimum(self):
+        cases = (
+            ('', 'fixture.py', 'type_token_ratio', {'value': None, 'applicable': False, 'score': 0.0}, {}),
+            ('a\n', 'fixture.py', 'type_token_ratio', {'value': None, 'applicable': False, 'score': 0.0}, {}),
+            ('a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a\n', 'fixture.py', 'type_token_ratio', {'value': None, 'applicable': False, 'score': 0.0}, {}),
+            ('a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a + a\n', 'fixture.py', 'type_token_ratio', {'value': 0.0, 'applicable': True, 'score': 0.0}, {}),
+            ('a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e + a + b + c + d + e\n', 'fixture.py', 'type_token_ratio', {'value': 0.5, 'applicable': True, 'score': 0.0}, {}),
+            ('name0 + name1 + name2 + name3 + name4 + name5 + name6 + name7 + name8 + name9 + name10 + name11 + name12 + name13 + name14 + name15 + name16 + name17 + name18 + name19\n', 'fixture.py', 'type_token_ratio', {'value': 1.0, 'applicable': True}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_bash_quoting_counts_each_eligible_expansion(self):
+        cases = (
+            ('printf "%s" "$a" "$b" "$c" "$d" "$e"', 'fixture.sh', 'bash_quoting_consistency', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'references': 5, 'double_quoted': 5}),
+            ('printf "%s" "$a $b $c $d $e"', 'fixture.sh', 'bash_quoting_consistency', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'references': 5, 'double_quoted': 5}),
+            ('printf "%s" "$a $b $c $d" $e $f\n', 'fixture.sh', 'bash_quoting_consistency', {'value': 0.6666666666666666, 'applicable': True, 'score': 0.2713178294573643}, {'references': 6, 'double_quoted': 4}),
+            ('printf "%s" "${a} ${b} ${c} ${d} ${e}"\n', 'fixture.sh', 'bash_quoting_consistency', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'references': 5, 'double_quoted': 5}),
+            ("printf '%s' '$a $b $c $d $e'\n# $a $b $c $d $e\nprintf '%s' \\$a \\$b \\$c \\$d \\$e\n", 'fixture.sh', 'bash_quoting_consistency', {'value': None, 'applicable': False}, {}),
+            ('printf "%s" "$a $b $c $d"\n', 'fixture.sh', 'bash_quoting_consistency', {'value': None, 'applicable': False}, {}),
+            ("printf '%s' 'ordinary text'\n", 'fixture.sh', 'bash_quoting_consistency', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_python_import_position_excludes_local_and_inert_imports(self):
+        cases = (
+            ('import os\n\nimport sys\nvalue = 1', 'fixture.py', 'import_organization', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'top_aligned': True, 'sorted': True, 'grouped': True, 'imports': 2}),
+            ('value = 1\nimport sys\nimport os', 'fixture.py', 'import_organization', {'value': 0.0, 'applicable': True, 'score': 0.0}, {'top_aligned': False, 'sorted': False, 'grouped': False, 'imports': 2}),
+            ('"""Module notes."""\nfrom __future__ import annotations\n\nimport os\n\nimport sys\nvalue = 1\n', 'fixture.py', 'import_organization', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'top_aligned': True, 'sorted': True, 'grouped': True, 'imports': 3}),
+            ('def work():\n    import os\n    import sys\n    return os, sys\n', 'fixture.py', 'import_organization', {'value': None, 'applicable': False}, {}),
+            ('label = "import os\\nimport sys"\n', 'fixture.py', 'import_organization', {'value': None, 'applicable': False}, {}),
+            ('import os\nimport sys\nvalue = 1\n', 'fixture.py', 'import_organization', {'value': 0.6666666666666666, 'applicable': True, 'score': 0.3333333333333333}, {'top_aligned': True, 'sorted': True, 'grouped': False, 'imports': 2}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_register_pressure_quality_decreases_across_the_old_discontinuity(self):
+        cases = (
+            ('int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5;\n}', 'fixture.c', 'register_pressure', {'value': 0.46153846153846156, 'applicable': True, 'score': 1.0}, {'peak_live': 6}),
+            ('int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nint item_6 = 0;\nint item_7 = 0;\nint item_8 = 0;\nint item_9 = 0;\nint item_10 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10;\n}', 'fixture.c', 'register_pressure', {'value': 0.8461538461538461, 'applicable': True, 'score': 0.5054945054945055}, {'peak_live': 11}),
+            ('int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nint item_6 = 0;\nint item_7 = 0;\nint item_8 = 0;\nint item_9 = 0;\nint item_10 = 0;\nint item_11 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10 + item_11;\n}', 'fixture.c', 'register_pressure', {'value': 0.9230769230769231, 'applicable': True, 'score': 0.40865384615384615}, {'peak_live': 12}),
+            ('int f(void) {\nint item_0 = 0;\nint item_1 = 0;\nint item_2 = 0;\nint item_3 = 0;\nint item_4 = 0;\nint item_5 = 0;\nint item_6 = 0;\nint item_7 = 0;\nint item_8 = 0;\nint item_9 = 0;\nint item_10 = 0;\nint item_11 = 0;\nint item_12 = 0;\nint item_13 = 0;\nint item_14 = 0;\nint item_15 = 0;\nint item_16 = 0;\nreturn item_0 + item_1 + item_2 + item_3 + item_4 + item_5 + item_6 + item_7 + item_8 + item_9 + item_10 + item_11 + item_12 + item_13 + item_14 + item_15 + item_16;\n}', 'fixture.c', 'register_pressure', {'value': 1.3076923076923077, 'applicable': True, 'score': 0.0}, {'peak_live': 17}),
+            ('int value;\n', 'fixture.c', 'register_pressure', {'value': None, 'applicable': False}, {}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+    def test_preprocessor_guards_require_active_matching_outer_directives(self):
+        cases = (
+            ('/*\n#ifndef FAKE\n#define FAKE\n*/\nint value;\n', 'fixture.h', 'preprocessor_hygiene', {'value': 0.75, 'applicable': True, 'score': 0.75}, {'has_guard': False}),
+            ('#ifndef HEADER\n#define HEADER\nint value;\n#endif\n', 'fixture.h', 'preprocessor_hygiene', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'has_guard': True}),
+            ('#pragma once\nint value;\n', 'fixture.h', 'preprocessor_hygiene', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'has_guard': True}),
+            ('#ifndef HEADER\n#define OTHER\nint value;\n#endif\n', 'fixture.h', 'preprocessor_hygiene', {'value': 0.75, 'applicable': True, 'score': 0.75}, {'has_guard': False}),
+            ('#ifndef HEADER\n#define HEADER\nint value;\n', 'fixture.h', 'preprocessor_hygiene', {'value': 0.75, 'applicable': True, 'score': 0.75}, {'has_guard': False, 'conditional_depth': 1}),
+            ('#ifndef HEADER\n#define HEADER\n#if CONDITION\nint value;\n#endif\n', 'fixture.h', 'preprocessor_hygiene', {'value': 0.6875, 'applicable': True, 'score': 0.6875}, {'has_guard': False, 'conditional_depth': 2}),
+            ('#ifn\\\ndef HEADER\n#define HEADER\nint value;\n#endif\n', 'fixture.h', 'preprocessor_hygiene', {'value': 1.0, 'applicable': True, 'score': 1.0}, {'has_guard': True}),
+        )
+        for source, filename, name, expected, details in cases:
+            with self.subTest(filename=filename, source=source):
+                self.check_metric(source, filename, name, expected, details)
+
+
+    def test_active_directive_splicing_does_not_admit_code_token_splicing(self):
+        # Exact I08 cpp-code-token-splice source and its retained refusal boundary.
+        source = "int fo\\\no() { return 1; }\n"
+        context = engine.build_analysis_context(source, "cpp-code-token-splice.cpp", "cpp")
+        self.assertEqual(context.functions, [])
+        self.assertEqual(len(context.cleaned_code), len(source))
+        self.assertEqual([i for i, char in enumerate(context.cleaned_code) if char == "\n"],
+                         [i for i, char in enumerate(source) if char == "\n"])
+        for name in ("magic_numbers", "cyclomatic_complexity", "preprocessor_hygiene"):
+            self.check_metric(source, "cpp-code-token-splice.cpp", name,
+                              {"value": None, "applicable": False}, {})
 
 
 if __name__ == "__main__":

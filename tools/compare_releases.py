@@ -23,7 +23,12 @@ for _path in (SRC, TOOLS):
     if str(_path) not in sys.path:
         sys.path.append(str(_path))
 
-from codeprobe_engine.release import zip_summary  # noqa: E402
+from codeprobe_engine.release import (  # noqa: E402
+    EXCLUDED_DIRS,
+    atomic_write_bytes,
+    validate_diagnostic_outputs,
+    zip_summary,
+)
 
 
 def _normalise_member_path(path: str) -> str:
@@ -110,11 +115,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--md-out")
     args = parser.parse_args(argv)
 
-    comparison = compare_zip_packages(Path(args.old_zip), Path(args.new_zip))
-    if args.json_out:
-        Path(args.json_out).write_text(json.dumps(comparison, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    if args.md_out:
-        Path(args.md_out).write_text(render_markdown(comparison), encoding="utf-8")
+    old_zip, new_zip = Path(args.old_zip), Path(args.new_zip)
+    publication_started = False
+    published = []
+    try:
+        requested = [Path(value) for value in (args.json_out, args.md_out) if value]
+        protected = [old_zip, new_zip, *(path for path in ROOT.rglob("*")
+                     if path.is_file() and not (set(path.relative_to(ROOT).parts) & EXCLUDED_DIRS))] if requested else []
+        outputs = validate_diagnostic_outputs(requested, inputs=protected)
+        comparison = compare_zip_packages(old_zip, new_zip)
+        contents = []
+        if args.json_out:
+            contents.append((json.dumps(comparison, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
+        if args.md_out:
+            contents.append(render_markdown(comparison).encode("utf-8"))
+        # Render every report first. Each replacement is complete; the pair is
+        # not a transaction if an operating-system error interrupts publication.
+        validate_diagnostic_outputs(outputs, inputs=protected)
+        for output, content in zip(outputs, contents):
+            publication_started = True
+            atomic_write_bytes(output, content)
+            published.append(str(output))
+    except (OSError, UnicodeError, ValueError) as exc:
+        print(f"[FAIL] release comparison report: {exc}")
+        if publication_started:
+            print(f"[FAIL] report publication may be partial; completed replacements: {ascii(published)}")
+        return 1
     if not args.json_out and not args.md_out:
         print(render_markdown(comparison))
     return 0

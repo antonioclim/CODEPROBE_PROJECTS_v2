@@ -3,14 +3,19 @@
 The browser application never launches native processes.  This module is the
 single process boundary for repository-controlled Python tools: it rejects
 shell execution, caps both output streams, enforces a wall-clock deadline and
-terminates the process tree when a limit is crossed.
+cleans the owned execution boundary when the command finishes or fails.
+On POSIX this boundary is the new process group, not detached sessions.
+The broker is the exclusive owner of child reaping and of both output pipes.
 """
 
 from __future__ import annotations
 
+import errno
+import math
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -23,6 +28,8 @@ DEFAULT_STDOUT_LIMIT = 4 * 1024 * 1024
 DEFAULT_STDERR_LIMIT = 2 * 1024 * 1024
 _READ_CHUNK = 64 * 1024
 _TERMINATION_GRACE_SECONDS = 1.0
+_CLEANUP_TIMEOUT_SECONDS = 5.0
+_POLL_INTERVAL_SECONDS = 0.02
 
 
 class ProcessControlError(RuntimeError):
@@ -73,127 +80,275 @@ class _CaptureState:
 
 
 class _WindowsJob:
-    """Minimal Windows Job Object wrapper with kill-on-close semantics."""
+    """Own a non-inheritable kill-on-close job and admit suspended children."""
 
-    def __init__(self, process: subprocess.Popen[bytes]) -> None:
+    def __init__(self) -> None:
         self._handle = None
-        self.error: Exception | None = None
+        self._assigned_process_handle = None
+        self.error = None  # Compatibility diagnostic; API failures raise directly.
         if os.name != "nt":
             return
-        try:
-            import ctypes
-            from ctypes import wintypes
+        import ctypes
+        from ctypes import wintypes
 
-            class _IO_COUNTERS(ctypes.Structure):
-                _fields_ = [
-                    ("ReadOperationCount", ctypes.c_ulonglong),
-                    ("WriteOperationCount", ctypes.c_ulonglong),
-                    ("OtherOperationCount", ctypes.c_ulonglong),
-                    ("ReadTransferCount", ctypes.c_ulonglong),
-                    ("WriteTransferCount", ctypes.c_ulonglong),
-                    ("OtherTransferCount", ctypes.c_ulonglong),
-                ]
+        self._ctypes = ctypes
+        self._wintypes = wintypes
 
-            class _BASIC_LIMIT_INFORMATION(ctypes.Structure):
-                _fields_ = [
-                    ("PerProcessUserTimeLimit", ctypes.c_longlong),
-                    ("PerJobUserTimeLimit", ctypes.c_longlong),
-                    ("LimitFlags", wintypes.DWORD),
-                    ("MinimumWorkingSetSize", ctypes.c_size_t),
-                    ("MaximumWorkingSetSize", ctypes.c_size_t),
-                    ("ActiveProcessLimit", wintypes.DWORD),
-                    ("Affinity", ctypes.c_size_t),
-                    ("PriorityClass", wintypes.DWORD),
-                    ("SchedulingClass", wintypes.DWORD),
-                ]
+        class IO_COUNTERS(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_ulonglong) for name in (
+                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
+            )]
 
-            class _EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
-                _fields_ = [
-                    ("BasicLimitInformation", _BASIC_LIMIT_INFORMATION),
-                    ("IoInfo", _IO_COUNTERS),
-                    ("ProcessMemoryLimit", ctypes.c_size_t),
-                    ("JobMemoryLimit", ctypes.c_size_t),
-                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
-                    ("PeakJobMemoryUsed", ctypes.c_size_t),
-                ]
-
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-            kernel32.CreateJobObjectW.restype = wintypes.HANDLE
-            kernel32.SetInformationJobObject.argtypes = [
-                wintypes.HANDLE,
-                ctypes.c_int,
-                ctypes.c_void_p,
-                wintypes.DWORD,
+        class BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_longlong),
+                ("PerJobUserTimeLimit", ctypes.c_longlong),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
             ]
-            kernel32.SetInformationJobObject.restype = wintypes.BOOL
-            kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-            kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
-            kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
-            kernel32.TerminateJobObject.restype = wintypes.BOOL
-            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-            kernel32.CloseHandle.restype = wintypes.BOOL
 
-            handle = kernel32.CreateJobObjectW(None, None)
-            if not handle:
-                raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
-            information = _EXTENDED_LIMIT_INFORMATION()
-            information.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE
+        class EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", BASIC_LIMIT_INFORMATION),
+                ("IoInfo", IO_COUNTERS),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        class BASIC_ACCOUNTING_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("TotalUserTime", ctypes.c_longlong),
+                ("TotalKernelTime", ctypes.c_longlong),
+                ("ThisPeriodTotalUserTime", ctypes.c_longlong),
+                ("ThisPeriodTotalKernelTime", ctypes.c_longlong),
+                ("TotalPageFaultCount", wintypes.DWORD),
+                ("TotalProcesses", wintypes.DWORD),
+                ("ActiveProcesses", wintypes.DWORD),
+                ("TotalTerminatedProcesses", wintypes.DWORD),
+            ]
+
+        class THREADENTRY32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ThreadID", wintypes.DWORD),
+                ("th32OwnerProcessID", wintypes.DWORD),
+                ("tpBasePri", wintypes.LONG),
+                ("tpDeltaPri", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+            ]
+
+        self._accounting_type = BASIC_ACCOUNTING_INFORMATION
+        self._thread_entry_type = THREADENTRY32
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._kernel32 = kernel32
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+        ]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel32.TerminateJobObject.restype = wintypes.BOOL
+        kernel32.QueryInformationJobObject.argtypes = [
+            wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+            wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        for name in ("Thread32First", "Thread32Next"):
+            function = getattr(kernel32, name)
+            function.argtypes = [wintypes.HANDLE, ctypes.POINTER(THREADENTRY32)]
+            function.restype = wintypes.BOOL
+        kernel32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenThread.restype = wintypes.HANDLE
+        kernel32.GetProcessIdOfThread.argtypes = [wintypes.HANDLE]
+        kernel32.GetProcessIdOfThread.restype = wintypes.DWORD
+        kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
+        kernel32.ResumeThread.restype = wintypes.DWORD
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.PeekNamedPipe.argtypes = [
+            wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.PeekNamedPipe.restype = wintypes.BOOL
+
+        handle = kernel32.CreateJobObjectW(None, None)
+        if not handle:
+            raise self._error("CreateJobObjectW")
+        self._handle = handle
+        try:
+            information = EXTENDED_LIMIT_INFORMATION()
+            information.BasicLimitInformation.LimitFlags = 0x00002000
             if not kernel32.SetInformationJobObject(
-                handle,
-                9,  # JobObjectExtendedLimitInformation
-                ctypes.byref(information),
-                ctypes.sizeof(information),
+                handle, 9, ctypes.byref(information), ctypes.sizeof(information),
             ):
-                error = ctypes.get_last_error()
-                kernel32.CloseHandle(handle)
-                raise OSError(error, "SetInformationJobObject failed")
-            process_handle = wintypes.HANDLE(int(process._handle))  # type: ignore[attr-defined]
-            if not kernel32.AssignProcessToJobObject(handle, process_handle):
-                error = ctypes.get_last_error()
-                kernel32.CloseHandle(handle)
-                raise OSError(error, "AssignProcessToJobObject failed")
-            self._kernel32 = kernel32
-            self._handle = handle
-        except Exception as exc:
-            self.error = exc
-            self._handle = None
+                raise self._error("SetInformationJobObject")
+        except BaseException:
+            self.close()
+            raise
+
+    def _error(self, operation: str) -> OSError:
+        return OSError(self._ctypes.get_last_error(), operation + " failed")
+
+    def _close_handle(self, handle: object) -> None:
+        if not self._kernel32.CloseHandle(handle):
+            raise self._error("CloseHandle")
+
+    def _require_live_process(self, process: subprocess.Popen[bytes]) -> None:
+        result = self._kernel32.WaitForSingleObject(int(process._handle), 0)
+        if result == 0xFFFFFFFF:
+            raise self._error("WaitForSingleObject")
+        if result != 0x00000102:
+            raise ProcessControlError("suspended child is no longer live")
 
     @property
     def active(self) -> bool:
+        """Whether this wrapper owns a job handle, not whether a child is live."""
         return self._handle is not None
+
+    @property
+    def assigned(self) -> bool:
+        return self._handle is not None and self._assigned_process_handle is not None
+
+    def assign(self, process: subprocess.Popen[bytes]) -> None:
+        if self._handle is None:
+            raise ProcessControlError("Windows job is unavailable")
+        self._require_live_process(process)
+        if not self._kernel32.AssignProcessToJobObject(
+            self._handle, int(process._handle),
+        ):
+            raise self._error("AssignProcessToJobObject")
+        self._assigned_process_handle = int(process._handle)
+
+    def resume(self, process: subprocess.Popen[bytes], deadline: float) -> None:
+        """Resume exactly one owned initial thread after job assignment."""
+        if not self.assigned or self._assigned_process_handle != int(process._handle):
+            raise ProcessControlError("cannot resume a child not assigned to this job")
+        self._require_live_process(process)
+        ctypes = self._ctypes
+        kernel32 = self._kernel32
+        snapshot = kernel32.CreateToolhelp32Snapshot(0x00000004, 0)
+        if snapshot == ctypes.c_void_p(-1).value:
+            raise self._error("CreateToolhelp32Snapshot")
+        candidate = None
+        try:
+            entry = self._thread_entry_type()
+            entry.dwSize = ctypes.sizeof(entry)
+            present = kernel32.Thread32First(snapshot, ctypes.byref(entry))
+            scanned = 0
+            while present:
+                scanned += 1
+                if scanned > 100_000 or time.monotonic() >= deadline:
+                    raise ProcessControlError("suspended-thread enumeration exceeded its budget")
+                required_size = self._thread_entry_type.th32OwnerProcessID.offset + 4
+                if entry.dwSize < required_size:
+                    raise ProcessControlError("thread snapshot omitted ownership fields")
+                if entry.th32OwnerProcessID == process.pid:
+                    if candidate is not None:
+                        raise ProcessControlError("suspended child has multiple initial threads")
+                    candidate = int(entry.th32ThreadID)
+                entry.dwSize = ctypes.sizeof(entry)
+                present = kernel32.Thread32Next(snapshot, ctypes.byref(entry))
+            error = ctypes.get_last_error()
+            if error != 18:  # ERROR_NO_MORE_FILES
+                raise OSError(error, "thread enumeration failed")
+        finally:
+            self._close_handle(snapshot)
+        if candidate is None:
+            raise ProcessControlError("suspended child's initial thread was not found")
+        self._require_live_process(process)
+        # THREAD_SUSPEND_RESUME | THREAD_QUERY_LIMITED_INFORMATION; no inheritance.
+        thread = kernel32.OpenThread(0x0002 | 0x0800, False, candidate)
+        if not thread:
+            raise self._error("OpenThread")
+        try:
+            owner = kernel32.GetProcessIdOfThread(thread)
+            if owner == 0:
+                raise self._error("GetProcessIdOfThread")
+            if owner != process.pid:
+                raise ProcessControlError("suspended-thread ownership changed")
+            self._require_live_process(process)
+            if time.monotonic() >= deadline:
+                raise ProcessControlError("child deadline expired before resume")
+            previous_count = kernel32.ResumeThread(thread)
+            if previous_count == 0xFFFFFFFF:
+                raise self._error("ResumeThread")
+            if previous_count != 1:
+                raise ProcessControlError("unexpected initial thread suspend count")
+        finally:
+            self._close_handle(thread)
+
+    def active_process_count(self) -> int:
+        if self._handle is None:
+            raise ProcessControlError("cannot query a closed Windows job")
+        information = self._accounting_type()
+        if not self._kernel32.QueryInformationJobObject(
+            self._handle, 1, self._ctypes.byref(information),
+            self._ctypes.sizeof(information), None,
+        ):
+            raise self._error("QueryInformationJobObject")
+        return int(information.ActiveProcesses)
+
+    def pipe_available(self, descriptor: int) -> int | None:
+        """Return bytes ready, zero for open/empty, or None for broken-pipe EOF.
+
+        This broker must be the sole I/O owner. It calls os.read() for no more
+        than the available amount. No competing buffered reads are permitted.
+        PeekNamedPipe on a synchronous handle is not a universal nonblocking
+        guarantee for arbitrary multithreaded embeddings (Microsoft caveat).
+        """
+        import msvcrt
+
+        available = self._wintypes.DWORD()
+        handle = msvcrt.get_osfhandle(descriptor)
+        if not self._kernel32.PeekNamedPipe(
+            handle, None, 0, None, self._ctypes.byref(available), None,
+        ):
+            error = self._ctypes.get_last_error()
+            if error == 109:  # ERROR_BROKEN_PIPE; anonymous pipe writers closed.
+                return None
+            raise OSError(error, "PeekNamedPipe failed")
+        return int(available.value)
 
     def terminate(self) -> None:
         if self._handle is not None:
-            self._kernel32.TerminateJobObject(self._handle, 1)
+            if not self._kernel32.TerminateJobObject(self._handle, 1):
+                raise self._error("TerminateJobObject")
 
     def close(self) -> None:
         if self._handle is not None:
-            self._kernel32.CloseHandle(self._handle)
+            handle = self._handle
+            self._close_handle(handle)
             self._handle = None
+            self._assigned_process_handle = None
 
-
-
-def _require_windows_containment(
-    process: subprocess.Popen[bytes],
-    job: _WindowsJob,
-) -> None:
-    if os.name != "nt" or job.active:
-        return
-    try:
-        process.kill()
-        process.wait(timeout=5)
-    except Exception:
-        pass
-    detail = f": {job.error}" if job.error is not None else ""
-    raise ProcessControlError(
-        "could not assign the child to a Windows Job Object" + detail
-    )
 
 def _positive_limit(name: str, value: int | float) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ValueError(f"{name} must be a positive number")
-    return float(value)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a finite positive number")
+    try:
+        rendered = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite positive number") from exc
+    if not math.isfinite(rendered) or rendered <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return rendered
 
 
 def _positive_byte_limit(name: str, value: int) -> int:
@@ -235,64 +390,292 @@ def _normalise_environment(
     return target
 
 
-def _capture_stream(
-    stream: object,
-    state: _CaptureState,
-    overflow: threading.Event,
+def _require_windows_containment(
+    process: subprocess.Popen[bytes],
+    job: _WindowsJob,
 ) -> None:
-    reader = stream
-    try:
-        while True:
-            chunk = reader.read(_READ_CHUNK)  # type: ignore[attr-defined]
-            if not chunk:
-                break
-            state.accept(chunk)
-            if state.exceeded:
-                overflow.set()
-    finally:
-        try:
-            reader.close()  # type: ignore[attr-defined]
-        except Exception:
-            pass
-
-
-def _terminate_tree(process: subprocess.Popen[bytes], job: _WindowsJob) -> None:
-    if process.poll() is not None:
+    if os.name != "nt" or job.active and job.assigned:
         return
+    try:
+        process.kill()
+        process.wait(timeout=5)
+    except Exception:
+        pass
+    detail = f": {job.error}" if job.error is not None else ""
+    raise ProcessControlError(
+        "could not assign the child to a Windows Job Object" + detail
+    )
+
+
+def _require_posix_ownership() -> None:
     if os.name == "nt":
-        if job.active:
-            job.terminate()
-        else:
-            # ``taskkill`` is used only inside this central process boundary.
-            try:
-                subprocess.run(
-                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                    check=False,
-                    shell=False,
-                )
-            except Exception:
+        return
+    required = ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT", "set_blocking")
+    if any(not hasattr(os, name) for name in required):
+        raise ProcessControlError(
+            "safe process-group ownership requires waitid/WNOWAIT and nonblocking pipes; "
+            "on macOS use Python 3.13 or later"
+        )
+    if signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL:
+        raise ProcessControlError(
+            "process-group ownership requires default SIGCHLD handling and exclusive child reaping"
+        )
+
+
+def _posix_child_exited(process: subprocess.Popen[bytes]) -> bool:
+    """Observe the child without releasing its PID or process-group identity."""
+    if process.returncode is not None:
+        raise ProcessControlError("owned child was reaped before process-group cleanup")
+    try:
+        observed = os.waitid(
+            os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT,
+        )
+    except ChildProcessError as exc:
+        raise ProcessControlError("owned child identity was lost before cleanup") from exc
+    if observed is not None and observed.si_pid != process.pid:
+        raise ProcessControlError("child observation did not match the owned identity")
+    return observed is not None
+
+
+def _darwin_group_is_zombie_only(
+    process: subprocess.Popen[bytes], *, deadline: float,
+) -> bool:
+    """Check the narrow XNU killpg EPERM case without releasing the leader.
+
+    XNU excludes zombies from group signalling and can return EPERM when no
+    member remains eligible. Bounded libproc observations, with the waitable
+    leader still present, distinguish observed zombies from denied live members.
+    Unavailable, truncated or expanding observations fail closed. These reads
+    are not atomic; disappearance of reaped zombies is permitted.
+    """
+    if time.monotonic() >= deadline or not _posix_child_exited(process):
+        return False
+    import ctypes
+
+    class _BSDShortInfo(ctypes.Structure):
+        _fields_ = [
+            ("pid", ctypes.c_uint32), ("ppid", ctypes.c_uint32),
+            ("pgid", ctypes.c_uint32), ("status", ctypes.c_uint32),
+            ("comm", ctypes.c_char * 16),
+            ("flags", ctypes.c_uint32), ("uid", ctypes.c_uint32),
+            ("gid", ctypes.c_uint32), ("ruid", ctypes.c_uint32),
+            ("rgid", ctypes.c_uint32), ("svuid", ctypes.c_uint32),
+            ("svgid", ctypes.c_uint32), ("rfu", ctypes.c_uint32),
+        ]
+
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        libproc.proc_listpids.argtypes = [
+            ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_int,
+        ]
+        libproc.proc_listpids.restype = ctypes.c_int
+        libproc.proc_pidinfo.argtypes = [
+            ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int,
+        ]
+        libproc.proc_pidinfo.restype = ctypes.c_int
+
+        def snapshot() -> set[int] | None:
+            if time.monotonic() >= deadline:
+                return None
+            members = (ctypes.c_int * 1024)()
+            capacity = ctypes.sizeof(members)
+            # PROC_PGRP_ONLY includes both allproc and zombproc in XNU.
+            filled = libproc.proc_listpids(2, process.pid, members, capacity)
+            item_size = ctypes.sizeof(ctypes.c_int)
+            if filled <= 0 or filled >= capacity or filled % item_size:
+                return None
+            identifiers = set(members[:filled // item_size])
+            if (
+                len(identifiers) != filled // item_size
+                or any(pid <= 0 for pid in identifiers)
+                or process.pid not in identifiers
+            ):
+                return None
+            return identifiers
+
+        def all_zombies(members: set[int]) -> bool:
+            for pid in members:
+                if time.monotonic() >= deadline:
+                    return False
+                info = _BSDShortInfo()
+                # PROC_PIDT_SHORTBSDINFO with arg=1 also looks up zombies.
+                filled = libproc.proc_pidinfo(pid, 13, 1, ctypes.byref(info), ctypes.sizeof(info))
+                if (
+                    filled != ctypes.sizeof(info) or info.pid != pid
+                    or info.pgid != process.pid or info.status != 5  # SZOMB
+                ):
+                    return False
+            return True
+
+        initial = snapshot()
+        if initial is None or not all_zombies(initial):
+            return False
+        final = snapshot()
+        # PID sets alone cannot reject a reaped zombie's PID reused by a live
+        # member. Recheck final states; these observations are not atomic.
+        if final is None or not final.issubset(initial) or not all_zombies(final):
+            return False
+    except (OSError, AttributeError, ValueError):
+        # Preserve the original killpg EPERM when libproc cannot prove safety.
+        return False
+    # Do not catch the ownership error if another reaper has released the PID.
+    return time.monotonic() < deadline and _posix_child_exited(process)
+
+
+def _signal_owned_group(
+    process: subprocess.Popen[bytes], signum: int, *, deadline: float | None = None,
+) -> None:
+    # A waitable child anchors this PID until the last group signal. In
+    # particular, Popen.poll/terminate/kill must not be used on this POSIX path.
+    _posix_child_exited(process)
+    try:
+        os.killpg(process.pid, signum)
+    except ProcessLookupError:
+        pass
+    except PermissionError as exc:
+        if exc.errno != errno.EPERM or sys.platform != "darwin" or not _darwin_group_is_zombie_only(
+            process,
+            deadline=deadline if deadline is not None else time.monotonic() + 1.0,
+        ):
+            raise
+
+
+class _OutputPipe:
+    """One bounded pipe, read only by the broker's controlling thread."""
+
+    def __init__(self, stream: object, state: _CaptureState, job: _WindowsJob) -> None:
+        self.stream = stream
+        self.state = state
+        self.job = job
+        self.descriptor = stream.fileno()  # type: ignore[attr-defined]
+        self.finished = False
+        if os.name != "nt":
+            os.set_blocking(self.descriptor, False)
+
+    def read_available(self) -> bool:
+        if self.finished:
+            return False
+        amount = _READ_CHUNK if self.state.exceeded else min(
+            _READ_CHUNK, max(1, self.state.limit - self.state.stored + 1),
+        )
+        if os.name == "nt":
+            available = self.job.pipe_available(self.descriptor)
+            if available is None:
+                self.finished = True
+                return False
+            if not available:
+                return False
+            amount = min(amount, available)
+        try:
+            chunk = os.read(self.descriptor, amount)
+        except BlockingIOError:
+            return False
+        if not chunk:
+            self.finished = True
+            return False
+        self.state.accept(chunk)
+        return True
+
+
+def _pump_outputs(pipes: list[_OutputPipe]) -> bool:
+    received = False
+    for pipe in pipes:
+        received = pipe.read_available() or received
+    return received
+
+
+def _terminate_tree(
+    process: subprocess.Popen[bytes],
+    job: _WindowsJob,
+    *,
+    graceful: bool = True,
+    cleanup_deadline: float | None = None,
+) -> None:
+    """Stop the owned group/job before reaping the leader."""
+    if os.name == "nt":
+        try:
+            if job.active:
+                job.terminate()
+        finally:
+            if not job.assigned:
+                # Even a failed empty-job termination must not skip killing
+                # the still-suspended child that failed job admission.
                 process.kill()
         return
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    if not graceful:
+        _signal_owned_group(process, signal.SIGKILL, deadline=cleanup_deadline)
         return
-    except OSError:
-        process.terminate()
-    deadline = time.monotonic() + _TERMINATION_GRACE_SECONDS
-    while process.poll() is None and time.monotonic() < deadline:
-        time.sleep(0.02)
-    if process.poll() is None:
+    try:
+        _signal_owned_group(process, signal.SIGTERM, deadline=cleanup_deadline)
+        remaining = _TERMINATION_GRACE_SECONDS
+        if cleanup_deadline is not None:
+            remaining = min(remaining, max(0.0, cleanup_deadline - time.monotonic()))
+        # Event.wait is a timer here, not a capture thread. A cancellation
+        # injected into the monitor's sleep does not interrupt cleanup again.
+        threading.Event().wait(remaining)
+    finally:
+        _signal_owned_group(process, signal.SIGKILL, deadline=cleanup_deadline)
+
+
+def _finish_process(
+    process: subprocess.Popen[bytes],
+    job: _WindowsJob,
+    pipes: list[_OutputPipe],
+    *,
+    graceful: bool,
+) -> None:
+    """Make every post-launch exit release owned resources within one budget."""
+    deadline = time.monotonic() + _CLEANUP_TIMEOUT_SECONDS
+    failure: BaseException | None = None
+    try:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except OSError:
-            process.kill()
+            _terminate_tree(process, job, graceful=graceful, cleanup_deadline=deadline)
+        except BaseException as exc:
+            failure = exc
+            # On Windows, closing our job is the kill-on-close fallback. It
+            # cannot restore a failed containment observation to a success.
+            if os.name == "nt":
+                try:
+                    job.close()
+                except BaseException:
+                    pass
+        try:
+            # The last POSIX group signal has already happened. Only now may
+            # wait() release the leader's PID and obtain its real return code.
+            process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        except BaseException as exc:
+            if failure is None:
+                failure = exc
+        try:
+            while True:
+                received = _pump_outputs(pipes)
+                job_empty = os.name != "nt" or not job.active or job.active_process_count() == 0
+                if all(pipe.finished for pipe in pipes) and job_empty:
+                    break
+                if time.monotonic() >= deadline:
+                    raise ProcessControlError(
+                        "owned process cleanup or output pipes did not finish within the cleanup budget"
+                    )
+                if not received:
+                    threading.Event().wait(min(_POLL_INTERVAL_SECONDS, max(0.0, deadline - time.monotonic())))
+        except BaseException as exc:
+            if failure is None:
+                failure = exc
+    finally:
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                try:
+                    stream.close()
+                except BaseException as exc:
+                    if failure is None:
+                        failure = exc
+        try:
+            job.close()
+        except BaseException as exc:
+            if failure is None:
+                failure = exc
+    if failure is not None:
+        raise ProcessControlError("owned process cleanup did not complete safely") from failure
 
 
 def run_bounded_process(
@@ -305,13 +688,18 @@ def run_bounded_process(
     stdout_limit: int = DEFAULT_STDOUT_LIMIT,
     stderr_limit: int = DEFAULT_STDERR_LIMIT,
 ) -> ProcessResult:
-    """Run ``command`` without a shell and enforce resource limits.
+    """Run a controlled command with bounded output and an execution deadline.
 
-    The returned bytes are prefixes of the corresponding streams when a limit
-    is exceeded.  Callers must inspect ``timed_out`` and
-    ``output_limit_exceeded`` before treating the return code as meaningful.
+    The deadline remains active until the leader has exited and both output
+    pipes reach EOF. Cleanup has a separate five-second budget, including at
+    most one second of POSIX TERM grace. POSIX descendants that leave the new
+    process group are outside this boundary. Detached pipe writers cause a
+    bounded cleanup error; they are not silently described as contained.
+
+    Returned bytes are exact stream prefixes. Inspect both limit flags before
+    treating the return code as meaningful. The host must not reap this child
+    or change SIGCHLD handling while the broker owns it.
     """
-
     argv = _normalise_command(command)
     timeout_seconds = _positive_limit("timeout", timeout)
     stdout_ceiling = _positive_byte_limit("stdout_limit", stdout_limit)
@@ -320,88 +708,83 @@ def run_bounded_process(
     if not working_directory.is_dir():
         raise ProcessControlError(f"working directory is not a directory: {working_directory}")
     child_environment = _normalise_environment(
-        environment,
-        replace_environment=replace_environment,
+        environment, replace_environment=replace_environment,
     )
-
-    creationflags = 0
-    start_new_session = os.name != "nt"
-    if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-
-    started = time.monotonic()
-    try:
-        process = subprocess.Popen(
-            argv,
-            cwd=working_directory,
-            env=child_environment,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=False,
-            close_fds=True,
-            start_new_session=start_new_session,
-            creationflags=creationflags,
-        )
-    except OSError as exc:
-        raise ProcessControlError(f"could not launch {argv[0]!r}: {exc}") from exc
-
-    job = _WindowsJob(process)
-    _require_windows_containment(process, job)
+    _require_posix_ownership()
     stdout_state = _CaptureState(stdout_ceiling, [])
     stderr_state = _CaptureState(stderr_ceiling, [])
-    overflow = threading.Event()
-    stdout_thread = threading.Thread(
-        target=_capture_stream,
-        args=(process.stdout, stdout_state, overflow),
-        name="codeprobe-stdout",
-        daemon=True,
-    )
-    stderr_thread = threading.Thread(
-        target=_capture_stream,
-        args=(process.stderr, stderr_state, overflow),
-        name="codeprobe-stderr",
-        daemon=True,
-    )
-    stdout_thread.start()
-    stderr_thread.start()
-
+    pipes: list[_OutputPipe] = []
+    # The Windows job exists before process creation, so failure to create the
+    # job cannot leave a running child. CREATE_SUSPENDED closes the admission race.
+    job = _WindowsJob()
+    process = None
     timed_out = False
     output_limit_exceeded = False
+    started = time.monotonic()
     deadline = started + timeout_seconds
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | 0x00000004
     try:
-        while process.poll() is None:
-            if overflow.is_set():
-                output_limit_exceeded = True
-                _terminate_tree(process, job)
-                break
-            if time.monotonic() >= deadline:
-                timed_out = True
-                _terminate_tree(process, job)
-                break
-            time.sleep(0.02)
         try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            _terminate_tree(process, job)
-            process.wait(timeout=5)
-    finally:
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
-        readers_finished = not stdout_thread.is_alive() and not stderr_thread.is_alive()
-        job.close()
-
-    if not readers_finished:
-        raise ProcessControlError("process output readers did not terminate cleanly")
-    if stdout_state.exceeded or stderr_state.exceeded:
-        output_limit_exceeded = True
-    duration = max(0.0, time.monotonic() - started)
+            process = subprocess.Popen(
+                argv,
+                cwd=working_directory,
+                env=child_environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=False,
+                close_fds=True,
+                start_new_session=os.name != "nt",
+                creationflags=creationflags,
+                bufsize=0,
+            )
+        except OSError as exc:
+            raise ProcessControlError(f"could not launch {argv[0]!r}: {exc}") from exc
+        pipes.append(_OutputPipe(process.stdout, stdout_state, job))
+        pipes.append(_OutputPipe(process.stderr, stderr_state, job))
+        if os.name == "nt":
+            job.assign(process)
+            _require_windows_containment(process, job)
+            job.resume(process, deadline)
+        while True:
+            received = _pump_outputs(pipes)
+            output_limit_exceeded = stdout_state.exceeded or stderr_state.exceeded
+            if output_limit_exceeded:
+                break
+            leader_exited = process.poll() is not None if os.name == "nt" else _posix_child_exited(process)
+            if leader_exited and all(pipe.finished for pipe in pipes):
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            if not received:
+                time.sleep(min(_POLL_INTERVAL_SECONDS, remaining))
+    except BaseException as primary:
+        if process is not None:
+            try:
+                _finish_process(process, job, pipes, graceful=True)
+            except BaseException as cleanup_error:
+                raise primary from cleanup_error
+        else:
+            try:
+                job.close()
+            except BaseException as cleanup_error:
+                raise primary from cleanup_error
+        raise
+    _finish_process(
+        process, job, pipes,
+        graceful=timed_out or output_limit_exceeded,
+    )
+    output_limit_exceeded = output_limit_exceeded or stdout_state.exceeded or stderr_state.exceeded
     return ProcessResult(
         args=argv,
         returncode=int(process.returncode if process.returncode is not None else -1),
         stdout=stdout_state.value(),
         stderr=stderr_state.value(),
-        duration_seconds=duration,
+        duration_seconds=max(0.0, time.monotonic() - started),
         timed_out=timed_out,
         output_limit_exceeded=output_limit_exceeded,
     )

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a scoped CodeProbe profile with independent holdout evaluation."""
+"""Build a scoped CodeProbe profile with group-exclusive evaluation."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import json
 import os
 import stat
 import statistics
+import tempfile
 import time
 import uuid
 import unicodedata
@@ -78,10 +79,13 @@ class SampleResult:
     decision_score: Optional[float] = None
 
 
-def load_manifest(path: Path) -> Dict[str, Any]:
+def load_manifest(
+    path: Path, *, consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None
+) -> Dict[str, Any]:
     path = Path(os.path.abspath(os.fspath(path)))
     data = read_bounded_regular_file(
-        path, root=path.parent, max_bytes=DEFAULT_MAX_MANIFEST_BYTES
+        path, root=path.parent, max_bytes=DEFAULT_MAX_MANIFEST_BYTES,
+        consumed_files=consumed_files,
     )
     try:
         text = data.decode("utf-8-sig")
@@ -105,10 +109,14 @@ def load_manifest(path: Path) -> Dict[str, Any]:
     return parsed
 
 
-def _load_json_object_file(path: Path, label: str) -> Dict[str, Any]:
+def _load_json_object_file(
+    path: Path, label: str, *,
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
+) -> Dict[str, Any]:
     absolute = Path(os.path.abspath(os.fspath(path)))
     data = read_bounded_regular_file(
-        absolute, root=absolute.parent, max_bytes=DEFAULT_MAX_MANIFEST_BYTES
+        absolute, root=absolute.parent, max_bytes=DEFAULT_MAX_MANIFEST_BYTES,
+        consumed_files=consumed_files,
     )
     try:
         text = data.decode("utf-8-sig")
@@ -209,8 +217,14 @@ def _group_token(value: object, fallback: str) -> str:
     return "group-" + hashlib.sha256(raw.encode("utf-8", errors="backslashreplace")).hexdigest()[:16]
 
 
-def _read_text_file(path: Path, root: Path) -> str:
-    data = read_bounded_regular_file(path, root=root, max_bytes=engine.PROJECT_MAX_FILE_BYTES_DEFAULT)
+def _read_text_file(
+    path: Path, root: Path, *,
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
+) -> str:
+    data = read_bounded_regular_file(
+        path, root=root, max_bytes=engine.PROJECT_MAX_FILE_BYTES_DEFAULT,
+        consumed_files=consumed_files,
+    )
     text, warning = engine.decode_text_bytes(data)
     if text is None:
         raise ValueError(warning or "file is not readable text")
@@ -227,6 +241,7 @@ def analyse_sample(
     sample_id: str = "",
     split: str = "",
     group_id: str = "",
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
 ) -> SampleResult:
     label = _normalise_label(record.get("label") or record.get("class"))
     if label not in SUPPORTED_LABELS:
@@ -246,16 +261,20 @@ def analyse_sample(
                 max_entries=DEFAULT_MAX_ENTRIES,
                 max_ignore_bytes=DEFAULT_MAX_IGNORE_BYTES,
                 max_ignore_rules=DEFAULT_MAX_IGNORE_RULES,
+                consumed_files=consumed_files,
             )
             payload["profile"] = profile
             payload["config_override"] = metric_overrides
             payload["require_python_ast"] = True
-            result = json.loads(engine.codeprobe_analyze_project(json.dumps(payload)))
-            report = result["project_report"]
+            payload["require_c_family_features"] = True
+            payload["require_script_features"] = True
+            report = engine.analyse_project_payload(payload)
         else:
             payload = {
-                "code": _read_text_file(path, root),
+                "code": _read_text_file(path, root, consumed_files=consumed_files),
                 "require_python_ast": True,
+                "require_c_family_features": True,
+                "require_script_features": True,
                 "filename": path.name,
                 "profile": profile,
                 "config_override": metric_overrides,
@@ -327,18 +346,29 @@ def describe_scores(values: Sequence[float]) -> Dict[str, Any]:
     }
 
 
-def threshold_rates(human_scores: Sequence[float], ai_scores: Sequence[float], hybrid_scores: Sequence[float], threshold: float) -> Dict[str, float]:
+def threshold_rates(human_scores: Sequence[float], ai_scores: Sequence[float], hybrid_scores: Sequence[float], threshold: float) -> Dict[str, Any]:
+    """Retain numeric aliases and attach the exact denominators they summarise."""
     positive_scores = list(ai_scores) + list(hybrid_scores)
+    groups = {"human": human_scores, "ai_generated": ai_scores,
+              "hybrid": hybrid_scores, "positive": positive_scores}
+    counts = {}
+    for label, scores in groups.items():
+        reviewed = sum(score >= threshold for score in scores)
+        eligible = len(scores)
+        counts[label] = {"reviewed": reviewed, "eligible": eligible,
+                         "rate": reviewed / eligible if eligible else None}
     return {
         "threshold": round(threshold, 4),
-        "false_positive_rate": round(sum(score >= threshold for score in human_scores) / len(human_scores), 4) if human_scores else 0.0,
-        "ai_generated_review_rate": round(sum(score >= threshold for score in ai_scores) / len(ai_scores), 4) if ai_scores else 0.0,
-        "hybrid_review_rate": round(sum(score >= threshold for score in hybrid_scores) / len(hybrid_scores), 4) if hybrid_scores else 0.0,
-        "true_positive_rate": round(sum(score >= threshold for score in positive_scores) / len(positive_scores), 4) if positive_scores else 0.0,
+        "false_positive_rate": round(counts["human"]["rate"], 4) if human_scores else 0.0,
+        "ai_generated_review_rate": round(counts["ai_generated"]["rate"], 4) if ai_scores else 0.0,
+        "hybrid_review_rate": round(counts["hybrid"]["rate"], 4) if hybrid_scores else 0.0,
+        "true_positive_rate": round(counts["positive"]["rate"], 4) if positive_scores else 0.0,
+        "rate_counts": counts,
+        "rate_interpretation": "descriptive; zero denominator unavailable",
+        "legacy_alias_qualification": "The four numeric rate aliases are rounded descriptive proportions. Their historical 0.0 for an absent class is a compatibility value, not an observed zero rate.",
     }
 
-
-def choose_review_trigger(human_scores: Sequence[float], ai_scores: Sequence[float], hybrid_scores: Sequence[float], target_fpr: float) -> Tuple[float, List[Dict[str, float]], str]:
+def choose_review_trigger(human_scores: Sequence[float], ai_scores: Sequence[float], hybrid_scores: Sequence[float], target_fpr: float) -> Tuple[float, List[Dict[str, Any]], str]:
     positive_scores = list(ai_scores) + list(hybrid_scores)
     grid = [round(x / 100.0, 2) for x in range(10, 91)]
     rows = [threshold_rates(human_scores, ai_scores, hybrid_scores, threshold) for threshold in grid]
@@ -405,7 +435,7 @@ def _assign_splits(results: Sequence[SampleResult], manifest: Dict[str, Any]) ->
         evaluation_groups: set[str] = set()
         for stratum, groups in groups_by_stratum.items():
             if len(groups) < 2:
-                raise ValueError(f"independent evaluation requires at least two {stratum} groups")
+                raise ValueError(f"group-exclusive evaluation requires at least two {stratum} groups")
             ordered = sorted(groups, key=lambda value: hashlib.sha256(f"{seed}|{stratum}|{value}".encode()).hexdigest())
             count = max(1, min(len(ordered) - 1, round(len(ordered) * fraction)))
             evaluation_groups.update(ordered[:count])
@@ -459,6 +489,32 @@ def _opaque_sample_results(results: Sequence[SampleResult]) -> list[dict[str, An
                       group_id=groups[item.group_id])
         rows.append(dict(row.__dict__))
     return rows
+
+
+def descriptive_review_rates(results: Sequence[SampleResult], threshold: float, unit: str) -> Dict[str, Any]:
+    """Count reported observations and groups, without assuming independent trials."""
+    labels = {}
+    label_sets = {"human": NEGATIVE_LABELS, "ai_generated": POSITIVE_LABELS,
+                  "hybrid": HYBRID_LABELS, "positive": POSITIVE_LABELS | HYBRID_LABELS}
+    for name, accepted in label_sets.items():
+        members = [item for item in results if item.label in accepted]
+        eligible = [item for item in members if item.applicable and item.score is not None]
+        reviewed = sum((item.decision_score if item.decision_score is not None else item.score) >= threshold
+                       for item in eligible)
+        labels[name] = {
+            "sample_count": len(members), "reviewed": reviewed, "eligible": len(eligible),
+            "group_count": len({item.group_id for item in members}),
+            "eligible_group_count": len({item.group_id for item in eligible}),
+            "rate": reviewed / len(eligible) if eligible else None,
+        }
+    return {
+        "threshold": threshold, "unit": unit, "sample_count": len(results),
+        "group_count": len({item.group_id for item in results}), "labels": labels,
+        "counting_basis": "One eligible file/project report is one observation. The positive row pools ai_generated and hybrid and overlaps those rows. Group counts are separate, not effective independent sample sizes.",
+        "statistical_independence": "not_established",
+        "uncertainty": {"status": "not_estimated",
+                        "reason": "Group-exclusive partitions prevent declared group overlap but do not establish statistical independence, representative sampling or an appropriate sampling model."},
+    }
 
 
 def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], target_fpr: float) -> Dict[str, Any]:
@@ -524,7 +580,9 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
             "selection_partition": "fit",
             "performance_partition": "evaluation",
             "group_exclusive": True,
-            "independence_basis": "declared group identifiers plus physical filesystem identity checks",
+            "independence_basis": "Declared group identifiers separate the partitions; physical filesystem identity checks belong to CLI intake, not this in-memory summary.",
+            "independent_holdout_alias_qualification": "The retained independent_holdout Boolean denotes separation from threshold selection, not independent Bernoulli trials or independent research review.",
+            "statistical_independence": "not_established",
             "independence_limitation": "Copied-identical, templated or semantically related samples are not inferred automatically.",
             "fit_sample_count": len(fit),
             "evaluation_sample_count": len(evaluation),
@@ -546,6 +604,12 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
             "ai_generated": describe_scores(eval_ai),
             "hybrid": describe_scores(eval_hybrid),
         },
+        "descriptive_review_rates": {
+            "fit": descriptive_review_rates(fit, trigger, kind),
+            "evaluation": descriptive_review_rates(evaluation, trigger, kind),
+            "all": descriptive_review_rates(assigned, trigger, kind),
+        },
+        "legacy_rate_qualification": fit_rates["legacy_alias_qualification"],
         "fit_at_selected_trigger": fit_rates,
         "evaluation_at_selected_trigger": evaluation_rates,
         "sensitivity_partition": "fit",
@@ -561,12 +625,14 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
     notes = [
         "Generated by tools/calibrate_profile.py from labelled local samples.",
         "Generated from a group-exclusive fit/evaluation design.",
-        "The trigger was selected only on the fit partition; reported performance comes from the untouched evaluation partition.",
+        "The trigger was selected only on the fit partition; evaluation rows describe the untouched evaluation partition.",
         "Sample and group identifiers are replaced by fresh random tokens after partitioning; paths and identity mappings are not exported.",
         "The trigger is a review threshold, not a probability boundary and not evidence of misconduct.",
+        "Statistical independence is not established; uncertainty is not estimated. Files within a group may remain dependent.",
+        "Operational denotes fit-target-met-and-scoring-bound for technical replay, not institutional approval or demonstrated external validity.",
     ]
     if len(fit_human) < 20 or len(fit_ai) + len(fit_hybrid) < 20 or len(eval_human) < 10 or len(eval_ai) + len(eval_hybrid) < 10:
-        notes.append("Calibration partitions are small; treat this profile as a draft and expand the corpus before high-stakes use.")
+        notes.append("Calibration partitions are small; treat this profile as a draft and expand the corpus before high-stakes use. These advisory counts do not establish statistical adequacy.")
     if not target_met:
         notes.append("The requested fit target was not met on the configured threshold grid. This draft is non-operational; evaluation data must not be used to select a replacement threshold.")
     if not bound_scores:
@@ -590,10 +656,9 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
     }
 
 
-def write_summary(path: Path, profile: Dict[str, Any]) -> None:
+def render_summary(profile: Dict[str, Any]) -> str:
     validation = profile.get("validation", {})
     design = validation.get("evaluation_design", {})
-    evaluation = validation.get("evaluation_at_selected_trigger", {})
     distributions = validation.get("evaluation_score_distributions", {})
     sensitivity = validation.get("sensitivity", [])
     scope = profile.get("scope", {})
@@ -606,70 +671,97 @@ def write_summary(path: Path, profile: Dict[str, Any]) -> None:
         f"Calibrated scope: `{kind}` / `{', '.join(scope.get('languages') or [])}`.",
         f"Suggested local review trigger: **{trigger * 100:.1f}%**.",
         f"Operational for replay: `{profile.get('operational', False)}` ({profile.get('operational_reason', 'unbound')}).",
+        "This is technical replay eligibility, not institutional approval or demonstrated external validity.",
         f"Fit target met: `{validation.get('target_met', False)}`; evaluation target met: `{validation.get('evaluation_target_met', False)}` (not used for selection).",
         f"Selection source: `{validation.get('trigger_source', 'unknown')}` using only the fit partition.",
-        f"Evaluation design: `{design.get('strategy', 'unknown')}`; group-exclusive independent holdout: `{design.get('independent_holdout', False)}`.",
+        f"Evaluation design: `{design.get('strategy', 'unknown')}`; group-exclusive: `{design.get('group_exclusive', False)}`.",
+        "Statistical independence is not established; uncertainty is not estimated. Group exclusivity alone does not justify a binomial interval.",
         f"Fit/evaluation samples: {design.get('fit_sample_count', 0)}/{design.get('evaluation_sample_count', 0)}.",
         "",
-        "## Independent evaluation at the selected trigger",
+        "## Descriptive review rates at the fit-selected trigger",
         "",
-        f"- Known-human false-positive review rate: {float(evaluation.get('false_positive_rate', 0.0)):.3f}",
-        f"- AI-generated review rate: {float(evaluation.get('ai_generated_review_rate', 0.0)):.3f}",
-        f"- Hybrid review rate: {float(evaluation.get('hybrid_review_rate', 0.0)):.3f}",
-        f"- Combined positive review rate: {float(evaluation.get('true_positive_rate', 0.0)):.3f}",
-        "",
-        "## Evaluation score distributions",
-        "",
+        "| Partition | Label | Unit | Reviewed/eligible | Distinct groups | Rate |",
+        "|---|---|---|---:|---:|---:|",
+    ]
+    canonical = validation.get("descriptive_review_rates", {})
+    for partition in ("fit", "evaluation", "all"):
+        summary = canonical.get(partition, {})
+        for label in ("human", "ai_generated", "hybrid", "positive"):
+            row = summary.get("labels", {}).get(label)
+            if not row:
+                lines.append(f"| {partition} | {label} | {kind} | unavailable | unavailable | N/A |")
+                continue
+            rate = "N/A" if row["rate"] is None else f"{row['rate']:.6f}"
+            lines.append(f"| {partition} | {label} | {summary['unit']} | {row['reviewed']}/{row['eligible']} | {row['group_count']} | {rate} |")
+    lines.extend([
+        "", "Rates describe the retained observations, not a population accuracy estimate. The all partition pools fit and evaluation and is not an independent evaluation. The positive row pools AI-generated and hybrid observations; do not sum overlapping rows.",
+        "A zero denominator yields N/A. Historical numeric aliases may contain 0.0 for an absent class; that value is not an observed zero rate.",
+        "", "## Evaluation score distributions", "",
         "| Label group | n | mean | median | p90 | max |",
         "|---|---:|---:|---:|---:|---:|",
-    ]
+    ])
     for group in ("human", "ai_generated", "hybrid"):
         stats = distributions.get(group, {"count": 0})
         lines.append(f"| {group} | {stats.get('count', 0)} | {stats.get('mean', 'n/a')} | {stats.get('median', 'n/a')} | {stats.get('p90', 'n/a')} | {stats.get('max', 'n/a')} |")
-    lines.extend(["", "## Fit-partition sensitivity grid", "", "| threshold | fit human FPR | fit AI review rate | fit hybrid review rate | fit combined positive rate |", "|---:|---:|---:|---:|---:|"])
+    lines.extend(["", "## Fit-partition sensitivity grid", "", "Each cell is reviewed/eligible; N/A means no eligible observation, not a measured zero rate.", "",
+                  "| threshold | human | AI-generated | hybrid | combined positive |", "|---:|---:|---:|---:|---:|"])
     for row in sensitivity:
         if int(float(row["threshold"]) * 100) % 5 == 0:
-            lines.append(f"| {row['threshold']:.2f} | {row['false_positive_rate']:.3f} | {row.get('ai_generated_review_rate', 0.0):.3f} | {row.get('hybrid_review_rate', 0.0):.3f} | {row['true_positive_rate']:.3f} |")
+            cells = []
+            for label in ("human", "ai_generated", "hybrid", "positive"):
+                counts = row.get("rate_counts", {}).get(label)
+                cells.append(f"{counts['reviewed']}/{counts['eligible']}" if counts and counts["eligible"] else "N/A")
+            lines.append(f"| {row['threshold']:.2f} | " + " | ".join(cells) + " |")
     lines.extend(["", "## Caveats", ""])
     lines.extend(f"- {note}" for note in profile.get("notes", []))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
 
-
-def write_observations_csv(path: Path, results: Sequence[SampleResult]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def render_observations_csv(results: Sequence[SampleResult]) -> str:
     fields = ["sample_id", "group_id", "split", "path", "label", "kind", "language", "applicable", "score", "score_percent", "decision_score", "sloc", "verdict_class", "warning"]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        for index, item in enumerate(_normalise_results(results)):
-            writer.writerow({
-                "sample_id": item.sample_id,
-                "group_id": item.group_id,
-                "split": item.split,
-                "path": item.sample_id,
-                "label": item.label,
-                "kind": item.kind,
-                "language": item.language,
-                "applicable": item.applicable,
-                "score": "" if item.score is None else f"{item.score:.6f}",
-                "score_percent": "" if item.score is None else f"{item.score * 100:.2f}",
-                "decision_score": "" if item.decision_score is None else repr(item.decision_score),
-                "sloc": item.sloc,
-                "verdict_class": item.verdict_class,
-                "warning": item.warning,
-            })
+    handle = io.StringIO(newline="")
+    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer.writeheader()
+    for index, item in enumerate(_normalise_results(results)):
+        writer.writerow({
+            "sample_id": item.sample_id,
+            "group_id": item.group_id,
+            "split": item.split,
+            "path": item.sample_id,
+            "label": item.label,
+            "kind": item.kind,
+            "language": item.language,
+            "applicable": item.applicable,
+            "score": "" if item.score is None else f"{item.score:.6f}",
+            "score_percent": "" if item.score is None else f"{item.score * 100:.2f}",
+            "decision_score": "" if item.decision_score is None else repr(item.decision_score),
+            "sloc": item.sloc,
+            "verdict_class": item.verdict_class,
+            "warning": item.warning,
+        })
+    return handle.getvalue()
 
 
-def write_sensitivity_csv(path: Path, profile: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fields = ["threshold", "false_positive_rate", "ai_generated_review_rate", "hybrid_review_rate", "true_positive_rate"]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        for row in profile.get("validation", {}).get("sensitivity", []):
-            writer.writerow({field: row.get(field, "") for field in fields})
-
+def render_sensitivity_csv(profile: Dict[str, Any]) -> str:
+    legacy = ["threshold", "false_positive_rate", "ai_generated_review_rate", "hybrid_review_rate", "true_positive_rate"]
+    labels = ("human", "ai_generated", "hybrid", "positive")
+    fields = legacy + [label + suffix for label in labels for suffix in ("_reviewed", "_eligible", "_descriptive_rate")] + ["partition", "unit", "rate_interpretation", "uncertainty"]
+    handle = io.StringIO(newline="")
+    writer = csv.DictWriter(handle, fieldnames=fields)
+    writer.writeheader()
+    kind = (profile.get("scope", {}).get("report_kinds") or ["unknown"])[0]
+    for row in profile.get("validation", {}).get("sensitivity", []):
+        output = {field: row.get(field, "") for field in legacy}
+        for label in labels:
+            counts = row.get("rate_counts", {}).get(label, {})
+            output[label + "_reviewed"] = counts.get("reviewed", "")
+            output[label + "_eligible"] = counts.get("eligible", "")
+            rate = counts.get("rate")
+            output[label + "_descriptive_rate"] = "" if rate is None else repr(rate)
+        output.update(partition="fit", unit=kind,
+                      rate_interpretation="descriptive; zero denominator unavailable",
+                      uncertainty="not_estimated; statistical independence not established")
+        writer.writerow(output)
+    return handle.getvalue()
 
 def _manifest_records(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
     samples = manifest.get("samples") or manifest.get("records") or []
@@ -698,7 +790,7 @@ def _output_paths(args: Any, manifest_path: Path) -> dict[str, Path]:
 
 
 def _output_path_key(path: Path) -> str:
-    return os.path.normcase(os.path.realpath(os.fspath(path))).casefold()
+    return unicodedata.normalize("NFC", os.path.normcase(os.path.realpath(os.fspath(path)))).casefold()
 
 
 def _validate_output_destination(name: str, path: Path) -> Path:
@@ -752,54 +844,258 @@ def _validate_output_destination(name: str, path: Path) -> Path:
     return canonical
 
 
+def _file_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
+    # Match the bounded reader, including Windows' creation-time semantics.
+    return (
+        int(metadata.st_dev), int(metadata.st_ino), int(metadata.st_size),
+        int(metadata.st_mtime_ns), 0 if os.name == "nt" else int(metadata.st_ctime_ns),
+    )
+
+
+def _output_state(path: Path) -> tuple[int, int, int, int, int] | None:
+    try:
+        return _file_identity(path.lstat())
+    except FileNotFoundError:
+        return None
+
+
 def _validate_output_paths(
     outputs: Dict[str, Path],
     *,
-    manifest_path: Path,
+    manifest_path: Path | None,
     sample_paths: Sequence[tuple[Path, str]],
-) -> None:
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] | None = None,
+) -> dict[str, tuple[int, int, int, int, int] | None]:
+    """Validate the complete output set against names and consumed identities."""
+    protected = [(path, "a calibration sample") for path, _kind in sample_paths]
+    if manifest_path is not None:
+        protected.append((manifest_path, "the calibration manifest"))
+    protected.extend((path, "a consumed calibration input") for path in consumed_files or {})
+    input_keys = {_output_path_key(path): label for path, label in protected}
+    input_identities = {
+        identity[:2] for identity in (consumed_files or {}).values() if identity[1]
+    }
+    # Keep the historical helper safe for callers without a reader collector.
+    for path, _label in protected:
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            continue
+        if metadata.st_ino:
+            input_identities.add((int(metadata.st_dev), int(metadata.st_ino)))
     portable: dict[str, str] = {}
-    manifest_key = _output_path_key(manifest_path)
-    sample_keys = [
-        (_output_path_key(path), path, kind)
-        for path, kind in sample_paths
-    ]
+    physical: dict[tuple[int, int], str] = {}
+    states: dict[str, tuple[int, int, int, int, int] | None] = {}
     for name, path in list(outputs.items()):
         absolute = _validate_output_destination(name, path)
         outputs[name] = absolute
         key = _output_path_key(absolute)
         if key in portable:
-            raise ValueError(
-                f"calibration output paths collide: {portable[key]} and {name}"
-            )
+            raise ValueError(f"calibration output paths collide: {portable[key]} and {name}")
         portable[key] = name
-        if key == manifest_key:
-            raise ValueError(f"{name} must not overwrite the calibration manifest")
-        for sample_key, sample_path, kind in sample_keys:
-            if kind == "project":
+        if key in input_keys:
+            raise ValueError(f"{name} must not overwrite {input_keys[key]}")
+        state = _output_state(absolute)
+        states[name] = state
+        if state is not None and not state[1]:
+            raise ValueError(f"cannot verify the physical identity of {name}")
+        if state is not None:
+            identity = state[:2]
+            if identity in input_identities:
+                raise ValueError(f"{name} must not overwrite a physical calibration input")
+            if identity in physical:
+                raise ValueError(f"calibration output physical identities collide: {physical[identity]} and {name}")
+            physical[identity] = name
+        for sample_path, kind in sample_paths:
+            if kind != "project":
+                continue
+            try:
+                metadata = sample_path.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(metadata.st_mode):
+                sample_key = _output_path_key(sample_path).rstrip(os.sep)
+                if key == sample_key or key.startswith(sample_key + os.sep):
+                    raise ValueError(f"{name} must not be written inside a project calibration sample")
+    return states
+
+
+@dataclass
+class PreparedCalibration:
+    """Private publication state; local identities never enter exported reports."""
+    result: Dict[str, Any]
+    outputs: dict[str, Path]
+    contents: dict[str, bytes]
+    consumed_files: dict[Path, tuple[int, int, int, int, int]]
+    manifest_path: Path | None
+    sample_paths: list[tuple[Path, str]]
+    output_states: dict[str, tuple[int, int, int, int, int] | None]
+
+
+class CalibrationPublicationError(RuntimeError):
+    """A failed publication, with the individually completed paths recorded."""
+    def __init__(self, message: str, published_paths: Sequence[Path] = ()) -> None:
+        self.published_paths = tuple(str(path) for path in published_paths)
+        super().__init__(message)
+
+
+def _encode_output(name: str, text: str) -> bytes:
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{name} contains an invalid Unicode scalar and cannot be encoded as UTF-8") from exc
+
+
+def _revalidate_publication(prepared: PreparedCalibration) -> None:
+    for path, expected in prepared.consumed_files.items():
+        _validate_output_destination("consumed calibration input", path)
+        if _output_state(path) != expected:
+            raise ValueError("a consumed calibration input changed before publication")
+    outputs = dict(prepared.outputs)
+    states = _validate_output_paths(
+        outputs, manifest_path=prepared.manifest_path,
+        sample_paths=prepared.sample_paths, consumed_files=prepared.consumed_files,
+    )
+    if outputs != prepared.outputs or states != prepared.output_states:
+        raise ValueError("calibration output destinations changed before publication")
+
+
+def _remove_staged(staged: dict[str, tuple[Path, tuple[int, int]]]) -> None:
+    failures: list[str] = []
+    for path, identity in staged.values():
+        try:
+            metadata = path.lstat()
+            if (int(metadata.st_dev), int(metadata.st_ino)) != identity:
+                raise OSError("staging identity changed; entry left untouched")
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            failures.append(str(exc))
+    if failures:
+        raise OSError("cannot remove owned calibration staging: " + "; ".join(failures))
+
+
+def publish_calibration(prepared: PreparedCalibration) -> Dict[str, Any]:
+    """Stage every complete file, then replace revalidated names individually.
+
+    Preflight, encoding and staging failures publish no files. A later failure
+    may leave a partially published set. This is not a multi-path transaction,
+    a power-loss durability guarantee or a lock against hostile directory edits.
+    """
+    staged: dict[str, tuple[Path, tuple[int, int]]] = {}
+    staged_states: dict[str, tuple[int, int, int, int, int]] = {}
+    published: list[Path] = []
+    try:
+        _revalidate_publication(prepared)
+        for name, destination in prepared.outputs.items():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=".codeprobe-calibration-", dir=destination.parent
+            )
+            temporary_path = Path(temporary)
+            try:
+                metadata = os.fstat(descriptor)
+                if not metadata.st_ino:
+                    raise ValueError("cannot verify the physical identity of calibration staging")
+            except BaseException:
+                # Acquisition has not entered the registered staging set yet.
+                # Close the descriptor and remove only this just-created name.
                 try:
-                    sample_metadata = sample_path.lstat()
-                except OSError:
-                    continue
-                if stat.S_ISDIR(sample_metadata.st_mode):
-                    sample_real = Path(os.path.realpath(os.fspath(sample_path)))
-                    output_real = Path(os.path.realpath(os.fspath(absolute)))
-                    try:
-                        output_real.relative_to(sample_real)
-                    except ValueError:
-                        pass
-                    else:
-                        raise ValueError(
-                            f"{name} must not be written inside a project calibration sample"
-                        )
-                    continue
-            if key == sample_key:
-                raise ValueError(f"{name} must not overwrite a calibration sample")
+                    os.close(descriptor)
+                finally:
+                    temporary_path.unlink(missing_ok=True)
+                raise
+            staged[name] = (temporary_path, (int(metadata.st_dev), int(metadata.st_ino)))
+            try:
+                handle = os.fdopen(descriptor, "wb")
+            except BaseException:
+                os.close(descriptor)
+                raise
+            with handle:
+                content = prepared.contents[name]
+                if handle.write(content) != len(content):
+                    raise OSError("incomplete calibration staging write")
+                handle.flush()
+                os.fsync(handle.fileno())
+            # Windows may finalise the write timestamp only when the writer
+            # closes. Retain that final state, bound to the acquisition identity.
+            _validate_output_destination("calibration staging", temporary_path)
+            state = _output_state(temporary_path)
+            if state is None or state[:2] != staged[name][1]:
+                raise ValueError("calibration staging changed after writing")
+            staged_states[name] = state
+        # Inspect the whole set after all staging, before the first replacement,
+        # and again before each subsequent replacement.
+        for name, destination in prepared.outputs.items():
+            _revalidate_publication(prepared)
+            temporary_path, _identity = staged[name]
+            _validate_output_destination("calibration staging", temporary_path)
+            if _output_state(temporary_path) != staged_states[name]:
+                raise ValueError("calibration staging changed before publication")
+            os.replace(temporary_path, destination)
+            published.append(destination)
+            del staged[name]
+            prepared.output_states[name] = _output_state(destination)
+    except BaseException as exc:
+        try:
+            _remove_staged(staged)
+        except OSError as cleanup_error:
+            if not isinstance(exc, Exception):
+                raise exc from cleanup_error
+            raise CalibrationPublicationError(
+                f"Calibration publication failed; {len(published)} complete files published, "
+                f"with partial publication possible. Staging cleanup also failed: {cleanup_error}",
+                published,
+            ) from exc
+        if not isinstance(exc, Exception):
+            raise
+        state = "partial publication" if published else "no files published"
+        raise CalibrationPublicationError(
+            f"Calibration publication failed ({state}; {len(published)} complete files published): {exc}",
+            published,
+        ) from exc
+    return prepared.result
 
 
-def run_calibration(args: Any) -> Dict[str, Any]:
-    manifest_path = Path(args.manifest).absolute()
-    manifest = load_manifest(manifest_path)
+def _write_rendered_output(path: Path, name: str, text: str) -> None:
+    """Keep the public single-file writers without bypassing byte preparation."""
+    contents = {name: _encode_output(name, text)}
+    outputs = {name: path}
+    states = _validate_output_paths(outputs, manifest_path=None, sample_paths=[])
+    publish_calibration(PreparedCalibration({}, outputs, contents, {}, None, [], states))
+
+
+def write_summary(path: Path, profile: Dict[str, Any]) -> None:
+    _write_rendered_output(path, "summary_path", render_summary(profile))
+
+
+def write_observations_csv(path: Path, results: Sequence[SampleResult]) -> None:
+    _write_rendered_output(path, "observations_path", render_observations_csv(results))
+
+
+def write_sensitivity_csv(path: Path, profile: Dict[str, Any]) -> None:
+    _write_rendered_output(path, "sensitivity_path", render_sensitivity_csv(profile))
+
+
+def prepare_calibration(
+    args: Any, *, manifest: Dict[str, Any] | None = None,
+    manifest_path: Path | None = None, generated_manifest_path: Path | None = None,
+) -> PreparedCalibration:
+    """Analyse and encode a complete calibration without publishing any path."""
+    consumed_files: dict[Path, tuple[int, int, int, int, int]] = {}
+    manifest_path = Path(manifest_path or args.manifest).absolute()
+    if manifest is None:
+        if generated_manifest_path is not None:
+            raise ValueError("a generated manifest must be supplied in memory")
+        manifest = load_manifest(manifest_path, consumed_files=consumed_files)
+        protected_manifest: Path | None = manifest_path
+    else:
+        if generated_manifest_path is None:
+            raise ValueError("an in-memory manifest requires its publication path")
+        manifest = dict(manifest)
+        protected_manifest = None
+    generated_manifest = dict(manifest) if generated_manifest_path is not None else None
     if getattr(args, "profile_id", None):
         manifest["profile_id"] = args.profile_id
     if getattr(args, "label", None):
@@ -808,7 +1104,7 @@ def run_calibration(args: Any) -> Dict[str, Any]:
         manifest["profile_version"] = args.profile_version
     if getattr(args, "config", None):
         manifest["metric_overrides"] = _load_json_object_file(
-            Path(args.config), "metric override configuration"
+            Path(args.config), "metric override configuration", consumed_files=consumed_files
         )
     if getattr(args, "evaluation_fraction", None) is not None:
         manifest["evaluation_fraction"] = float(args.evaluation_fraction)
@@ -883,7 +1179,7 @@ def run_calibration(args: Any) -> Dict[str, Any]:
                 )
             seen_physical_sources[physical_key] = sample_id
         sample_paths.append((path, kind))
-        results.append(analyse_sample(path, record, profile_name, base_dir=base_dir, metric_overrides=manifest["metric_overrides"], sample_id=sample_id, split=split, group_id=group_id))
+        results.append(analyse_sample(path, record, profile_name, base_dir=base_dir, metric_overrides=manifest["metric_overrides"], sample_id=sample_id, split=split, group_id=group_id, consumed_files=consumed_files))
     failures = [item for item in results if item.verdict_class in {"error", "missing"}]
     if failures:
         detail = "; ".join(f"{item.sample_id}: {item.warning}" for item in failures[:5])
@@ -891,31 +1187,54 @@ def run_calibration(args: Any) -> Dict[str, Any]:
     profile = build_profile(manifest, results, target_fpr)
     assigned = [SampleResult(**item) for item in profile["validation"]["sample_results"]]
     outputs = _output_paths(args, manifest_path)
-    _validate_output_paths(
-        outputs,
-        manifest_path=manifest_path,
-        sample_paths=sample_paths,
+    if generated_manifest_path is not None:
+        outputs["manifest_path"] = Path(generated_manifest_path).absolute()
+    states = _validate_output_paths(
+        outputs, manifest_path=protected_manifest, sample_paths=sample_paths,
+        consumed_files=consumed_files,
     )
-    # Serialise before creating any output: diagnostics must also be valid JSON.
-    profile_json = json.dumps(profile, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
-    for output in outputs.values():
-        output.parent.mkdir(parents=True, exist_ok=True)
-    outputs["profile_path"].write_text(
-        profile_json,
-        encoding="utf-8",
-    )
-    write_observations_csv(outputs["observations_path"], assigned)
-    write_sensitivity_csv(outputs["sensitivity_path"], profile)
-    write_summary(outputs["summary_path"], profile)
-    return {
+    texts = {
+        "profile_path": json.dumps(profile, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        "summary_path": render_summary(profile),
+        "observations_path": render_observations_csv(assigned),
+        "sensitivity_path": render_sensitivity_csv(profile),
+    }
+    if generated_manifest is not None:
+        texts["manifest_path"] = json.dumps(
+            generated_manifest, indent=2, ensure_ascii=False, allow_nan=False
+        ) + "\n"
+    contents = {name: _encode_output(name, text) for name, text in texts.items()}
+    result = {
         "profile": profile,
         "results": [item.__dict__ for item in assigned],
         **{name: str(path) for name, path in outputs.items()},
     }
+    return PreparedCalibration(
+        result, outputs, contents, consumed_files, protected_manifest,
+        sample_paths, states,
+    )
+
+
+def run_calibration(args: Any) -> Dict[str, Any]:
+    return publish_calibration(prepare_calibration(args))
+
+
+def print_calibration_outputs(result: Dict[str, Any]) -> None:
+    written_profile = result["profile_path"]
+    written_summary = result["summary_path"]
+    written_observations = result["observations_path"]
+    written_sensitivity = result["sensitivity_path"]
+    print(f"Wrote calibration profile: {written_profile}")
+    print(f"Wrote validation summary: {written_summary}")
+    print(f"Wrote observations CSV: {written_observations}")
+    print(f"Wrote threshold sensitivity CSV: {written_sensitivity}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Generate a scoped CodeProbe calibration profile with independent evaluation.")
+    parser = argparse.ArgumentParser(
+        description="Generate a scoped CodeProbe calibration profile with group-exclusive evaluation and descriptive rates.",
+        epilog="--min-per-class-for-language was removed because it had no effect. Remove it from existing commands; no statistical minimum is implied. See calibration/README.md.",
+    )
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--root", default="")
     parser.add_argument("--profile", default="default", choices=sorted(engine.SCORING_PROFILES))
@@ -925,7 +1244,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--target-fpr", type=float, default=0.10)
     parser.add_argument("--evaluation-fraction", type=float, default=None)
     parser.add_argument("--split-seed", default="")
-    parser.add_argument("--min-per-class-for-language", type=int, default=10)
     parser.add_argument("--config")
     parser.add_argument("--out-dir")
     parser.add_argument("--profile-out")
@@ -940,14 +1258,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.out_dir and not profile_out:
         parser.error("provide --out-dir or --profile-out/--json-out")
     result = run_calibration(args)
-    written_profile = result["profile_path"]
-    written_summary = result["summary_path"]
-    written_observations = result["observations_path"]
-    written_sensitivity = result["sensitivity_path"]
-    print(f"Wrote calibration profile: {written_profile}")
-    print(f"Wrote validation summary: {written_summary}")
-    print(f"Wrote observations CSV: {written_observations}")
-    print(f"Wrote threshold sensitivity CSV: {written_sensitivity}")
+    print_calibration_outputs(result)
     return 0
 
 

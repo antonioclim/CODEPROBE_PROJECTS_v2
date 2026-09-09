@@ -94,7 +94,7 @@ The production browser configuration authenticates the measured Pyodide 0.25.0 c
 
 ## Process-execution boundary
 
-Repository-controlled Python tools launch native commands only through `codeprobe_engine.process_control.run_bounded_process`. The broker prohibits shell execution, applies independent output ceilings and a wall-clock timeout and terminates the process tree. POSIX uses a new session and process-group signals. Windows requires successful Job Object assignment and fails closed when containment cannot be established. The dependency checker rejects direct `subprocess`, `os.system`, spawn and similar launch paths outside this broker.
+Repository-controlled Python tools launch native maintenance commands only through `codeprobe_engine.process_control.run_bounded_process`; analysed student code is never executed through this broker. It prohibits shell execution, applies independent output ceilings and a finite command deadline and performs bounded cleanup. POSIX ownership covers the command's new process group, excluding descendants that detach into another group or session. Windows requires Job Object assignment before the suspended command is resumed. The platform prerequisites, ownership rules and cleanup limits are defined in the [maintainer execution boundaries](02-architecture.md#maintainer-execution-boundaries). The dependency checker rejects direct `subprocess`, `os.system`, spawn and similar launch paths outside this broker.
 
 ## Supported-code coverage job
 

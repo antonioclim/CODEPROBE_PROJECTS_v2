@@ -106,5 +106,37 @@ class BrowserInputBudgetTests(unittest.TestCase):
                 self.assertIn(token, script)
 
 
+
+class EvidenceCoverageInterfaceTests(unittest.TestCase):
+    def test_main_panel_uses_canonical_category_and_clears_old_basis(self):
+        source = (APP / "codeprobe-ui.js").read_text(encoding="utf-8")
+        html = (APP / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="label">Evidence coverage', html)
+        self.assertIn('id="evidenceCoverageBasis"', html)
+        summary = source.split("function renderSummary(", 1)[1].split("function ", 1)[0]
+        self.assertIn("report.evidence_coverage || report.confidence", summary)
+        reset = source.split("function clearReport()", 1)[1].split("async function ", 1)[0]
+        self.assertIn('els.evidenceCoverageBasis.textContent', reset)
+        self.assertIn("metric.reference_usage", source)
+        self.assertIn("escapeHtml(scope)", source)
+
+    def test_compact_panel_renders_escaped_coverage_and_policy_notes(self):
+        source = (APP / "project-ui.js").read_text(encoding="utf-8")
+        review = source.split("function renderReview(", 1)[1].split("function annotateDroppedFile", 1)[0]
+        self.assertIn("Evidence coverage", review)
+        self.assertIn("escapeHtml(report.evidence_coverage", review)
+        self.assertIn("Contribution policy", review)
+        self.assertIn("report.evidence_coverage_basis?.factors", review)
+        reset = source.split("function clearResults()", 1)[1].split("function ", 1)[0]
+        self.assertIn("els.reviewPanel.replaceChildren()", reset)
+
+    def test_ui_validator_keeps_strict_types_without_role_based_contribution_ban(self):
+        source = (APP / "codeprobe-ui.js").read_text(encoding="utf-8")
+        validator = source.split("function validateConfigOverrideObject(", 1)[1].split("function getCalibrationProfileObject", 1)[0]
+        self.assertNotIn("NON_AUTHORSHIP_METRICS", source)
+        for token in ('typeof value !== "boolean"', "Number.isFinite(value)", "value < 0 || value > 1", "ALLOWED_METRIC_GROUPS.has(value)"):
+            self.assertIn(token, validator)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -69,8 +69,8 @@ wiped cache.
 A new selection invalidates the prior report before any read completes.
 Language, scoring-mode, configuration, calibration and editor changes invalidate
 pending/current reports. Export names come from the accepted report, not a
-mutable later selection. The compact interface additionally verifies the
-returned project name against its request and stores the accepted export name.
+mutable later selection. Both project interfaces additionally verify the
+returned project name against the request and retain the accepted export name.
 A failed or cancelled replacement does not silently resurrect an old report.
 
 This protects the maintained event paths. It is not a defence against arbitrary
@@ -93,9 +93,9 @@ A browser-preexcluded item remains in the bounded file-list payload as:
 ```
 
 Allowed reasons are `file_too_large`, `project_total_byte_limit`,
-`unsupported_file_type`, `unreadable_file` and `unsafe_path`. Non-negative safe
-integer sizes, bounded path text, a strict rejection record and absent/empty
-content are required. Rejected file contents are not read solely to report the
+`unsupported_file_type`, `unreadable_file`, `undecodable_text` and `unsafe_path`.
+Non-negative safe integer sizes, bounded path text, a strict rejection record
+and absent/empty content are required. Rejected file contents are not read solely to report the
 exclusion. The engine applies its own path safety checks, then records the
 reason with a `browser_` prefix, except independently unsafe paths. Rejected
 ignore files never supply ignore rules.
@@ -110,6 +110,107 @@ An absent calibration is represented as absent. A project-level calibration is
 not copied into children as though each child had an independently calibrated
 file policy. Root project policy and child provisional policy remain distinct;
 engine/configuration identity still describes the actual scoring computation.
+
+Native folder intake preserves its independently observed selected byte count
+and pre-exclusion reason through private, validated in-process records. Oversize,
+remaining-byte-budget and NUL exclusions retain `file_too_large`,
+`project_total_byte_limit` and `undecodable_text`, respectively; an empty file
+retains `empty_file` and zero bytes. Excluded JSON records expose `size_bytes` and
+the text report includes selected bytes. The CLI and project calibration adapter
+pass these native records directly to the runtime. JSON serialisation deliberately
+loses native status: public `size_bytes` declarations and attribute-like keys
+cannot manufacture privileged pre-exclusions or override the measured UTF-8 size
+of supplied text. A native record is an in-process intake contract, not a security
+boundary against arbitrary Python code already running in the same interpreter.
+
+Empty or minified bounded content does not consume an analysed-file slot.
+Content read to make that decision still consumes the independent read-byte
+budget; entry limits also remain. A later candidate can therefore be analysed
+with `max_files=1` after an empty or minified candidate, provided its independent
+byte and entry limits permit it. Once the analysed-file allowance is exhausted,
+native intake can reject later candidates before reading their bodies.
+
+## Root controls, selective traversal and archive identity
+
+Ignore matching remains a documented subset, not a complete Git ignore engine.
+A slash within a pattern makes it project-root-relative, as does a leading `/`.
+A trailing `/` marks directories and does not itself anchor a basename pattern:
+`generated/` can exclude such directories at any depth. Basename patterns match
+at any depth; `**/` explicitly requests deeper path matching. Rules are applied
+in order, with the last matching rule deciding inclusion. Thus
+`!generated/student_owned.py` re-includes that root-relative source, without
+re-including a dependency's nested copy. This corrects the former suffix matching
+of slash-containing file patterns. Negation remains subject to supported types,
+safe identities and the byte limits; it does not add support for another format.
+
+Native intake validates the complete root entry inventory before reading the
+bounded `.codeprobeignore`. The CLI reads an explicit ignore file before project
+traversal; explicit rules follow built-in and root rules. Directory pruning then
+uses directory rules and possible negation prefixes. A fixed-prefix reinclusion
+opens only compatible subtrees. Basename and leading-wildcard negations may
+require wider traversal, bounded by the existing entry allowance and a new
+maximum depth of 64 directories below the native project root. A directory that
+would require traversal at depth 65 is refused before enumeration. A filename rule such as `*.py` does not
+prune a directory containing other supported languages.
+
+`input_packaging.unexpanded_directories` records native directory names whose
+contents were not enumerated. The text report labels them separately. Their
+children are neither invented as exclusions nor counted as inspected files.
+Native paths are already relative to the selected project root and do not
+undergo hosted-ZIP wrapper inference. File-list and ZIP containers retain the
+existing conservative wrapper policy.
+
+File-list and ZIP intake settle normalised portable identities before activating
+a root control. A `.CODEPROBEIGNORE`/`.codeprobeignore` collision makes both root
+controls ineligible in either order. Duplicate, nested, unreadable or otherwise
+ineligible controls do not influence collection or the reported active rules.
+Native root aliases still fail closed before the control body is read; an
+oversized native root control rejects intake rather than silently replacing its
+policy. Eligible explicit external rules retain their final precedence.
+
+ZIP validation uses each member's original name before the standard library's
+NUL truncation. NUL, unsafe paths and portable aliases are refused under the
+ordinary identity policy; rejected names are escaped for explanation. Members
+are read into bounded memory and are never extracted or executed. The root
+ignore member must satisfy both `max_ignore_bytes` and the compression-ratio
+limit before reading. Non-empty output with zero compressed bytes has an
+infinite declared ratio and is refused; zero over zero is treated as zero.
+Base64 admission first checks the maximum encoded length, including padding,
+then uses strict decoding and the authoritative decoded-byte count. Exact-limit
+archives remain admissible for each length remainder modulo three; an extra
+decoded byte remains over the limit.
+
+## Decoding provenance and complete browser selections
+
+The decoder screens the complete candidate after its byte limit has been applied
+for NUL, including NUL beyond byte 4095. Public file-list strings use the same
+NUL exclusion policy. NUL is a specific refusal signal, not a universal binary
+classifier. Browser NUL refusals remain selected-input records with
+`browser_undecodable_text` in the engine report.
+
+Optional public `intake_provenance` has exactly `encoding`, `normalisation` and
+`warnings`. Encodings are `utf-8`, `utf-8-sig` or `latin-1`; normalisation is
+`none` or `newlines`. At most eight warning strings of at most 512 characters
+are accepted, with invalid controls and Unicode surrogate characters refused.
+The runtime adds `source: "caller-reported"`; callers cannot declare native
+authority through this object. Native folder decoding is labelled
+`native-intake`, while ZIP decoding is labelled `zip-intake`. JSON and text reports
+retain per-path provenance and decoding warnings. Both browser interfaces
+preserve the decoder's UTF-8/Latin-1 result, newline normalisation and warnings
+through the worker request, accepted report, visible text and exports. Warning
+markup is displayed as text. These declarations explain processing and do not
+authenticate the caller's original bytes or relax content limits.
+
+Dropped selections inventory every file item. When all entries are available,
+the collector uses them; when all are unavailable, a complete File-list fallback
+is allowed. Mixed entry availability is refused explicitly, without a partial
+project or an old exportable report. Entry-count, depth and time bounds still
+apply; repeated callbacks are detected during the owned enumeration. The
+browser's 32-level entry-depth policy is separate from the native 64-directory
+limit. Real-browser regression uses genuine File objects and page/worker paths
+with controlled entry callbacks; it does not measure operating-system drag
+frequency. Both ZIP interfaces name `.zip` as `project` and `ordinary.zip` as
+`ordinary`, while retaining strict returned-name/request identity checks.
 
 ## Recognised prior/new publication overlap
 
@@ -218,3 +319,100 @@ profile before creating output directories/files. This guard does not promise
 unbounded precision or prohibit ordinary finite underflow. Successfully written
 non-operational diagnostic profiles retain the documented generation exit-code
 policy; non-finite configuration is a different, rejected condition.
+
+## Calibration input protection and individual file publication
+
+The manifest CLI and folder wrapper share a preparation stage. The wrapper
+builds its generated manifest in memory with an explicit corpus base; it does
+not publish that manifest before validating the complete request. Preparation
+applies configuration overrides before scoring and retains the existing bound
+engine/configuration replay contract and shared JSON/CSV sample identifiers.
+
+All destinations are checked together: profile JSON, observation CSV,
+sensitivity CSV, Markdown summary and, for the wrapper, generated manifest.
+Canonical names use Unicode NFC and case folding. Existing physical file
+identities are compared across destinations and against the input manifest,
+explicit configuration, file/ZIP samples and every project file actually read,
+including `.codeprobeignore`. The bounded reader collects these identities
+during its verified reads; it does not export them in reports or perform a
+second project traversal. A required physical identity that is unavailable
+causes rejection. Outputs inside a project sample tree are also refused.
+
+Existing destination leaves must be ordinary files, with symlinks, reparse
+points and special files refused. Parent aliases, including system directory
+aliases, remain usable after canonicalisation. The existing bounded, no-follow
+input rules remain in force.
+
+Every output is fully serialised and encoded as UTF-8 before output directories
+or temporary files are created. Invalid Unicode scalars are rejected with an
+output-specific diagnostic. Complete bytes are staged in exclusively created,
+private sibling files on each destination's filesystem, flushed and synced.
+Consumed input identities and the complete destination set are checked again
+before individual replacements. Preflight, encoding or staging failure
+publishes no files; owned temporary files are cleaned up, and cleanup failures
+are reported explicitly. Directories created for staging may remain.
+
+Each successful replacement installs one complete file. Failure between
+replacements is reported as partial publication with the completed paths; it
+can leave an incomplete set of updated outputs. This is not a transaction
+across paths, a global rollback, a power-loss durability guarantee or protection
+against every concurrent change by a hostile directory writer. Use quiescent
+input and destination trees. Generation success and technical replay eligibility
+do not establish label validity, independent sampling or empirical accuracy.
+
+## Bounded control reads and strict input values
+
+The native project CLI accepts at most 262,144 bytes for an explicit metric
+configuration and 4,000,000 bytes for a calibration profile. Both inputs use the
+stable regular-file reader, strict UTF-8 decoding and a JSON object parser that
+rejects duplicate keys and non-finite numbers, including overflowing exponents.
+Invalid limits and control inputs are rejected before folder inventory or ZIP
+intake. A valid generated profile must still match the current engine and
+effective configuration; changing its recorded digest is not recalibration.
+The derived folder or ZIP name remains the default unless explicitly replaced.
+
+Recovery control files pass their existing 262,144-byte ceiling into the release
+reader before it reads the body. The local server likewise passes its existing
+public-resource ceiling. An oversized descriptor is rejected before the first
+body read. If the file grows during reading, at most the ceiling plus one byte
+is consumed before rejection. The extra byte detects overflow and is never
+accepted as content. Zero-byte and exact-ceiling regular reads retain their
+documented behaviour, together with identity and ancestry checks. Release
+snapshot callers that omit the optional ceiling retain their existing size
+policy; this change does not impose a new universal release-file limit.
+
+Both project-reader opens request `O_NONBLOCK` where the platform provides it,
+then verify a regular descriptor and its identity. The second open has the same
+checks as the first. This permits rejection of a substituted special descriptor
+without a blocking FIFO open on supported platforms. It is not a deadline for
+ordinary filesystem I/O or a guarantee against every concurrent replacement.
+Platforms without that flag retain the descriptor and identity checks. Tests
+using substituted metadata describe that simulation explicitly; they do not
+establish an observed special-file race or hang.
+
+The public file, project and metadata JSON entry points require object roots.
+They reject ambiguous JSON and invalid field types before analysis. Source text
+and filenames must be strings; project file entries must be objects with text
+fields of the declared types. Boolean switches require JSON Booleans. Missing
+fields retain their existing defaults, and null remains valid for optional UI
+controls. Metadata retains its omitted/empty-text default but no longer hides
+malformed JSON by returning default metadata. Unknown fields remain ignored.
+Supplied configuration and calibration-policy aliases are validated even when
+their values would otherwise be bypassed by a fallback expression. Invalid
+configuration does not silently produce a default report.
+
+Project integer limits share one conversion policy between the native reader
+and runtime. Integers, finite integral floats and the decimal integer strings
+previously accepted by Python remain compatible, including signs, surrounding
+whitespace and digit separators. Fractional values, Boolean values, non-finite
+numbers and arbitrary coercible objects are rejected before resource access.
+The existing inclusive minimum and maximum values remain in force; a zero-byte
+reader ceiling is valid while project allocation limits require positive values.
+All eight project limits are validated before collection, including a finite
+compression ratio between 1 and 1,000 with the existing default of 100.
+
+File and project report aliases, text output, configuration digests and bound
+profile replay remain unchanged. Browser transport serialises objects; raw JSON
+parser checks and worker transport checks are therefore separate tests in the
+authenticated Pyodide browser gate. Input checks establish exercised software
+contracts, not authenticity of submitted metadata or empirical detection quality.

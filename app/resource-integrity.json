@@ -16,21 +16,21 @@
     },
     {
       "path": "pyodide-loader.js",
-      "size_bytes": 32903,
-      "sha256_hex": "91d2aa9c0842189ddb13722d3bfa00e5c2073f79ce0fda05c70b3d9bd45502c3",
-      "sri_sha256": "sha256-kdKqnAhCGJ3bE3ItO/oA5cIHP3nOD9oFxws9m9RVAsM="
+      "size_bytes": 35678,
+      "sha256_hex": "270f878974233442f5da4fcb24968836233fe3b17aad7f6e4149c8143eed3485",
+      "sri_sha256": "sha256-Jw+HiXQjNEL12k/LJJaINiM/47F6rX9uQUnIFD7tNIU="
     },
     {
       "path": "codeprobe-ui.js",
-      "size_bytes": 77829,
-      "sha256_hex": "14f6fe21b98a71bc2bb8f0e70cb475bd885dd42cee672e7ae11a3c144641802e",
-      "sri_sha256": "sha256-FPb+IbmKcbwruPDnDLR1vYhd1CzuZy564Ro8FEZBgC4="
+      "size_bytes": 80100,
+      "sha256_hex": "dd70fabff6902751e6fbd683900fbb465d9885edf631e25e27e037ed707938be",
+      "sri_sha256": "sha256-3XD6v/aQJ1Hm+9aDkA+7Rl2Yhe32MeJeJ+A37XB5OL4="
     },
     {
       "path": "project-ui.js",
-      "size_bytes": 19128,
-      "sha256_hex": "992e07e6a14cc7b4414fa47639e09a659c0b8ceda53223e8fafb5d7fc8d25f30",
-      "sri_sha256": "sha256-mS4H5qFMx7RBT6R2OeCaZZwLjO2lMiPo+vtdf8jSXzA="
+      "size_bytes": 20171,
+      "sha256_hex": "e0486278f651df6e5aa15e8a8afad448aa59b2fc78501735deb4b470627aca11",
+      "sri_sha256": "sha256-4EhiePZR325aoV6KivrUSKpZsvx4UBc13rS0cGJ6yhE="
     },
     {
       "path": "runtime-config.json",
@@ -46,15 +46,15 @@
     },
     {
       "path": "../src/codeprobe_runtime.py",
-      "size_bytes": 272542,
-      "sha256_hex": "4567b2ce76ef95880d004b2e95a18799fcbd02acb4821fb57fa743870746a942",
-      "sri_sha256": "sha256-RWeyznbvlYgNAEsulaGHmfy9Aqy0gh+1f6dDhwdGqUI="
+      "size_bytes": 385120,
+      "sha256_hex": "d1f2fa9f9cf508df1c37e22cb2fb8664d414983ec71bafdb4291df2f02ac3485",
+      "sri_sha256": "sha256-0fL6n5z1CN8cN+IssvuGZNQUmD7HG6/bQpHfLwKsNIU="
     },
     {
       "path": "analysis-worker.js",
-      "size_bytes": 3190,
-      "sha256_hex": "7a4edb8c7ff98001bd9fce07edb0a678c94611fb07810d6c07f9223c413562d5",
-      "sri_sha256": "sha256-ek7bjH/5gAG9n84H7bCmeMlGEfsHgQ1sB/kiPEE1YtU="
+      "size_bytes": 3766,
+      "sha256_hex": "a2f4e97fbae97cb8ab2e6c41ec855bfb8ff97e7527fab779c5df18b917fcb9b1",
+      "sri_sha256": "sha256-ovTpf7rpfLirLmxB7IVb+4/5fnUn+rd5xd8YuRf8ubE="
     }
   ]
 }

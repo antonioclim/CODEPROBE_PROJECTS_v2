@@ -158,8 +158,9 @@
             <div id="verdictValue" class="value verdict-insufficient">Insufficient data</div>
           </div>
           <div class="summary-card">
-            <div class="label">Confidence</div>
+            <div class="label">Evidence coverage</div>
             <div id="confidenceValue" class="value">—</div>
+            <p id="evidenceCoverageBasis" class="muted">Heuristic source coverage, not statistical confidence.</p>
           </div>
           <div class="summary-card">
             <div class="label">Language</div>
@@ -205,6 +206,13 @@
                 Enter a partial JSON object to override enabled, weight, thresholds, group or contribution flags for the next run.
                 Unknown metrics and unsupported keys are rejected by the engine.
                 Example: <code>{"comment_to_code_ratio":{"weight":0.15,"thresholds":{"ai_peak":0.22}}}</code>
+              </p>
+              <p class="help-inline">
+                The legacy thresholds <code>identifier_style.ai_low</code>, <code>identifier_style.ai_high</code>,
+                <code>line_length_uniformity.ai_high</code> and <code>halstead_difficulty.mi_high</code> are inactive.
+                These dotted names abbreviate keys inside each metric's <code>thresholds</code> object.
+                They remain accepted and affect configuration identity, but do not change metric values or scores.
+                Report notes and metadata identify these keys.
               </p>
               <label class="field-label" for="configOverride">Metric configuration JSON override</label>
               <textarea id="configOverride" placeholder='{}'></textarea>
@@ -301,8 +309,8 @@
       <span>Single file → file analysis · Folder or GitHub ZIP → project analysis</span>
     </div>
   </div>
-  <script src="pyodide-loader.js" defer integrity="sha256-kdKqnAhCGJ3bE3ItO/oA5cIHP3nOD9oFxws9m9RVAsM="></script>
-  <script src="codeprobe-ui.js" defer integrity="sha256-FPb+IbmKcbwruPDnDLR1vYhd1CzuZy564Ro8FEZBgC4="></script>
+  <script src="pyodide-loader.js" defer integrity="sha256-Jw+HiXQjNEL12k/LJJaINiM/47F6rX9uQUnIFD7tNIU="></script>
+  <script src="codeprobe-ui.js" defer integrity="sha256-3XD6v/aQJ1Hm+9aDkA+7Rl2Yhe32MeJeJ+A37XB5OL4="></script>
 
 </body>
 </html>

@@ -35,6 +35,17 @@
     if (!runtime || !["file", "project"].includes(message.kind)) throw new Error("Worker is not ready for this operation.");
     if (typeof message.payloadJson !== "string" || message.payloadJson.length > MAX_PAYLOAD) throw new Error("Invalid payload.");
     const payload = JSON.parse(message.payloadJson);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid payload object.");
+    function retainProvenance(item) {
+      if (item && Object.prototype.hasOwnProperty.call(item, "intake_provenance")) {
+        item.intake_provenance = self.CodeProbeRuntime.validateIntakeProvenance(item.intake_provenance);
+      }
+    }
+    retainProvenance(payload);
+    if (Array.isArray(payload.files)) {
+      if (payload.files.length > 2000) throw new Error("Too many project input entries.");
+      payload.files.forEach(retainProvenance);
+    }
     payload.engine_fingerprint = fingerprint;
     runtime.globals.set("payload_json", JSON.stringify(payload));
     try {

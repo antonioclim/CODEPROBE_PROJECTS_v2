@@ -28,6 +28,8 @@ app/runtime-config.json,src/runtime_config.json,app/runtime-config.json,browser 
 app/vendor/pyodide/README.md,,app/vendor/pyodide/README.md,browser app asset,keep,current,app,high,canonical current path
 calibration/01-corpus-manifest-template.csv,calibration/manifest_template.csv,calibration/01-corpus-manifest-template.csv,calibration template or placeholder,completed_migration,current,calibration,medium,final naming-stable path; previous_path records migration source where applicable
 calibration/01-corpus-manifest-template.json,calibration/manifest_template.json,calibration/01-corpus-manifest-template.json,calibration template or placeholder,completed_migration,current,calibration,medium,final naming-stable path; previous_path records migration source where applicable
+calibration/01-project-corpus-manifest-template.csv,,calibration/01-project-corpus-manifest-template.csv,project-only calibration manifest template,added_I13,I13,calibration,medium,I13 separates file and project calibration template domains
+calibration/01-project-corpus-manifest-template.json,,calibration/01-project-corpus-manifest-template.json,project-only calibration manifest template,added_I13,I13,calibration,medium,I13 separates file and project calibration template domains
 calibration/02-calibration-profile-template.json,calibration/profile_template.json,calibration/02-calibration-profile-template.json,calibration template or placeholder,completed_migration,current,calibration,medium,final naming-stable path; previous_path records migration source where applicable
 calibration/03-example-calibration-profile.json,calibration/example_profile.json,calibration/03-example-calibration-profile.json,calibration template or placeholder,completed_migration,current,calibration,medium,final naming-stable path; previous_path records migration source where applicable
 calibration/04-validation-summary-template.md,calibration/validation_summary_template.md,calibration/04-validation-summary-template.md,calibration template or placeholder,completed_migration,current,calibration,medium,final naming-stable path; previous_path records migration source where applicable
@@ -89,6 +91,7 @@ release/release-manifest.json,RELEASE_MANIFEST.json,release/release-manifest.jso
 src/codeprobe_engine/README.md,,src/codeprobe_engine/README.md,maintainer engine support module,keep,current,src,high,canonical current path
 src/codeprobe_engine/__init__.py,,src/codeprobe_engine/__init__.py,maintainer engine support module,keep,current,src,high,canonical current path
 src/codeprobe_engine/api.py,,src/codeprobe_engine/api.py,maintainer engine support module,keep,current,src,high,canonical current path
+src/codeprobe_engine/diagnostic_outputs.py,,src/codeprobe_engine/diagnostic_outputs.py,diagnostic destination admission,added_I04,I04,src,high,lightweight shared preflight independent of release packaging
 src/codeprobe_engine/metrics.py,,src/codeprobe_engine/metrics.py,maintainer engine support module,keep,current,src,high,canonical current path
 src/codeprobe_engine/paths.py,,src/codeprobe_engine/paths.py,maintainer engine support module,keep,current,src,high,canonical current path
 src/codeprobe_engine/process_control.py,,src/codeprobe_engine/process_control.py,maintainer engine support module,added_audit_phase4c,audit-4c,src,high,single bounded process-execution and process-tree containment boundary
@@ -100,6 +103,7 @@ src/codeprobe_runtime.py,src/engine.py,src/codeprobe_runtime.py,browser-compatib
 tests/test_app_runtime_tools_paths.py,,tests/test_app_runtime_tools_paths.py,regression test,keep,current,tests,high,canonical current path
 tests/test_browser_security.py,,tests/test_browser_security.py,regression test,keep,current,tests,high,canonical current path
 tests/test_calibration_profiles.py,,tests/test_calibration_profiles.py,regression test,keep,current,tests,high,canonical current path
+tests/test_calibration_workflow.py,,tests/test_calibration_workflow.py,calibration workflow and document contract regressions,added_I13,I13,tests,medium,I13 executable workflow and educational contract regression coverage
 tests/test_contract_repairs.py,,tests/test_contract_repairs.py,"native replay, provenance and publication regressions",added_audit_phase4h,audit-4h,tests,high,Phase 4H remediation of reproduced Phase 4G contracts
 tests/test_coverage_policy.py,,tests/test_coverage_policy.py,regression test,added_audit_phase4d,audit-4d,tests,high,"coverage policy, floor and required-CI regressions"
 tests/test_dependency_boundary.py,,tests/test_dependency_boundary.py,regression test,added_audit_phase4,audit-4,tests,high,added during hostile audit Phase 4 to guard dependency-boundary enforcement

@@ -4,6 +4,7 @@ import csv
 import json
 import re
 import unittest
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -163,6 +164,55 @@ class AuthorshipAndLineageDocumentationTests(unittest.TestCase):
             self.assertIn("## " + heading, readme)
         for token in (".tsx", ".zsh", ".docx", "PDF", ".sqlite3", "git archive", "No PDF/OCR"):
             self.assertIn(token, readme)
+
+
+
+class ReferenceAndInterpretationDocumentationTests(unittest.TestCase):
+    def literal(self, name):
+        source = ast.parse((ROOT / "src/codeprobe_runtime.py").read_text(encoding="utf-8"))
+        nodes = [n for n in source.body if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name) and n.target.id == name]
+        self.assertEqual(len(nodes), 1)
+        return ast.literal_eval(nodes[0].value)
+
+    def test_bibliographic_identity_and_revision_are_explicit(self):
+        refs = self.literal("REFERENCE_LIBRARY")
+        self.assertTrue(refs["chaitin"].startswith("Chaitin, G. J. (1982)."))
+        self.assertIn("Register allocation & spilling via graph coloring. ACM SIGPLAN Notices.", refs["chaitin"])
+        self.assertIn("10.1145/872726.806984", refs["chaitin"])
+        self.assertNotIn("Auslander", refs["chaitin"])
+        self.assertIn("2409.01382v1", refs["rahman_detection"])
+        self.assertIn("Coghlan, A.", refs["pep8"])
+        self.assertIn("0.31.2", refs["commonmark"])
+        self.assertIn("Edition 5.3", refs["bash_manual"])
+
+    def test_every_registered_reference_has_a_qualified_role(self):
+        refs, roles = self.literal("REFERENCE_LIBRARY"), self.literal("REFERENCE_CONTEXT")
+        self.assertEqual(set(refs), set(roles))
+        for key, (role, scope) in roles.items():
+            with self.subTest(key=key):
+                self.assertIn(role, {"definition", "motivation", "context"})
+                self.assertGreater(len(scope), 30)
+        self.assertIn("not compiler liveness", roles["poletto"][1])
+        self.assertIn("not the C++ Core Guidelines", roles["cpp_core"][1])
+
+    def test_schema_and_calibration_guidance_distinguish_denominators(self):
+        schema = (ROOT / "docs/03-report-schema.md").read_text(encoding="utf-8")
+        guide = (ROOT / "docs/06-calibration-guide.md").read_text(encoding="utf-8")
+        for field in ("evidence_coverage_basis", "aggregate_applied_weight", "effective_weight_sloc", "reference_usage", "descriptive_review_rates"):
+            self.assertIn(field, schema)
+        for text in (schema, guide):
+            self.assertIn("not established", text)
+            self.assertIn("not estimated", text)
+        self.assertIn("2/4 = 0.5", guide)
+        self.assertRegex(guide, r"(?s)With no eligible member of a class, `rate` is `null`.*?N/A")
+
+    def test_uncompleted_validation_template_is_not_an_approval(self):
+        text = (ROOT / "calibration/04-validation-summary-template.md").read_text(encoding="utf-8")
+        for token in ("uncompleted record", "Reviewed", "Eligible", "Distinct groups", "all (pooled)", "not institutional approval", "An empty decision field is not approval"):
+            self.assertIn(token, text)
+        guide = (ROOT / "educator/07-course-integration.md").read_text(encoding="utf-8")
+        self.assertIn("They do not validate the CodeProbe implementation", guide)
+        self.assertIn("Evidence coverage", guide)
 
 
 if __name__ == "__main__":

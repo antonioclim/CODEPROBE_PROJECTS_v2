@@ -21,69 +21,45 @@ Use the following model unless your institution already has a stricter policy.
 1. Students run CodeProbe locally before submission.
 2. They analyse only assessed source files they authored.
 3. They exclude starter code, generated files, dependencies, minified assets, build output and documentation; in project mode this should be done through `.codeprobeignore` and verified in the excluded-file list.
-4. A result above the active local review trigger leads to revision and disclosure, not an automatic penalty.
+4. An applicable result at or above the active local review trigger prompts inspection and explanation. Revise for identified issues; require disclosure under the course policy, not as a mechanical inference from a score.
 5. Persistent concern is checked through repository history, tests, design notes and oral explanation.
 
-## Interpretation bands
+## Reading class, trigger and teaching action
 
-| AI-style concern score | Teaching interpretation | Recommended action |
+Use the active `reading_class`, `review_policy`, `review_triggered` and applicability fields in the report. A reading class describes a numerical band. The trigger is a separate inclusive comparison against the **unrounded** applicable score. Neither field prescribes a mark, a penalty or a compulsory reduction in the score.
+
+The following are exact boundary examples for the **bundled provisional policy only**, not a second teaching policy. They apply to eligible file and project aggregates.
+
+| Exact unrounded percentage | Active reading class | Trigger reached? |
 |---:|---|---|
-| 0-50% | Low concern under the bundled policy | No special action beyond normal submission evidence |
-| >50-60% | Borderline under the bundled policy | Student self-review; check comments, naming, repetition and structure |
-| >60-75% | Elevated concern under the bundled policy | Revision, re-run and short disclosure where required |
-| >75% | High concern | Manual review with commits, tests and oral walkthrough |
-| N/A | Not applicable | Too little code or documentation-only profile |
+| 28% | `moderate` | No |
+| 48% | `elevated` | No |
+| 50% | `elevated` | No |
+| 60% | `elevated` | Yes |
+| 68% | `high` | Yes |
+| 75% | `high` | Yes |
 
-The 60% threshold is a bundled provisional review trigger. It should not be presented as an empirically universal boundary. When a course-local profile is supplied, the report records the active trigger and whether it was reached.
+The lower boundary belongs to the new class: below 28% is low, 28% to below 48% moderate, 48% to below 68% elevated and 68% upwards high. Review is triggered at **score >= 0.60**, so exactly 60% qualifies. A rounded display of 60.0% does not necessarily establish equality; the emitted Boolean and `decision_score` retain the actual comparison. An N/A result has no applicable numeric interpretation and is not proof of independent authorship.
+
+For a compatible local profile, read its active values instead. For example, a separately identified illustrative policy with class boundaries 10%, 20% and 30% and a trigger of 50% would classify exactly 50% as high and trigger review. This example explains policy replacement; it is not a fitted or recommended policy.
+
+At a triggered result, inspect the relevant code, metrics, exclusions and limitations, then ask for an explanation supported by ordinary development evidence. Revise only for an identified issue. A non-triggered result does not dispense with the usual quality expectations or course disclosure policy. The objective is explainable work, not score minimisation.
 
 ## Course-local calibration workflow
 
-Phase 4 introduced a standard-library calibration CLI. A defensible workflow is:
+Curate a private corpus for one report kind and assignment family. File profiles require one detected language; project profiles use the `project` scope marker and do not calibrate each constituent file. Use explicit group identifiers for related authors, submissions or templates and keep groups out of both partitions simultaneously. Record the basis for each declared human, generated or hybrid label.
 
-1. Assemble a private labelled corpus for each course/assignment/language.
-2. Exclude starter code, templates, libraries and generated files from the calibration corpus.
-3. Record every sample in a JSON or CSV manifest with its label, optional language hint, optional kind and notes.
-4. Run `tools/calibrate_profile.py` with the manifest and target false-positive review rate.
-5. Inspect the generated Markdown validation summary, especially sample counts, score distributions and sensitivity table.
-6. Approve, revise or reject the generated JSON profile.
-7. Provide the approved profile to students or use it only during instructor-side review.
+Follow the [calibration workflow and single-line commands](../calibration/README.md). Copy a file-only or project-only JSON/CSV template to a private workspace before replacing its placeholder paths. Each illustrates four records with human and positive observations in `fit` and `evaluation`; four records demonstrate plumbing, not statistical sufficiency. The folder wrapper treats admitted files as separate observations and does not infer groups from nested directories. Use an explicit manifest when files are related.
 
-Example:
+Run the commands from the kit root with `-I -S -B`, keep calibration outputs outside samples and create the project report directory before application. The old ignored `--min-per-class-for-language` option has been removed; delete it from scripts rather than assuming it enforced a minimum. The existing balance, grouping and small-partition checks remain.
 
-```bash
-python3 tools/calibrate_profile.py \
-  --manifest calibration/01-corpus-manifest-template.json \
-  --out-dir calibration/profiles/intro-python-2026 \
-  --target-fpr 10
-```
+Review fit/evaluation sample and group counts, missing denominators, threshold sensitivity, applicability and the scoring contract. Fresh UUID4 tokens hide direct identifiers in new observations, not relationships implied by scores or free text. Preserve private manifests separately. Do not interpret successfully written diagnostics as approval: an unmet fit target produces a non-operational draft. The shipped profile template and example are also explicitly non-operational.
 
-Explicit-output alternative:
-
-```bash
-python3 tools/calibrate_profile.py \
-  --manifest calibration/01-corpus-manifest-template.csv \
-  --profile-id intro-python-2026-project1-v1 \
-  --label "Intro Python 2026 Project 1" \
-  --target-fpr 10 \
-  --profile-out calibration/profiles/intro-python-2026-profile.json \
-  --summary-out calibration/reports/intro-python-2026-validation.md \
-  --csv-out calibration/reports/intro-python-2026-observations.csv \
-  --sensitivity-out calibration/reports/intro-python-2026-sensitivity.csv
-```
-
-Use the profile in project analysis:
-
-```bash
-python3 tools/analyze_project.py \
-  --folder path/to/project \
-  --calibration-profile calibration/profiles/intro-python-2026-profile.json \
-  --json-out report.json \
-  --text-out report.txt
-```
+Generate a file profile for file analysis, and a project profile for project analysis. Publish only a scope-compatible profile following a separately recorded institutional decision. Engine/configuration changes require refitting from the curated corpus, not a hand-edited digest. Review evaluation results without using them to select a substitute threshold under the original protocol.
 
 ## Short statement for a module handbook
 
-> Students must run CodeProbe locally on the source code they authored for the project before submission. The AI-style concern score is a formative review signal, not proof of misconduct. The bundled 60% trigger is provisional; the active trigger may be replaced by a course-local calibration profile. A result above the active trigger requires revision and, where requested, a short disclosure describing any AI assistance, what was retained, what was rewritten and how correctness was validated. Final academic judgement, where needed, will be based on the report together with repository history, intermediate commits, tests, design notes and an oral code walkthrough. Starter code, third-party libraries, generated files, minified assets, build output and documentation must be excluded.
+> Students must run CodeProbe locally on the source code they authored for the project before submission. The AI-style concern score is a formative review signal, not proof of misconduct. The bundled 60% trigger is provisional; the active trigger may be replaced by a course-local calibration profile. An applicable result at or above the active trigger prompts code inspection and explanation. Revise only for identified issues and provide the disclosure required by the course policy, independently of the score, describing any AI assistance, what was retained, what was rewritten and how correctness was validated. Final academic judgement, where needed, will be based on the report together with repository history, intermediate commits, tests, design notes and an oral code walkthrough. Starter code, third-party libraries, generated files, minified assets, build output and documentation must be excluded.
 
 ## Student workflow
 
@@ -94,9 +70,9 @@ python3 tools/analyze_project.py \
 5. In project mode, check the included-file and excluded-file inventories before reading the aggregate score.
 6. Read the score, active review trigger, notes, warnings and individual metrics.
 7. Treat quality/context metrics as improvement advice, not as evidence of AI authorship.
-8. If the score is above the active review trigger, revise the code and re-run the tool.
+8. If an applicable score is at or above the active review trigger, inspect the indicated code and discuss the evidence. Re-run after justified changes; do not edit merely to lower the score.
 9. Export the report only if required.
-10. Complete `educator/03-student-disclosure-template.md` if AI assistance was used or the score remains elevated.
+10. Complete `educator/03-student-disclosure-template.md` when the course disclosure policy requires it; a score neither proves nor disproves AI assistance.
 
 ## Instructor workflow
 
@@ -120,7 +96,7 @@ Project mode is the preferred route for multi-file submissions because the expor
 - the SLOC-weighted aggregate score and the per-file reports;
 - the active calibration profile and review trigger.
 
-For institutional use, instructors should prepare a module-specific `.codeprobeignore` covering starter folders and scaffold files. Students should not edit ignore rules to hide assessed source files. If a file is excluded through negation or re-inclusion, the student should be able to explain why.
+For institutional use, instructors should prepare a module-specific `.codeprobeignore` covering starter folders and scaffold files. Students should not edit ignore rules to hide assessed source files. Students should explain both exclusions and any negated rule that re-includes a file; negation is not itself an exclusion.
 
 ## Evidence model for manual review
 
@@ -141,7 +117,7 @@ The oral walkthrough should focus on specific implementation decisions, edge cas
 - Do not include dependencies, generated folders or instructor starter code.
 - Do not treat a single score as a misconduct finding.
 - Do not infer that a low score proves independent authorship.
-- Do not compare students using Markdown scores; Markdown is documentation-quality context only.
+- Do not compare students using Markdown scores; Markdown supplies descriptive statistics and configured editorial preferences, not a validated quality judgement.
 - Do not call a course-local trigger empirical unless the validation summary is retained and reviewed.
 
 ## Minimal repository layout
@@ -164,7 +140,35 @@ project-root/
 
 ## Recommended assignment wording
 
-> Before final submission, run CodeProbe on the source files you wrote for this assignment. For a multi-file project, use project mode and check that `.codeprobeignore` excludes starter code, libraries, generated files, minified assets, build output and documentation. The aim is not to obtain the lowest possible number, but to submit coherent, purposeful code that you understand and can defend. A score above the active review trigger requires revision and, where requested, a short disclosure. The tool is a self-check; final academic reading depends on the submitted code, development evidence and your explanation.
+> Before final submission, run CodeProbe on the source files you wrote for this assignment. For a multi-file project, use project mode and check that `.codeprobeignore` excludes starter code, libraries, generated files, minified assets, build output and documentation. The aim is not to obtain the lowest possible number, but to submit coherent, purposeful code that you understand and can defend. An applicable score at or above the active trigger prompts inspection and explanation, not compulsory score reduction. Revise for identified issues and follow the course disclosure policy independently of the score. The tool is a self-check; final academic reading depends on the submitted code, development evidence and your explanation.
+
+## Interpretation and reference limits
+
+The visible **Evidence coverage** category describes source quantity, metric
+availability and selected warnings under fixed heuristic rules. The historical
+JSON name `confidence` is retained only for compatibility. Neither the category
+nor a well-formed report is a probability or a guarantee of correctness.
+
+The default score uses seven configured contributors. A custom positive-weight
+contribution in a quality, context or documentation role is a policy choice,
+not new evidence of authorship. Examine the nominal and per-file eligible
+weights and the applicability of the aggregate. Markdown remains excluded from
+the code aggregate. Memory-related feedback describes source cues: it does not
+measure allocated registers, emitted stack frames or safe optimisation.
+
+Calibration summaries separate fit, evaluation and pooled observations and show
+reviewed/eligible counts, declared groups and file/project units. Missing classes
+have unavailable rates, not measured zero rates. Statistical independence is
+not established and uncertainty is not estimated. Technical `operational`
+status does not approve use in a course; a named institutional decision belongs
+in the separately completed validation summary. Evaluation must not be used to
+retune the fit-selected trigger without a new declared protocol.
+
+The references below provide educational, policy or authorship-research
+background. They do not validate the CodeProbe implementation, manual weights,
+review bands or a language-independent detection rate. The runtime separately
+labels metric references by definition, motivation or context. A real DOI is
+not evidence that a paper supports an unrelated software claim.
 
 ## Academic background
 
@@ -178,4 +182,3 @@ project-root/
 ## Release and report metadata
 
 From v2.1.9 onward, exported reports include engine and metric-configuration metadata. These fields are useful when checking which kit version produced a report, especially if several course profiles are used. They are not extra authorship evidence and should not be interpreted as proof of AI use or proof of independent authorship.
-

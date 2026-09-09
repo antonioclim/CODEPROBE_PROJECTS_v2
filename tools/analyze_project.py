@@ -32,8 +32,57 @@ from codeprobe_engine.project_io import (
     read_bounded_regular_file,
 )
 
+MAX_CONFIG_BYTES = 262_144
+MAX_CALIBRATION_PROFILE_BYTES = 4_000_000
+
+
+def _read_json_input(path: str, label: str, *, max_bytes: int) -> Dict[str, Any]:
+    """Load one bounded, stable UTF-8 JSON object without redirects."""
+    absolute = Path(os.path.abspath(path))
+    try:
+        data = read_bounded_regular_file(absolute, root=absolute.parent, max_bytes=max_bytes)
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{label} must be UTF-8 JSON") from exc
+    except ValueError as exc:
+        raise ValueError(f"{label}: {exc}") from exc
+    return engine.strict_json_object(text, label)
+
 
 def build_payload(args: argparse.Namespace) -> Dict[str, Any]:
+    options = {
+        "project_name": args.project_name,
+        "profile": args.profile,
+        "include_documentation": args.include_documentation,
+        "max_files": args.max_files,
+        "max_file_bytes": args.max_file_bytes,
+        "max_total_bytes": args.max_total_bytes,
+        "max_zip_entries": args.max_entries,
+        "max_zip_bytes": args.max_archive_bytes,
+        "max_compression_ratio": args.max_compression_ratio,
+        "max_ignore_bytes": args.max_ignore_bytes,
+        "max_ignore_rules": args.max_ignore_rules,
+    }
+    # Reject invalid limits before opening even the optional control inputs.
+    options = engine.validate_analysis_payload(options, "project")
+    if args.config:
+        options["config_override"] = _read_json_input(
+            args.config, "metric configuration", max_bytes=MAX_CONFIG_BYTES,
+        )
+    if args.calibration_profile:
+        options["calibration_profile"] = _read_json_input(
+            args.calibration_profile, "calibration profile", max_bytes=MAX_CALIBRATION_PROFILE_BYTES,
+        )
+    options = engine.validate_analysis_payload(options, "project")
+    if args.ignore_file:
+        ignore_path = Path(args.ignore_file).absolute()
+        data = read_bounded_regular_file(
+            ignore_path, root=ignore_path.parent, max_bytes=args.max_ignore_bytes,
+        )
+        try:
+            options["ignore_text"] = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("explicit ignore file must be UTF-8 text") from exc
     source = Path(args.zip or args.folder)
     payload = project_payload_from_path(
         source,
@@ -45,30 +94,12 @@ def build_payload(args: argparse.Namespace) -> Dict[str, Any]:
         max_archive_bytes=args.max_archive_bytes,
         max_ignore_bytes=args.max_ignore_bytes,
         max_ignore_rules=args.max_ignore_rules,
+        ignore_text=options.get("ignore_text", ""),
+        include_documentation=args.include_documentation,
     )
-    payload.update({
-        "project_name": args.project_name or payload["project_name"],
-        "profile": args.profile,
-        "include_documentation": args.include_documentation,
-        "max_compression_ratio": args.max_compression_ratio,
-        "max_ignore_bytes": args.max_ignore_bytes,
-        "max_ignore_rules": args.max_ignore_rules,
-    })
-    if args.ignore_file:
-        ignore_path = Path(args.ignore_file).absolute()
-        data = read_bounded_regular_file(
-            ignore_path,
-            root=ignore_path.parent,
-            max_bytes=args.max_ignore_bytes,
-        )
-        try:
-            payload["ignore_text"] = data.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError("explicit ignore file must be UTF-8 text") from exc
-    if args.config:
-        payload["config_override"] = json.loads(Path(args.config).read_text(encoding="utf-8"))
-    if args.calibration_profile:
-        payload["calibration_profile"] = json.loads(Path(args.calibration_profile).read_text(encoding="utf-8"))
+    project_name = args.project_name or payload["project_name"]
+    payload.update(options)
+    payload["project_name"] = project_name
     return payload
 
 
@@ -173,10 +204,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         outputs = report_destinations(args)
         payload = build_payload(args)
-        result = json.loads(engine.codeprobe_analyze_project(json.dumps(payload, allow_nan=False)))
-        text = result.get("text", "")
+        report = engine.analyse_project_payload(payload)
+        text = engine.format_project_report_text(report)
         contents = {
-            "json": json.dumps(result.get("project_report", {}), indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+            "json": json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
             "text": text + ("" if text.endswith("\n") else "\n"),
         }
         write_reports(args, outputs, contents)

@@ -52,6 +52,7 @@ APPROVED_ACTIONS = {
 }
 
 APPROVED_LOCAL_IMPORTS = {
+    "analyze_project",
     "audit_institutional_pack",
     "build_release",
     "calibrate_corpus",
@@ -68,6 +69,7 @@ APPROVED_LOCAL_IMPORTS = {
     "compare_releases",
     "final_audit",
     "prepare_pyodide_fixture",
+    "run_local_server",
 }
 APPROVED_SOURCE_ENTRIES = {"codeprobe_engine", "codeprobe_runtime.py"}
 APPROVED_SOURCE_ENTRY_TYPES = {
@@ -81,6 +83,7 @@ APPROVED_STDLIB_IMPORTS = {
     "argparse",
     "ast",
     "base64",
+    "bisect",
     "collections",
     "contextlib",
     "copy",
@@ -103,6 +106,7 @@ APPROVED_STDLIB_IMPORTS = {
     "keyword",
     "math",
     "mimetypes",
+    "msvcrt",
     "os",
     "pathlib",
     "platform",
@@ -115,6 +119,7 @@ APPROVED_STDLIB_IMPORTS = {
     "socket",
     "stat",
     "statistics",
+    "struct",
     "subprocess",
     "sys",
     "tarfile",
@@ -130,6 +135,7 @@ APPROVED_STDLIB_IMPORTS = {
     "uuid",
     "urllib",
     "webbrowser",
+    "xml",
     "zipfile",
     "zlib",
 }

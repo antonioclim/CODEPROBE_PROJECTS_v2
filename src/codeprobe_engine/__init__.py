@@ -7,6 +7,7 @@ and future extraction without changing the browser contract.
 
 __all__ = [
     "api",
+    "diagnostic_outputs",
     "metrics",
     "paths",
     "process_control",

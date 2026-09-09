@@ -30,8 +30,8 @@
   const PACKAGED_ENGINE_RECORD = Object.freeze({
     name: "codeprobe_runtime.py",
     path: "../src/codeprobe_runtime.py",
-    size_bytes: 272542,
-    sha256_hex: "4567b2ce76ef95880d004b2e95a18799fcbd02acb4821fb57fa743870746a942"
+    size_bytes: 385120,
+    sha256_hex: "d1f2fa9f9cf508df1c37e22cb2fb8664d414983ec71bafdb4291df2f02ac3485"
   });
 
   const PROVENANCE_SCHEMA = "codeprobe-pyodide-provenance/v1";
@@ -515,19 +515,49 @@
 
   function decodeSourceBytes(value) {
     const bytes = sourceBytes(value);
-    if (bytes.slice(0, 4096).includes(0)) {
-      throw new Error("The file appears to be binary because it contains NUL bytes.");
+    if (bytes.byteLength > 1000000) {
+      const error = new Error("Source bytes exceed the 1 MB browser limit.");
+      error.intakeReason = "file_too_large";
+      throw error;
     }
+    if (bytes.includes(0)) {
+      const error = new Error("Source text containing NUL bytes is not accepted.");
+      error.intakeReason = "undecodable_text";
+      throw error;
+    }
+    let text, encoding, warning = "";
     try {
-      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-      return Object.freeze({ text: normaliseLineEndings(text), encoding: "utf-8", warning: "" });
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      encoding = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? "utf-8-sig" : "utf-8";
     } catch (_) {
-      return Object.freeze({
-        text: normaliseLineEndings(decodeLatin1(bytes)),
-        encoding: "latin-1",
-        warning: "Decoded as latin-1; review the file encoding."
-      });
+      text = decodeLatin1(bytes);
+      encoding = "latin-1";
+      warning = "Decoded as latin-1; review the file encoding.";
     }
+    const intake_provenance = validateIntakeProvenance({
+      encoding, normalisation: "newlines", warnings: warning ? [warning] : []
+    });
+    return Object.freeze({ text: normaliseLineEndings(text), encoding, warning, intake_provenance });
+  }
+
+  function validateIntakeProvenance(value) {
+    const keys = ["encoding", "normalisation", "warnings"];
+    if (!value || typeof value !== "object" || Array.isArray(value) ||
+        Object.keys(value).some(key => !keys.includes(key)) ||
+        !["utf-8", "utf-8-sig", "latin-1"].includes(value.encoding) ||
+        !["none", "newlines"].includes(value.normalisation) ||
+        !Array.isArray(value.warnings) || value.warnings.length > 8 ||
+        value.warnings.some(warning => typeof warning !== "string" || warning.length > 1024 ||
+          Array.from(warning).length > 512 ||
+          Array.from(warning).some(character => {
+            const point = character.codePointAt(0);
+            return point >= 0xd800 && point <= 0xdfff;
+          }) ||
+          /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(warning))) {
+      throw new TypeError("Invalid caller-reported intake provenance.");
+    }
+    return Object.freeze({ encoding: value.encoding, normalisation: value.normalisation,
+      warnings: Object.freeze(value.warnings.slice()) });
   }
 
   function normaliseProjectPath(value) {
@@ -585,8 +615,8 @@
   const PACKAGED_WORKER_RECORD = Object.freeze({
     name: "analysis-worker.js",
     path: "analysis-worker.js",
-    size_bytes: 3190,
-    sha256_hex: "7a4edb8c7ff98001bd9fce07edb0a678c94611fb07810d6c07f9223c413562d5"
+    size_bytes: 3766,
+    sha256_hex: "a2f4e97fbae97cb8ab2e6c41ec855bfb8ff97e7527fab779c5df18b917fcb9b1"
   });
 
   const WORKER_STARTUP_MS = 60000;
@@ -733,22 +763,42 @@
     }
     function callbackResult(register) {
       return new Promise((resolve, reject) => {
+        let called = false;
         const timer = setTimeout(() => reject(new Error("Dropped-directory enumeration timed out.")), Math.max(1, 10000 - (Date.now() - started)));
+        const finish = (callback, value) => {
+          if (called) { callbackFailure = true; return; }
+          called = true;
+          clearTimeout(timer);
+          callback(value);
+        };
         try {
-          register(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+          register(value => finish(resolve, value), error => finish(reject, error));
         } catch (error) { clearTimeout(timer); reject(error); }
       });
     }
-    const items = dataTransfer?.items || [];
-    if (items.length > limit || (dataTransfer?.files?.length || 0) > limit) throw new Error("Too many dropped entries.");
-    const roots = Array.from(items).map(item => item.kind === "file" && typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null).filter(Boolean);
-    if (!roots.length) return Array.from(dataTransfer?.files || []);
+    let callbackFailure = false;
+    const items = dataTransfer?.items || [], selectedFiles = dataTransfer?.files || [];
+    if (items.length > limit || selectedFiles.length > limit) throw new Error("Too many dropped entries.");
+    const fileItems = Array.from(items).filter(item => item.kind === "file");
+    const entries = fileItems.map(item => typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null);
+    const roots = entries.filter(Boolean);
+    if (roots.length && roots.length !== fileItems.length) {
+      throw new Error("The dropped selection has incomplete directory-entry information. Select the files or folder again.");
+    }
+    if (!roots.length) {
+      if (fileItems.length && fileItems.length !== selectedFiles.length) {
+        throw new Error("The dropped selection is incomplete; no files were admitted.");
+      }
+      return Array.from(selectedFiles);
+    }
     const files = [];
     async function visit(entry, prefix, depth) {
       check();
       if (++visited > limit || depth > 32) throw new Error("Dropped-directory entry or depth budget exceeded.");
       if (entry.isFile) {
         const file = await callbackResult((resolve, reject) => entry.file(resolve, reject));
+        check();
+        if (callbackFailure) throw new Error("Dropped-directory enumeration repeated a callback.");
         Object.defineProperty(file, "_codeprobeRelativePath", { value: normaliseProjectPath(prefix + file.name), configurable: true });
         files.push(file);
       } else if (entry.isDirectory) {
@@ -756,14 +806,19 @@
         for (;;) {
           check();
           const batch = await callbackResult((resolve, reject) => reader.readEntries(resolve, reject));
+          check();
+          if (callbackFailure) throw new Error("Dropped-directory enumeration repeated a callback.");
+          if (!Array.isArray(batch)) throw new Error("Dropped-directory enumeration returned an invalid batch.");
           if (!batch.length) break;
           if (batch.length > limit - visited) throw new Error("Dropped-directory entry budget exceeded.");
           for (const child of batch) await visit(child, `${prefix}${entry.name}/`, depth + 1);
           await new Promise(resolve => setTimeout(resolve, 0));
         }
-      }
+      } else throw new Error("The dropped selection contains an unreadable entry.");
     }
     for (const entry of roots) await visit(entry, "", 0);
+    check();
+    if (callbackFailure) throw new Error("Dropped-directory enumeration repeated a callback.");
     return files;
   }
 
@@ -776,6 +831,7 @@
     loadVerifiedPyodide,
     loadVerifiedEngine,
     decodeSourceBytes,
+    validateIntakeProvenance,
     normaliseProjectPath,
     getConfig() { return activeConfig || DEFAULT_CONFIG; },
     getProvenance() { return activeProvenance; },

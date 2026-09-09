@@ -149,6 +149,55 @@ jobs:
           git diff --cached --check
           git diff --cached --exit-code
 
+      - name: Verify native process lifecycle regressions
+        timeout-minutes: 5
+        shell: bash
+        run: python -I -S -B -m unittest discover -s tests -p test_process_control.py -v
+
+      - name: Verify calibration publication regressions
+        timeout-minutes: 2
+        shell: bash
+        run: python -I -S -B -m unittest discover -s tests -p test_calibration_profiles.py -v
+
+      - name: Verify bounded input and strict payload regressions
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          python -I -S -B -m unittest discover -s tests -p test_project_mode.py -v
+          python -I -S -B -m unittest discover -s tests -p test_runtime_smoke.py -v
+          python -I -S -B -m unittest discover -s tests -p test_contract_repairs.py -v
+          python -I -S -B -m unittest discover -s tests -p test_javascript_parser.py -v
+          python -I -S -B -m unittest discover -s tests -p test_false_positive_controls.py -v
+          python -I -S -B tests/test_release_recovery.py BoundedRecoveryReaderTests -v
+          python -I -S -B tests/test_local_server.py BoundedPublicResourceTests -v
+
+      - name: Verify diagnostic output and fixture regressions
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          python -I -S -B -m unittest discover -s tests -p test_pyodide_fixture.py -v
+          python -I -S -B -m unittest discover -s tests -p test_coverage_policy.py -v
+          python -I -S -B -m unittest discover -s tests -p test_reference_integrity.py -v
+          python -I -S -B -m unittest discover -s tests -p test_release_integrity.py -v
+
+      - name: Verify local HTTP contracts on IPv4 and IPv6
+        timeout-minutes: 3
+        shell: bash
+        run: python -I -S -B -m unittest discover -s tests -p test_local_server.py -v
+
+      - name: Verify intake provenance and browser payload contracts
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          python -I -S -B -m unittest discover -s tests -p test_report_schema.py -v
+          python -I -S -B -m unittest discover -s tests -p test_worker_contract.py -v
+          python -I -S -B -m unittest discover -s tests -p test_dynamic_ui_review.py -v
+
+      - name: Check calibration workflows and educational contracts
+        timeout-minutes: 3
+        shell: bash
+        run: python -I -S -B -m unittest discover -s tests -p test_calibration_workflow.py -v
+
       - name: Run the canonical read-only gate
         shell: bash
         run: python -I -S -B tools/check_release.py --require-node
@@ -306,6 +355,7 @@ jobs:
           python -I -S -B tools/prepare_pyodide_fixture.py \
             --output-dir "$RUNNER_TEMP/pyodide-core" \
             --json-out "$RUNNER_TEMP/pyodide-core.json"
+          cat "$RUNNER_TEMP/pyodide-core.json"
 
       - name: Run real file and project analyses with verified runtime bytes
         shell: bash

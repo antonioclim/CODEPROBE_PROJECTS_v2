@@ -5,10 +5,11 @@ from __future__ import annotations
 import ipaddress
 import mimetypes
 import posixpath
+import socket
 import stat
 from dataclasses import dataclass
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer as _StdlibThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote_to_bytes, urlsplit
 
@@ -86,7 +87,13 @@ def validate_bind_address(host: str, *, allow_network: bool = False) -> str:
 def canonical_request_path(target: str) -> str:
     """Return a canonical relative POSIX path for one HTTP request target."""
 
-    parsed = urlsplit(str(target))
+    rendered = str(target)
+    if not rendered or any(ord(character) <= 32 or ord(character) == 127 for character in rendered):
+        raise ServerPolicyError("request target contains whitespace or a control character")
+    try:
+        parsed = urlsplit(rendered)
+    except ValueError as exc:
+        raise ServerPolicyError("request target is not a valid URL path") from exc
     if parsed.scheme or parsed.netloc:
         raise ServerPolicyError("absolute request targets are not accepted")
     try:
@@ -152,7 +159,7 @@ def public_resource(root: Path, request_target: str) -> PublicResource:
     if metadata.st_size > MAX_PUBLIC_FILE_BYTES:
         raise ServerPolicyError("public resource exceeds the local-server size ceiling")
     try:
-        content = read_regular_file(candidate, root=root_path)
+        content = read_regular_file(candidate, root=root_path, max_bytes=MAX_PUBLIC_FILE_BYTES)
     except (OSError, ReleaseSetError) as exc:
         raise ServerPolicyError("public resource could not be read safely") from exc
     if len(content) > MAX_PUBLIC_FILE_BYTES:
@@ -179,7 +186,19 @@ class CodeProbeRequestHandler(BaseHTTPRequestHandler):
     root: Path
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A003
-        print(f"{self.client_address[0]} - {format % args}")
+        message = f"{self.client_address[0]} - {format % args}"
+        print("".join(
+            character if character.isprintable() and character != "\\"
+            else character.encode("unicode_escape").decode("ascii")
+            for character in message
+        ))
+
+    def parse_request(self) -> bool:
+        if not super().parse_request():
+            return False
+        # The base parser collapses leading slashes; policy needs the original target.
+        self.path = self.requestline.split()[1]
+        return True
 
     def _security_headers(self) -> None:
         self.send_header("Cache-Control", "no-store")
@@ -189,10 +208,16 @@ class CodeProbeRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")
 
+    def end_headers(self) -> None:
+        # This also covers inherited errors without replacing their body/HEAD rules.
+        self._security_headers()
+        super().end_headers()
+
     def _send_plain_error(self, status: HTTPStatus, message: str) -> None:
         body = (message.rstrip(".") + ".\n").encode("utf-8")
         self.send_response(status.value, status.phrase)
-        self._security_headers()
+        if status == HTTPStatus.METHOD_NOT_ALLOWED:
+            self.send_header("Allow", "GET, HEAD")
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -209,7 +234,6 @@ class CodeProbeRequestHandler(BaseHTTPRequestHandler):
             self._send_plain_error(HTTPStatus.BAD_REQUEST, "Invalid request")
             return
         self.send_response(HTTPStatus.OK.value)
-        self._security_headers()
         self.send_header("Content-Type", resource.content_type)
         self.send_header("Content-Length", str(len(resource.content)))
         self.end_headers()
@@ -245,6 +269,34 @@ def handler_for_root(root: Path) -> type[CodeProbeRequestHandler]:
     return BoundCodeProbeRequestHandler
 
 
+class ThreadingHTTPServer(_StdlibThreadingHTTPServer):
+    """HTTP server that does not perform reverse DNS after binding."""
+
+    def server_bind(self) -> None:
+        # HTTPServer.server_bind() adds socket.getfqdn(host).  The local tool
+        # needs the bound address, not a reverse-DNS name.  Starting after
+        # HTTPServer in the MRO invokes TCPServer.server_bind() without that
+        # lookup while preserving the stdlib socket-reuse semantics.
+        super(HTTPServer, self).server_bind()
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
+
+
+class _LocalThreadingHTTPServer(ThreadingHTTPServer):
+    def server_bind(self) -> None:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            # Windows address reuse can admit a second listener on an occupied port.
+            self.allow_reuse_address = False
+            self.allow_reuse_port = False
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+class _IPv6ThreadingHTTPServer(_LocalThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
 def create_server(
     root: Path,
     host: str,
@@ -255,9 +307,9 @@ def create_server(
     if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535:
         raise ServerPolicyError("port must be an integer between 0 and 65535")
     bind_address = validate_bind_address(host, allow_network=allow_network)
-    server = ThreadingHTTPServer((bind_address, port), handler_for_root(root))
+    server_type = _IPv6ThreadingHTTPServer if ":" in bind_address else _LocalThreadingHTTPServer
+    server = server_type((bind_address, port), handler_for_root(root))
     server.daemon_threads = True
-    server.allow_reuse_address = True
     return server
 
 

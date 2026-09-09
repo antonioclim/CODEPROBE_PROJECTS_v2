@@ -1,34 +1,34 @@
 {
   "samples": [
     {
-      "path": "samples/file-human-fit.py",
+      "path": "samples/project-human-fit",
       "label": "human",
-      "language_hint": "python",
-      "kind": "file",
+      "language_hint": "auto",
+      "kind": "project",
       "group_id": "human-fit-group",
       "split": "fit"
     },
     {
-      "path": "samples/file-ai_generated-fit.py",
+      "path": "samples/project-ai_generated-fit",
       "label": "ai_generated",
-      "language_hint": "python",
-      "kind": "file",
+      "language_hint": "auto",
+      "kind": "project",
       "group_id": "ai_generated-fit-group",
       "split": "fit"
     },
     {
-      "path": "samples/file-human-evaluation.py",
+      "path": "samples/project-human-evaluation",
       "label": "human",
-      "language_hint": "python",
-      "kind": "file",
+      "language_hint": "auto",
+      "kind": "project",
       "group_id": "human-evaluation-group",
       "split": "evaluation"
     },
     {
-      "path": "samples/file-ai_generated-evaluation.py",
+      "path": "samples/project-ai_generated-evaluation",
       "label": "ai_generated",
-      "language_hint": "python",
-      "kind": "file",
+      "language_hint": "auto",
+      "kind": "project",
       "group_id": "ai_generated-evaluation-group",
       "split": "evaluation"
     }

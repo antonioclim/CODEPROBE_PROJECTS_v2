@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
+from .diagnostic_outputs import validate_diagnostic_outputs as _validate_diagnostic_outputs
+
 MANIFEST_NAME = "release/release-manifest.json"
 MANIFEST_SCHEMA = "codeprobe-release-manifest/v1"
 APP_NAME = "CodeProbe"
@@ -70,6 +72,16 @@ def sha256_bytes(content: bytes) -> str:
 
 def sha256_file(path: Path) -> str:
     return sha256_bytes(read_regular_file(path))
+
+
+def validate_diagnostic_outputs(
+    outputs: Sequence[Path], *, inputs: Iterable[Path]
+) -> tuple[Path, ...]:
+    """Retain the release API's error type for shared output admission."""
+    try:
+        return _validate_diagnostic_outputs(outputs, inputs=inputs)
+    except ValueError as exc:
+        raise ReleaseSetError(str(exc)) from exc
 
 
 def atomic_write_bytes(
@@ -301,6 +313,8 @@ def _validate_no_symlink_ancestry(path: Path, root: Path | None) -> os.stat_resu
 
 def _open_regular_for_read(path: Path, root: Path | None) -> int:
     file_flags = os.O_RDONLY
+    if hasattr(os, "O_NONBLOCK"):
+        file_flags |= os.O_NONBLOCK
     if hasattr(os, "O_BINARY"):
         file_flags |= os.O_BINARY
     if hasattr(os, "O_CLOEXEC"):
@@ -335,12 +349,18 @@ def read_regular_file_with_metadata(
     path: Path,
     *,
     root: Path | None = None,
+    max_bytes: int | None = None,
 ) -> tuple[bytes, os.stat_result]:
     """Read one regular file and return coherent descriptor metadata.
 
     Metadata is checked before and after the read. This turns a concurrent source
     mutation into a controlled validation failure rather than a mixed snapshot.
+    An explicit byte ceiling rejects an oversized descriptor before body reads
+    and permits at most one additional byte to detect growth. ``None`` retains
+    the unrestricted size policy used by existing release-snapshot callers.
     """
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 0):
+        raise ValueError("max_bytes must be a non-negative integer or None")
     path_before = _validate_no_symlink_ancestry(path, root)
     try:
         descriptor = _open_regular_for_read(path, root)
@@ -350,6 +370,8 @@ def read_regular_file_with_metadata(
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ReleaseSetError(f"release entry is not a regular file: {_safe_text(path)}")
+        if max_bytes is not None and before.st_size > max_bytes:
+            raise ReleaseSetError(f"release file exceeds the size ceiling: {_safe_text(path)}")
         path_opened = _validate_no_symlink_ancestry(path, root)
         if (
             _stat_identity(path_before) != _stat_identity(path_opened)
@@ -358,10 +380,17 @@ def read_regular_file_with_metadata(
         ):
             raise ReleaseSetError(f"release file changed before read: {_safe_text(path)}")
         chunks: list[bytes] = []
+        total = 0
         while True:
-            chunk = os.read(descriptor, 1024 * 1024)
+            request_size = 1024 * 1024
+            if max_bytes is not None:
+                request_size = min(request_size, max_bytes - total + 1)
+            chunk = os.read(descriptor, request_size)
             if not chunk:
                 break
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise ReleaseSetError(f"release file exceeds the size ceiling: {_safe_text(path)}")
             chunks.append(chunk)
         after = os.fstat(descriptor)
         try:
@@ -391,9 +420,14 @@ def read_regular_file_with_metadata(
     return b"".join(chunks), after
 
 
-def read_regular_file(path: Path, *, root: Path | None = None) -> bytes:
-    """Read one stable regular file without following a final symlink."""
-    content, _metadata = read_regular_file_with_metadata(path, root=root)
+def read_regular_file(
+    path: Path,
+    *,
+    root: Path | None = None,
+    max_bytes: int | None = None,
+) -> bytes:
+    """Read one stable regular file, optionally enforcing a byte ceiling."""
+    content, _metadata = read_regular_file_with_metadata(path, root=root, max_bytes=max_bytes)
     return content
 
 
@@ -621,8 +655,11 @@ def zip_summary(zip_path: Path) -> Dict[str, Any]:
 
 def write_zip_summary(zip_path: Path, output: Path) -> Dict[str, Any]:
     """Write a JSON package audit sidecar for a release ZIP."""
+    (destination,) = validate_diagnostic_outputs([output], inputs=[zip_path])
     summary = zip_summary(zip_path)
-    output.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    content = (json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    validate_diagnostic_outputs([destination], inputs=[zip_path])
+    atomic_write_bytes(destination, content)
     return summary
 
 

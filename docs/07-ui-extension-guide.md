@@ -31,7 +31,9 @@ New panels should follow the same pattern: read structured fields from the JSON 
 
 ### Project intake
 
-Drag-and-drop is handled by `collectDroppedFiles()`, `filesFromEntry()` and `handleDropDataTransfer()` in `app/codeprobe-ui.js`. The browser first tries the Chromium directory-entry API (`webkitGetAsEntry`) when it is available, then falls back to `DataTransfer.files`. ZIP files are sent as base64 to the engine; folder/file selections are passed as `{path, content, size_bytes}` records.
+Both interfaces delegate drag-and-drop enumeration to `collectDroppedFiles()` in `app/pyodide-loader.js`. A complete Chromium directory-entry selection uses `webkitGetAsEntry`; an all-null selection uses `DataTransfer.files` only when the file-item count matches. A mixed selection is rejected explicitly before enumeration, so a missing entry cannot silently remove a selected file. Enumeration retains the 2,000-entry, 32-level and 10-second limits. ZIP files are sent as base64 to the engine; the suffix-only name `.zip` becomes the project name `project` in both interfaces.
+
+Folder/file selections carry `{path, content, size_bytes}` records and optional `intake_provenance`. The latter records `encoding` (`utf-8`, `utf-8-sig` or `latin-1`), `normalisation` (`none` or `newlines`) and up to eight plain-text `warnings` of at most 512 characters each. The shared decoder applies the 1,000,000-byte source ceiling before checking the entire candidate for NUL; NUL is a rejection signal, not a general binary-file classifier. A Latin-1 fallback warning survives the UI, worker and runtime into JSON and text reports. Provenance is labelled `caller-reported`: it neither authenticates original bytes nor overrides measured input limits. Editing loaded single-file text clears its original decoding provenance.
 
 ### Report schema
 

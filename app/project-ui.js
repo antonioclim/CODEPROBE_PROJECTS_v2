@@ -55,6 +55,7 @@
       const packagingText = packaging.source
         ? `${packaging.source}${packaging.common_root_stripped ? `; stripped common root: ${packaging.common_root_detected || "unknown"}` : "; no common root stripped"}`
         : "not recorded";
+      const intakeWarnings = Array.isArray(report.warnings) ? report.warnings : [];
       const zoneHtml = zones.length ? zones.map((zone, index) => {
         const level = String(zone.risk_level || "moderate").toLowerCase();
         const title = zone.display_name || zone.path || zone.title || zone.metric || zone.scope || "Risk zone";
@@ -63,7 +64,10 @@
       }).join("") : `<p class="muted">No risk zone reached the reporting threshold.</p>`;
       els.reviewPanel.innerHTML = `
         <article class="review-card"><h3>Status</h3><p><strong>${escapeHtml(guidance.status_label || guidance.status || "not specified")}</strong></p><p>${escapeHtml(guidance.defensibility_note || "The score is a triage signal, not a misconduct finding.")}</p></article>
+        <article class="review-card"><h3>Evidence coverage</h3><p><strong>${escapeHtml(report.evidence_coverage || report.confidence || "Not recorded")}</strong></p><p>${escapeHtml(report.evidence_coverage_basis?.interpretation || "Heuristic source and metric coverage; basis unavailable in this older report.")}</p><p>${escapeHtml(JSON.stringify(report.evidence_coverage_basis?.factors || {}))}</p></article>
+        <article class="review-card"><h3>Contribution policy</h3>${renderList((report.notes || []).filter(note => /contribution policy|configured choice/.test(note)))}</article>
         <article class="review-card"><h3>Input packaging</h3><p>${escapeHtml(packagingText)}</p><p>${escapeHtml(packaging.common_root_reason || "Packaging normalisation was not needed or not available for this report.")}</p></article>
+        <article class="review-card"><h3>Input and analysis warnings</h3>${renderList(intakeWarnings)}</article>
         <article class="review-card"><h3>Recommended manual steps</h3>${renderList(guidance.recommended_manual_steps || [])}</article>
         <article class="review-card"><h3>Priority questions</h3>${renderList(guidance.priority_questions || [])}</article>
         <article class="review-card"><h3>Evidence to request</h3>${renderList(guidance.evidence_to_request || [])}</article>
@@ -104,16 +108,17 @@
     }
     async function decodeTextFile(file, path) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      if (looksBinary(bytes)) throw new Error("binary file");
       if (!window.CodeProbeRuntime?.decodeSourceBytes) {
         throw new Error("the shared source-decoding boundary is unavailable");
       }
       const decoded = window.CodeProbeRuntime.decodeSourceBytes(bytes);
+      if (looksBinary(bytes)) throw new Error("binary file");
       return {
         path,
         content: decoded.text,
         size_bytes: file.size,
-        decoding_warning: decoded.warning
+        decoding_warning: decoded.warning,
+        intake_provenance: decoded.intake_provenance
       };
     }
     function setBusy(busy) {
@@ -180,7 +185,7 @@
         const buffer = await file.arrayBuffer();
         if (generation !== state.generation) return;
         if (buffer.byteLength > MAX_BROWSER_PROJECT_ZIP_BYTES) throw new Error("ZIP exceeds the browser byte limit.");
-        state.projectName = (file.name || "project.zip").replace(/\.zip$/i, "");
+        state.projectName = (file.name || "project.zip").replace(/\.zip$/i, "") || "project";
         state.payload = { project_name: state.projectName, zip_base64: bytesToBase64(new Uint8Array(buffer)), max_zip_bytes: MAX_BROWSER_PROJECT_ZIP_BYTES, max_zip_entries: MAX_BROWSER_PROJECT_ENTRIES, max_file_bytes: MAX_BROWSER_PROJECT_TEXT_BYTES, max_total_bytes: MAX_BROWSER_PROJECT_TOTAL_BYTES };
         setStatus(`Loaded ZIP: ${file.name}.`);
       } catch (error) {
@@ -210,11 +215,13 @@
             const bytes = new TextEncoder().encode(decoded.content).length;
             if (bytes > MAX_BROWSER_PROJECT_TEXT_BYTES) { files.push(rejectedInput(file, path, "file_too_large")); continue; }
             if (acceptedBytes + bytes > MAX_BROWSER_PROJECT_TOTAL_BYTES) { files.push(rejectedInput(file, path, "project_total_byte_limit")); continue; }
-            files.push({ path, content: decoded.content, size_bytes: bytes }); acceptedBytes += bytes;
+            files.push({ path, content: decoded.content, size_bytes: bytes,
+              intake_provenance: decoded.intake_provenance }); acceptedBytes += bytes;
             if (decoded.decoding_warning) warnings.push(`${path}: ${decoded.decoding_warning}`);
-          } catch (_) {
+          } catch (error) {
             if (generation !== state.generation) return;
-            files.push(rejectedInput(file, path, "unreadable_file"));
+            const reason = ["undecodable_text", "file_too_large"].includes(error?.intakeReason) ? error.intakeReason : "unreadable_file";
+            files.push(rejectedInput(file, path, reason));
           }
         }
         if (generation !== state.generation) return;

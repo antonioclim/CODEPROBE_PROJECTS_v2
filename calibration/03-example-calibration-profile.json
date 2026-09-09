@@ -1,7 +1,7 @@
 {
   "schema_version": "codeprobe-calibration-profile/v1",
   "profile_id": "example-intro-python-2026-v1",
-  "label": "Example Intro Python 2026 calibration profile \u2014 not validated",
+  "label": "Example Intro Python 2026 calibration profile — not validated",
   "course": "EXAMPLE-101",
   "assignment": "project-1",
   "profile_version": "v1",
@@ -31,9 +31,12 @@
   },
   "notes": [
     "Illustrative schema example only.",
-    "Generate a real profile with tools/calibrate_profile.py."
+    "Generate a real profile with tools/calibrate_profile.py.",
+    "Non-operational illustration: do not activate this file or add a guessed scoring identity. Generate a fresh scoped profile from the curated corpus."
   ],
   "target_false_positive_rate": 0.05,
   "tool_version": "2.2.0",
-  "source": "illustrative-only"
+  "source": "illustrative-only",
+  "operational": false,
+  "operational_reason": "illustrative-template-not-fitted"
 }
