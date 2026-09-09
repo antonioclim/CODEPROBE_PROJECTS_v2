@@ -489,7 +489,7 @@ do not create identifiers. Syntax unsupported by the active interpreter remains
 diagnosed; the absence of an AST does not justify discarding every identifier
 with a soft-keyword spelling.
 The language specification describes these roles in
-[Python's soft-keyword rules]([https://docs.python.org/3/reference/lexical_analysis.html#soft-keywords](https://docs.python.org/3/reference/lexical_analysis.html#soft-keywords)).
+[Python's soft-keyword rules](https://docs.python.org/3/reference/lexical_analysis.html#soft-keywords).
 
 `FunctionInfo.parameters` is internal structural metadata, ordered as
 positional-only parameters, ordinary positional parameters, the variadic
@@ -498,7 +498,7 @@ parameter. The `/` and bare `*` separators are not parameter names. This restore
 signature fidelity without adding a public parameter field or establishing an
 effect on an existing score.
 The corresponding fields are defined in
-[the Python AST argument reference]([https://docs.python.org/3/library/ast.html#ast.arguments](https://docs.python.org/3/library/ast.html#ast.arguments)).
+[the Python AST argument reference](https://docs.python.org/3/library/ast.html#ast.arguments).
 
 ## Python used-import ratio
 
@@ -529,7 +529,7 @@ prove that an import succeeds, a callable runs or a branch is reachable.
 Annotation and type-parameter scopes also require qualification: their evaluation
 rules differ across supported interpreter versions, including deferred
 annotations in Python 3.14. They cannot automatically be treated as ordinary
-immediate reads. See [Python's execution model]([https://docs.python.org/3/reference/executionmodel.html](https://docs.python.org/3/reference/executionmodel.html)).
+immediate reads. See [Python's execution model](https://docs.python.org/3/reference/executionmodel.html).
 The current conservative rule makes this metric unavailable for the whole file
 when such a scope limitation is found, including an explicit AST annotation or type
 parameter even if it appears unrelated to an import. It does not track aliases
@@ -579,7 +579,7 @@ Masking preserves character positions, line classifications and comment text;
 normal context construction first normalises newlines. The bounded operation
 count concerns this offset work and does not establish a wall-clock guarantee
 for the whole parser or browser. Invalid input remains diagnostic fallback;
-[the tokenizer documentation]([https://docs.python.org/3/library/tokenize.html](https://docs.python.org/3/library/tokenize.html))
+[the tokenizer documentation](https://docs.python.org/3/library/tokenize.html)
 does not promise stable tokenisation of syntactically invalid Python.
 
 ## Finite metric extraction
