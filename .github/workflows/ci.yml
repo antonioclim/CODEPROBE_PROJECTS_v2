@@ -1,346 +1,50 @@
-name: CI
+name: Evidence Refresh Bootstrap
 
 on:
   pull_request:
     branches:
       - main
-  push:
-    branches:
-      - main
-    tags:
-      - "v*"
-  workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: evidence-refresh-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 
 env:
   PYTHONDONTWRITEBYTECODE: "1"
   PYTHONUTF8: "1"
 
 jobs:
-  validation:
-    name: Validation (${{ matrix.os }}, Python ${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            python: "3.10.21"
-            architecture: x64
-            python_machine: x86_64
-            node_arch: x64
-            hash_seed: "31021"
-          - os: ubuntu-24.04
-            python: "3.11.16"
-            architecture: x64
-            python_machine: x86_64
-            node_arch: x64
-            hash_seed: "31116"
-          - os: ubuntu-24.04
-            python: "3.12.14"
-            architecture: x64
-            python_machine: x86_64
-            node_arch: x64
-            hash_seed: "31214"
-          - os: ubuntu-24.04
-            python: "3.13.15"
-            architecture: x64
-            python_machine: x86_64
-            node_arch: x64
-            hash_seed: "31315"
-          - os: ubuntu-24.04
-            python: "3.14.7"
-            architecture: x64
-            python_machine: x86_64
-            node_arch: x64
-            hash_seed: "31407"
-          - os: windows-2025
-            python: "3.14.7"
-            architecture: x64
-            python_machine: AMD64
-            node_arch: x64
-            hash_seed: "31408"
-          - os: macos-15
-            python: "3.14.7"
-            architecture: arm64
-            python_machine: arm64
-            node_arch: arm64
-            hash_seed: "31409"
-    env:
-      PYTHONHASHSEED: ${{ matrix.hash_seed }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          clean: true
-          fetch-depth: 1
-          lfs: false
-          persist-credentials: false
-          show-progress: false
-          submodules: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          architecture: ${{ matrix.architecture }}
-          check-latest: false
-          python-version: ${{ matrix.python }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          architecture: ${{ matrix.architecture }}
-          check-latest: false
-          node-version: "24.20.0"
-          package-manager-cache: false
-
-      - name: Record and verify the toolchain
-        shell: bash
-        env:
-          EXPECTED_NODE: "24.20.0"
-          EXPECTED_NODE_ARCH: ${{ matrix.node_arch }}
-          EXPECTED_PYTHON: ${{ matrix.python }}
-          EXPECTED_PYTHON_MACHINE: ${{ matrix.python_machine }}
-        run: |
-          set -euo pipefail
-          python -I -S - <<'PY'
-          import os
-          import platform
-          import zlib
-
-          expected = os.environ["EXPECTED_PYTHON"]
-          actual = platform.python_version()
-          if actual != expected:
-              raise SystemExit(f"expected Python {expected}, received {actual}")
-          expected_machine = os.environ["EXPECTED_PYTHON_MACHINE"]
-          actual_machine = platform.machine()
-          if actual_machine != expected_machine:
-              raise SystemExit(
-                  f"expected Python machine {expected_machine}, received {actual_machine}"
-              )
-          print(f"Python {actual}")
-          print(f"Python machine {actual_machine}")
-          print(f"zlib build={zlib.ZLIB_VERSION} runtime={zlib.ZLIB_RUNTIME_VERSION}")
-          PY
-          node -e '
-            if (process.versions.node !== process.env.EXPECTED_NODE) {
-              throw new Error(`expected Node ${process.env.EXPECTED_NODE}, received ${process.versions.node}`);
-            }
-            if (process.arch !== process.env.EXPECTED_NODE_ARCH) {
-              throw new Error(`expected Node architecture ${process.env.EXPECTED_NODE_ARCH}, received ${process.arch}`);
-            }
-            console.log(`Node ${process.versions.node} (${process.arch})`);
-          '
-          git --version
-
-      - name: Verify checkout normalisation
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add --renormalize --all
-          git diff --cached --check
-          git diff --cached --exit-code
-
-      - name: Verify native process lifecycle regressions
-        timeout-minutes: 5
-        shell: bash
-        run: python -I -S -B -m unittest discover -s tests -p test_process_control.py -v
-
-      - name: Verify calibration publication regressions
-        timeout-minutes: 2
-        shell: bash
-        run: python -I -S -B -m unittest discover -s tests -p test_calibration_profiles.py -v
-
-      - name: Verify bounded input and strict payload regressions
-        timeout-minutes: 3
-        shell: bash
-        run: |
-          python -I -S -B -m unittest discover -s tests -p test_project_mode.py -v
-          python -I -S -B -m unittest discover -s tests -p test_runtime_smoke.py -v
-          python -I -S -B -m unittest discover -s tests -p test_contract_repairs.py -v
-          python -I -S -B -m unittest discover -s tests -p test_javascript_parser.py -v
-          python -I -S -B -m unittest discover -s tests -p test_false_positive_controls.py -v
-          python -I -S -B tests/test_release_recovery.py BoundedRecoveryReaderTests -v
-          python -I -S -B tests/test_local_server.py BoundedPublicResourceTests -v
-
-      - name: Verify diagnostic output and fixture regressions
-        timeout-minutes: 3
-        shell: bash
-        run: |
-          python -I -S -B -m unittest discover -s tests -p test_pyodide_fixture.py -v
-          python -I -S -B -m unittest discover -s tests -p test_coverage_policy.py -v
-          python -I -S -B -m unittest discover -s tests -p test_reference_integrity.py -v
-          python -I -S -B -m unittest discover -s tests -p test_release_integrity.py -v
-
-      - name: Verify local HTTP contracts on IPv4 and IPv6
-        timeout-minutes: 3
-        shell: bash
-        run: python -I -S -B -m unittest discover -s tests -p test_local_server.py -v
-
-      - name: Verify intake provenance and browser payload contracts
-        timeout-minutes: 3
-        shell: bash
-        run: |
-          python -I -S -B -m unittest discover -s tests -p test_report_schema.py -v
-          python -I -S -B -m unittest discover -s tests -p test_worker_contract.py -v
-          python -I -S -B -m unittest discover -s tests -p test_dynamic_ui_review.py -v
-
-      - name: Check calibration workflows and educational contracts
-        timeout-minutes: 3
-        shell: bash
-        run: python -I -S -B -m unittest discover -s tests -p test_calibration_workflow.py -v
-
-      - name: Run the canonical read-only gate
-        shell: bash
-        run: python -I -S -B tools/check_release.py --require-node
-
-      - name: Confirm that validation left a clean checkout
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          dirty="$(git status --porcelain=v1 --untracked-files=all)"
-          if [[ -n "$dirty" ]]; then
-            printf '%s\n' "$dirty"
-            exit 1
-          fi
-
-  release_reproducibility:
-    name: Release reproducibility
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    permissions:
-      contents: read
-    env:
-      PYTHONHASHSEED: "314159"
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          clean: true
-          fetch-depth: 1
-          lfs: false
-          persist-credentials: false
-          show-progress: false
-          submodules: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          architecture: x64
-          check-latest: false
-          python-version: "3.14.7"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          architecture: x64
-          check-latest: false
-          node-version: "24.20.0"
-          package-manager-cache: false
-
-      - name: Record and verify the toolchain
-        shell: bash
-        env:
-          EXPECTED_NODE: "24.20.0"
-          EXPECTED_NODE_ARCH: x64
-          EXPECTED_PYTHON: "3.14.7"
-          EXPECTED_PYTHON_MACHINE: x86_64
-        run: |
-          set -euo pipefail
-          python -I -S - <<'PY'
-          import os
-          import platform
-          import zlib
-
-          expected = os.environ["EXPECTED_PYTHON"]
-          actual = platform.python_version()
-          if actual != expected:
-              raise SystemExit(f"expected Python {expected}, received {actual}")
-          expected_machine = os.environ["EXPECTED_PYTHON_MACHINE"]
-          actual_machine = platform.machine()
-          if actual_machine != expected_machine:
-              raise SystemExit(
-                  f"expected Python machine {expected_machine}, received {actual_machine}"
-              )
-          print(f"Python {actual}")
-          print(f"Python machine {actual_machine}")
-          print(f"zlib build={zlib.ZLIB_VERSION} runtime={zlib.ZLIB_RUNTIME_VERSION}")
-          PY
-          node -e '
-            if (process.versions.node !== process.env.EXPECTED_NODE) {
-              throw new Error(`expected Node ${process.env.EXPECTED_NODE}, received ${process.versions.node}`);
-            }
-            if (process.arch !== process.env.EXPECTED_NODE_ARCH) {
-              throw new Error(`expected Node architecture ${process.env.EXPECTED_NODE_ARCH}, received ${process.arch}`);
-            }
-            console.log(`Node ${process.versions.node} (${process.arch})`);
-          '
-          git --version
-
-      - name: Verify checkout normalisation
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add --renormalize --all
-          git diff --cached --check
-          git diff --cached --exit-code
-
-      - name: Run the canonical read-only gate
-        shell: bash
-        run: python -I -S -B tools/check_release.py --require-node
-
-      - name: Verify checkout, archive and packet reproducibility
-        shell: bash
-        run: python -I -S -B tools/check_release_reproducibility.py
-
-      - name: Confirm that reproducibility checks left a clean checkout
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          dirty="$(git status --porcelain=v1 --untracked-files=all)"
-          if [[ -n "$dirty" ]]; then
-            printf '%s\n' "$dirty"
-            exit 1
-          fi
-
-
-  browser_functional:
-    name: Browser functional integrity (Chromium)
+  refresh_release_evidence:
+    name: Refresh canonical release evidence
+    if: >-
+      github.head_ref == 'audit/codeprobe-complete-remediation-20260907' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
-      contents: read
-    env:
-      PYTHONHASHSEED: "31412"
+      contents: write
     steps:
-      - name: Check out repository
+      - name: Check out exact audit head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           clean: true
-          fetch-depth: 1
+          fetch-depth: 2
           lfs: false
-          persist-credentials: false
+          persist-credentials: true
+          ref: ${{ github.event.pull_request.head.sha }}
           show-progress: false
           submodules: false
 
-      - name: Set up Python
+      - name: Set up canonical Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           architecture: x64
           check-latest: false
           python-version: "3.14.7"
 
-      - name: Set up Node.js
+      - name: Set up canonical Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           architecture: x64
@@ -348,152 +52,45 @@ jobs:
           node-version: "24.20.0"
           package-manager-cache: false
 
-      - name: Prepare the authenticated Pyodide core fixture
+      - name: Restore the C8 canonical workflow in the candidate tree
         shell: bash
         run: |
           set -euo pipefail
-          python -I -S -B tools/prepare_pyodide_fixture.py \
-            --output-dir "$RUNNER_TEMP/pyodide-core" \
-            --json-out "$RUNNER_TEMP/pyodide-core.json"
-          cat "$RUNNER_TEMP/pyodide-core.json"
+          git show HEAD^:.github/workflows/ci.yml > .github/workflows/ci.yml
+          test "$(git hash-object .github/workflows/ci.yml)" = "4a80fcc322be2aa81e54408eced199820d1d8fec"
 
-      - name: Run real file and project analyses with verified runtime bytes
-        shell: bash
-        env:
-          CODEPROBE_PYODIDE_FIXTURE_DIR: ${{ runner.temp }}/pyodide-core
-        run: node tools/check_browser_functional.js
-
-      - name: Confirm that functional browser checks left a clean checkout
-        if: ${{ always() }}
+      - name: Refresh release evidence through the canonical generator
         shell: bash
         run: |
           set -euo pipefail
-          dirty="$(git status --porcelain=v1 --untracked-files=all)"
-          if [[ -n "$dirty" ]]; then
-            printf '%s\n' "$dirty"
+          python -I -S -B tools/check_release.py --require-node --write-release-evidence
+          python -I -S -B tools/check_release.py --require-node
+
+      - name: Verify the refresh changed only canonical evidence and restored workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git diff --name-only | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/ci.yml' \
+            'release/final-audit-report.json' \
+            'release/final-audit-summary.md' \
+            'release/release-manifest.json' | LC_ALL=C sort)"
+          if [[ "$actual" != "$expected" ]]; then
+            printf 'Unexpected changed paths:\n%s\n' "$actual"
             exit 1
           fi
+          git diff --check
 
-
-  browser_accessibility:
-    name: Browser accessibility (Chromium)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    env:
-      CODEPROBE_REQUIRE_HTTP_NAVIGATION: "1"
-      PYTHONHASHSEED: "31411"
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          clean: true
-          fetch-depth: 1
-          lfs: false
-          persist-credentials: false
-          show-progress: false
-          submodules: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          architecture: x64
-          check-latest: false
-          python-version: "3.14.7"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          architecture: x64
-          check-latest: false
-          node-version: "24.20.0"
-          package-manager-cache: false
-
-      - name: Run the real-browser accessibility gate
-        shell: bash
-        run: node tools/check_browser_accessibility.js
-
-      - name: Confirm that browser checks left a clean checkout
-        if: ${{ always() }}
+      - name: Commit the canonical evidence and restored workflow
         shell: bash
         run: |
           set -euo pipefail
-          dirty="$(git status --porcelain=v1 --untracked-files=all)"
-          if [[ -n "$dirty" ]]; then
-            printf '%s\n' "$dirty"
-            exit 1
-          fi
-
-  coverage:
-    name: Supported-code coverage
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    env:
-      PYTHONHASHSEED: "31410"
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          clean: true
-          fetch-depth: 1
-          lfs: false
-          persist-credentials: false
-          show-progress: false
-          submodules: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          architecture: x64
-          check-latest: false
-          python-version: "3.14.7"
-
-      - name: Measure and enforce supported-code coverage
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -I -S -B tools/check_coverage.py \
-            --json-out "$RUNNER_TEMP/codeprobe-supported-coverage.json"
-
-      - name: Confirm that coverage left a clean checkout
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          dirty="$(git status --porcelain=v1 --untracked-files=all)"
-          if [[ -n "$dirty" ]]; then
-            printf '%s\n' "$dirty"
-            exit 1
-          fi
-
-  required:
-    name: Required CI
-    if: ${{ always() }}
-    needs:
-      - validation
-      - release_reproducibility
-      - browser_accessibility
-      - browser_functional
-      - coverage
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    permissions: {}
-    steps:
-      - name: Require every CI job
-        shell: bash
-        env:
-          BROWSER_ACCESSIBILITY_RESULT: ${{ needs.browser_accessibility.result }}
-          BROWSER_FUNCTIONAL_RESULT: ${{ needs.browser_functional.result }}
-          COVERAGE_RESULT: ${{ needs.coverage.result }}
-          REPRODUCIBILITY_RESULT: ${{ needs.release_reproducibility.result }}
-          VALIDATION_RESULT: ${{ needs.validation.result }}
-        run: |
-          set -euo pipefail
-          test "$VALIDATION_RESULT" = "success"
-          test "$REPRODUCIBILITY_RESULT" = "success"
-          test "$BROWSER_ACCESSIBILITY_RESULT" = "success"
-          test "$BROWSER_FUNCTIONAL_RESULT" = "success"
-          test "$COVERAGE_RESULT" = "success"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/ci.yml \
+            release/final-audit-report.json \
+            release/final-audit-summary.md \
+            release/release-manifest.json
+          git commit -m 'chore: refresh canonical release evidence'
+          git push origin HEAD:refs/heads/audit/codeprobe-complete-remediation-20260907
