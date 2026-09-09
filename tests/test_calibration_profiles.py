@@ -1097,5 +1097,108 @@ class BoundPythonParserTests(unittest.TestCase):
                 entry({**payload_for(SAMPLE_CODE), "calibration_profile": incompatible})
 
 
+
+class DescriptiveCalibrationRateTests(unittest.TestCase):
+    def samples(self, kind="file", evaluation_score=None):
+        contract = engine.scoring_contract("default", engine.merged_metric_config("default"))
+        samples = []
+        for split in ("fit", "evaluation"):
+            for label, scores in (("human", (.1, .2, .7, .8)), ("ai_generated", (.9, .95))):
+                for i, score in enumerate(scores):
+                    if evaluation_score is not None and split == "evaluation" and label == "human":
+                        score = evaluation_score
+                    name = f"private-{split}-{label}-{i}"
+                    samples.append(calibrate_profile.SampleResult(
+                        name, label, kind, "project" if kind == "project" else "python", score, True, 20, "low",
+                        sample_id=name, group_id=f"private-group-{split}-{label}-{i//2}", split=split,
+                        scoring_contract=contract, decision_score=score))
+        return samples
+
+    def profile(self, **options):
+        return calibrate_profile.build_profile({"profile_id": "synthetic-rates"}, self.samples(**options), .5)
+
+    def test_partition_counts_rates_and_groups_are_separate(self):
+        profile = self.profile()
+        rates = profile["validation"]["descriptive_review_rates"]
+        self.assertEqual(set(rates), {"fit", "evaluation", "all"})
+        for part, factor in (("fit", 1), ("evaluation", 1), ("all", 2)):
+            with self.subTest(partition=part):
+                block = rates[part]
+                human = block["labels"]["human"]
+                self.assertEqual((human["reviewed"], human["eligible"], human["group_count"]), (2*factor, 4*factor, 2*factor))
+                self.assertEqual(human["rate"], .5)
+                self.assertEqual(block["unit"], "file")
+                self.assertEqual(block["statistical_independence"], "not_established")
+                self.assertEqual(block["uncertainty"]["status"], "not_estimated")
+
+    def test_absent_class_is_unavailable_but_observed_zero_is_zero(self):
+        profile = self.profile()
+        hybrid = profile["validation"]["descriptive_review_rates"]["evaluation"]["labels"]["hybrid"]
+        self.assertEqual(hybrid["eligible"], 0)
+        self.assertIsNone(hybrid["rate"])
+        self.assertEqual(profile["validation"]["evaluation_at_selected_trigger"]["hybrid_review_rate"], 0)
+        self.assertTrue(profile["validation"]["legacy_rate_qualification"])
+        counts = calibrate_profile.threshold_rates([.1, .2], [], [], .5)["rate_counts"]
+        self.assertEqual(counts["human"], {"reviewed": 0, "eligible": 2, "rate": 0.0})
+        self.assertIsNone(counts["positive"]["rate"])
+
+    def test_holdout_changes_do_not_change_selection_or_fit_counts(self):
+        initial, changed = self.profile(), self.profile(evaluation_score=.99)
+        self.assertEqual(initial["review_policy"], changed["review_policy"])
+        self.assertEqual(initial["review_policy"]["file"]["review_trigger"], .21)
+        self.assertEqual(initial["validation"]["descriptive_review_rates"]["fit"], changed["validation"]["descriptive_review_rates"]["fit"])
+        self.assertNotEqual(initial["validation"]["descriptive_review_rates"]["evaluation"], changed["validation"]["descriptive_review_rates"]["evaluation"])
+
+    def test_project_unit_counts_reports_not_their_source_files(self):
+        profile = self.profile(kind="project")
+        block = profile["validation"]["descriptive_review_rates"]["evaluation"]
+        self.assertEqual(block["unit"], "project")
+        self.assertEqual(block["sample_count"], 6)
+        self.assertEqual(block["labels"]["human"]["eligible"], 4)
+        self.assertIn("project", calibrate_profile.render_summary(profile))
+
+    def test_shared_groups_and_ineligible_members_do_not_create_independent_trials(self):
+        rows = self.samples()[:4]
+        for row in rows:
+            row.group_id = "one-declared-group"
+        rows[0].applicable = False
+        block = calibrate_profile.descriptive_review_rates(rows, .5, "file")
+        human = block["labels"]["human"]
+        self.assertEqual(human["sample_count"], 4)
+        self.assertEqual(human["eligible"], 3)
+        self.assertEqual(human["reviewed"], 2)
+        self.assertEqual(human["group_count"], 1)
+        self.assertEqual(human["rate"], 2/3)
+        self.assertEqual(block["uncertainty"]["status"], "not_estimated")
+
+    def test_summary_csv_and_public_metadata_keep_counts_without_private_ids(self):
+        profile = self.profile()
+        text = calibrate_profile.render_summary(profile)
+        self.assertIn("2/4", text)
+        self.assertIn("institutional approval", text)
+        self.assertIn("Statistical independence is not established", text)
+        rows = list(csv.DictReader(io.StringIO(calibrate_profile.render_sensitivity_csv(profile))))
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertEqual(row["human_eligible"], "4")
+            self.assertEqual(row["hybrid_eligible"], "0")
+            self.assertEqual(row["hybrid_descriptive_rate"], "")
+            self.assertEqual(row["partition"], "fit")
+            self.assertEqual(row["unit"], "file")
+            self.assertIn("zero denominator unavailable", row["rate_interpretation"])
+        public = engine.calibration_profile_public(engine.normalise_calibration_profile(profile))
+        self.assertEqual(public["validation"]["descriptive_review_rates"], profile["validation"]["descriptive_review_rates"])
+        self.assertNotIn("sample_results", public["validation"])
+        self.assertNotIn("sensitivity", public["validation"])
+        self.assertNotIn("private-group-", json.dumps(public))
+
+    def test_legacy_profile_without_counts_is_not_presented_as_measured_zero(self):
+        profile = self.profile()
+        del profile["validation"]["descriptive_review_rates"]
+        text = calibrate_profile.render_summary(profile)
+        self.assertIn("unavailable | unavailable | N/A", text)
+        self.assertIn("Historical numeric aliases", text)
+
+
 if __name__ == "__main__":
     unittest.main()

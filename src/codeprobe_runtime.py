@@ -402,22 +402,100 @@ JS_CONTROL_WORDS = {
 }
 
 REFERENCE_LIBRARY: Dict[str, str] = {
-    "rahman_detection": "Rahman, M., Khatoonabadi, S. H., Abdellatif, A. and Shihab, E. (2024). Automatic Detection of LLM-Generated Code: A Case Study of Claude 3 Haiku. arXiv. https://doi.org/10.48550/arXiv.2409.01382",
+    "rahman_detection": "Rahman, M., Khatoonabadi, S. H., Abdellatif, A. and Shihab, E. (2024). Automatic detection of LLM-generated code: A case study of Claude 3 Haiku (arXiv:2409.01382v1). arXiv. Version consulted: https://arxiv.org/abs/2409.01382v1. https://doi.org/10.48550/arXiv.2409.01382",
     "mccabe": "McCabe, T. J. (1976). A complexity measure. IEEE Transactions on Software Engineering, SE-2(4), 308–320. https://doi.org/10.1109/TSE.1976.233837",
     "halstead": "Halstead, M. H. (1977). Elements of Software Science. Elsevier North-Holland.",
     "buse_weimer": "Buse, R. P. L. and Weimer, W. (2010). Learning a metric for code readability. IEEE Transactions on Software Engineering, 36(4), 546–558. https://doi.org/10.1109/TSE.2009.70",
-    "chaitin": "Chaitin, G. J., Auslander, M. A., Chandra, A. K., Cocke, J., Hopkins, M. E. and Markstein, P. W. (1982). Register allocation and spilling via graph colouring. SIGPLAN Symposium on Compiler Construction. https://doi.org/10.1145/872726.806984",
+    "chaitin": "Chaitin, G. J. (1982). Register allocation & spilling via graph coloring. ACM SIGPLAN Notices. https://doi.org/10.1145/872726.806984",
     "poletto": "Poletto, M. and Sarkar, V. (1999). Linear scan register allocation. ACM Transactions on Programming Languages and Systems, 21(5), 895–913. https://doi.org/10.1145/330249.330250",
     "aho": "Aho, A. V., Lam, M. S., Sethi, R. and Ullman, J. D. (2006). Compilers: Principles, Techniques and Tools (2nd ed.). Pearson.",
     "muchnick": "Muchnick, S. S. (1997). Advanced Compiler Design and Implementation. Morgan Kaufmann.",
-    "pep8": "van Rossum, G., Warsaw, B. and Coghlan, N. (2001). PEP 8 – Style Guide for Python Code. Python Software Foundation.",
+    "pep8": "van Rossum, G., Warsaw, B. and Coghlan, A. (2001). PEP 8 – Style Guide for Python Code. Python Software Foundation. https://peps.python.org/pep-0008/",
     "pep257": "Goodger, D. and van Rossum, G. (2001). PEP 257 – Docstring Conventions. Python Software Foundation.",
     "pep484": "van Rossum, G., Lehtosalo, J. and Langa, Ł. (2014). PEP 484 – Type Hints. Python Software Foundation.",
     "c99": "ISO/IEC 9899:1999. Programming languages — C.",
     "cpp_core": "ISO/IEC 14882. Programming languages — C++.",
     "csharp_spec": "Microsoft. C# language specification.",
-    "commonmark": "CommonMark Specification. CommonMark project.",
+    "commonmark": "MacFarlane, J. (2024). CommonMark Spec (Version 0.31.2, 28 January). https://spec.commonmark.org/0.31.2/",
+    "bash_manual": "Free Software Foundation. (2025). GNU Bash Reference Manual (Edition 5.3), section 3.1.2, Quoting. https://www.gnu.org/software/bash/manual/html_node/Quoting.html",
 }
+
+
+REFERENCE_CONTEXT: Dict[str, Tuple[str, str]] = {
+    "rahman_detection": ("motivation", "The v1 study concerns Claude 3 Haiku and CodeSearchNet. It motivates examining software metrics, not these CodeProbe formulas, weights or thresholds."),
+    "mccabe": ("definition", "Cyclomatic complexity of a control-flow graph. CodeProbe uses explicitly labelled AST or lexical proxies, not the complete graph measure."),
+    "halstead": ("definition", "Software-science measures based on operators and operands. The bounded token extraction here is an implementation choice."),
+    "buse_weimer": ("motivation", "A learned readability metric in the study's setting; not validation of CodeProbe's elegance composite or author attribution."),
+    "chaitin": ("context", "Compiler register allocation and spilling through a conflict graph. CodeProbe does not construct that graph or measure emitted spill code."),
+    "poletto": ("context", "Compiler register allocation using live intervals. Source-name occurrence spans are not compiler liveness."),
+    "aho": ("context", "Compiler concepts, not calibration of the source-level layout and repetition proxies used here."),
+    "muchnick": ("context", "Compiler optimisation background, not proof of alias safety, emitted stack layout or performance."),
+    "pep8": ("context", "Python style conventions; not shell semantics, a cross-language quality model or authorship evidence."),
+    "pep257": ("context", "Python docstring conventions; coverage alone does not measure explanatory adequacy."),
+    "pep484": ("context", "Python type-hint conventions; annotation presence is not correctness or provenance."),
+    "c99": ("context", "C language background. The retained edition identifier is not a claim of complete standard-text review or parser conformance."),
+    "cpp_core": ("context", "C++ language background only. This key denotes ISO/IEC 14882, not the C++ Core Guidelines; no particular edition is claimed as verified."),
+    "csharp_spec": ("context", "C# language background only; no particular specification revision or complete parser conformance is claimed."),
+    "commonmark": ("context", "CommonMark 0.31.2 heading and fenced-code syntax. It does not prescribe density, entropy, sibling penalties or a documentation-quality score."),
+    "bash_manual": ("definition", "GNU Bash 5.3 quoting semantics. CodeProbe counts a bounded subset of parameter expansions; this source makes no comparison of human and generated scripts."),
+}
+
+REFERENCE_QUALIFICATION = (
+    "References supply definitions, motivation or context within their stated scope; "
+    "they do not validate CodeProbe weights, thresholds or author attribution."
+)
+EVIDENCE_COVERAGE_NOTE = (
+    "Evidence coverage is a heuristic category for source quantity, metric availability "
+    "and selected warnings, not a probability, statistical confidence interval or guarantee of correctness."
+)
+
+
+def metric_reference_usage(references: Sequence[str]) -> List[Dict[str, str]]:
+    """Keep the bibliographic strings compatible while stating each citation's role."""
+    by_text = {text: key for key, text in REFERENCE_LIBRARY.items()}
+    usage = []
+    for citation in references:
+        key = by_text.get(citation, "")
+        role, scope = REFERENCE_CONTEXT.get(key, ("context", "No specific evidential role has been established for this reference."))
+        usage.append({"citation": citation, "role": role, "scope": scope})
+    return usage
+
+
+def coverage_basis(kind: str, category: str, factors: Dict[str, Any]) -> Dict[str, Any]:
+    """Describe the existing classification; do not recompute or strengthen it."""
+    if kind == "file":
+        rules = {
+            "not_applicable": "Markdown reports are N/A.",
+            "insufficient": "SLOC < 5, fewer than 4 applicable positive-weight contributors or effective weight = 0 gives Limited.",
+            "high": "Otherwise: SLOC >= 80, applicable contributor fraction >= 0.75 and classification warnings <= 2.",
+            "moderate": "Otherwise: SLOC >= 25 and applicable contributor fraction >= 0.55.",
+            "limited": "All remaining files are Limited.",
+        }
+    else:
+        rules = {
+            "insufficient": "No contributing file gives Limited.",
+            "high": "Otherwise: SLOC >= 250, at least 5 contributing files and classification warnings <= 4.",
+            "moderate": "Otherwise: SLOC >= 80 and at least 2 included files.",
+            "limited": "All remaining projects are Limited.",
+        }
+    return {"method": kind + "_heuristic_coverage/v1", "category": category,
+            "interpretation": EVIDENCE_COVERAGE_NOTE, "factors": factors, "rules": rules,
+            "warning_timing": "Only warnings present at classification enter these rules; later intake, exclusion or review notices do not change the retained category.",
+            "compatibility_alias": "confidence"}
+
+
+def coverage_text(basis: Dict[str, Any]) -> str:
+    factors = json.dumps(basis.get("factors", {}), ensure_ascii=False, sort_keys=True)
+    return EVIDENCE_COVERAGE_NOTE + " Factors at classification: " + factors
+
+
+def contribution_policy_note(summary: Dict[str, Any]) -> str:
+    if summary.get("custom_contribution_policy"):
+        return ("A custom contribution policy is active. Enabled positive-weight contributors may belong to any descriptive role; "
+                "their inclusion is a configured choice, not demonstrated authorship evidence or empirical calibration. "
+                "Markdown reports remain excluded from the code aggregate.")
+    return ("The default contribution policy uses seven configured stylometric contributors. Quality, context and documentation "
+            "metrics do not contribute by default; a descriptive role is not itself evidence of authorship.")
 
 
 METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
@@ -425,13 +503,13 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.03,
         "thresholds": {"ai_low": 0.22, "ai_high": 0.45, "human_high": 0.70},
-        "notes": "Low variance can indicate templated structure, but disciplined humans and formatters can look similar.",
+        "notes": "Line-length variation describes layout; it does not establish provenance or semantic adequacy.",
     },
     "comment_density": {
         "enabled": True,
         "weight": 0.02,
         "thresholds": {"ai_low": 0.12, "ai_high": 0.32, "human_low": 0.03},
-        "notes": "A companion to the literature-backed comment-to-code ratio.",
+        "notes": "Comment density is a descriptive count; its score band is a configured choice.",
     },
     "comment_genericness": {
         "enabled": True,
@@ -455,19 +533,19 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.04,
         "thresholds": {"ai_low": 0.4, "ai_high": 1.8},
-        "notes": "Explicit guards and error wrappers are reported as context; defensive human code may show the same density.",
+        "notes": "Explicit guards and error wrappers are structural context; density does not identify an author.",
     },
     "boilerplate_presence": {
         "enabled": True,
         "weight": 0.02,
         "thresholds": {"ai_low": 0.20, "ai_high": 0.80},
-        "notes": "A weak signal. Disciplined human code can also contain boilerplate.",
+        "notes": "Reusable patterns describe structural context; their prevalence is not an authorship test.",
     },
     "identifier_style": {
         "enabled": True,
         "weight": 0.05,
         "thresholds": {"ai_low": 0.45, "ai_high": 0.80},
-        "notes": "Identifier regularity and semantic adequacy can reveal templated code.",
+        "notes": "Identifier regularity is a lexical proxy; semantic adequacy and provenance are not measured.",
     },
     "function_length": {
         "enabled": True,
@@ -491,13 +569,13 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.03,
         "thresholds": {"ai_low": 0.3, "ai_high": 1.4},
-        "notes": "Student code often leaves more unexplained literals.",
+        "notes": "Numeric literals outside the retained whitelist prompt contextual review, not attribution.",
     },
     "dead_code_residue": {
         "enabled": True,
         "weight": 0.03,
         "thresholds": {"ai_low": 0.00, "ai_high": 0.04},
-        "notes": "Commented-out code and residue are more typical of incremental human drafting.",
+        "notes": "Commented-out fragments and debugging cues describe possible drafting residue; provenance is not inferred.",
     },
     "nesting_depth": {
         "enabled": True,
@@ -515,13 +593,13 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.12,
         "thresholds": {"human_low": 0.03, "ai_low": 0.10, "ai_peak": 0.24, "ai_high": 0.40},
-        "notes": "This is the strongest default stylometric signal across broad configurations.",
+        "notes": "This metric has the largest configured default weight; that choice is not demonstrated predictive importance.",
     },
     "declarative_ratio": {
         "enabled": True,
         "weight": 0.03,
         "thresholds": {"ai_low": 0.10, "ai_high": 0.28},
-        "notes": "Moderate declaration-heavy structure can indicate scaffold-driven generation.",
+        "notes": "Declaration density is structural context and depends on the task and language.",
     },
     "control_ratio": {
         "enabled": True,
@@ -557,7 +635,7 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.04,
         "thresholds": {"ai_low": 0.18, "ai_high": 0.48},
-        "notes": "Low variance in per-function complexity can indicate templated generation.",
+        "notes": "Per-function complexity variation is descriptive. Low variation does not establish template use or generation.",
     },
     "docstring_coverage": {
         "enabled": True,
@@ -581,7 +659,7 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.04,
         "thresholds": {"ai_low": 0.55, "ai_high": 0.98},
-        "notes": "Generated shell scripts often quote variables more consistently than students do.",
+        "notes": "Quoting coverage describes supported Bash parameter expansions, not generator or student behaviour.",
     },
     "import_organization": {
         "enabled": True,
@@ -593,19 +671,19 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.04,
         "thresholds": {"low": 0.50, "moderate": 0.85},
-        "notes": "Source-level estimate of live scalar pressure against a typical x86-64 register budget.",
+        "notes": "Source-name occurrence spans compared with a fixed heuristic budget of 13, not allocated hardware registers.",
     },
     "stack_frame_depth": {
         "enabled": True,
         "weight": 0.03,
         "thresholds": {"small": 256.0, "medium": 4096.0},
-        "notes": "Estimated local stack footprint per function.",
+        "notes": "Sum of recognised declaration-size estimates per function, not the compiler-emitted stack frame.",
     },
     "redundant_memory_access": {
         "enabled": True,
         "weight": 0.04,
         "thresholds": {"low": 0.40, "high": 1.60},
-        "notes": "Density of repeated memory expressions, missed loop hoists and missing const or restrict opportunities.",
+        "notes": "Lexical repetition and qualifier-absence cues; neither memory traffic nor safe optimisation is established.",
     },
     "code_elegance": {
         "enabled": True,
@@ -623,25 +701,25 @@ METRIC_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.04,
         "thresholds": {},
-        "notes": "Assesses heading hierarchy and regularity.",
+        "notes": "Describes heading-level transitions; the jump penalty is an editorial preference, not a CommonMark error.",
     },
     "markdown_code_fence_density": {
         "enabled": True,
         "weight": 0.03,
         "thresholds": {"low": 0.5, "high": 4.0},
-        "notes": "Assesses fenced-code block density.",
+        "notes": "Counts fenced-code blocks per 100 source lines; the score band is a configurable genre preference.",
     },
     "markdown_link_density": {
         "enabled": True,
         "weight": 0.03,
         "thresholds": {"low": 0.5, "high": 8.0},
-        "notes": "Assesses hyperlink density in prose.",
+        "notes": "Counts recognised links per 100 prose tokens; the score band is a configurable genre preference.",
     },
     "markdown_prose_entropy": {
         "enabled": True,
         "weight": 0.03,
         "thresholds": {"low": 0.55, "high": 0.88},
-        "notes": "Assesses prose token variability outside code fences.",
+        "notes": "Describes normalised token-frequency entropy outside recognised fences; no understanding or quality is measured.",
     },
 }
 
@@ -788,6 +866,7 @@ class MetricResult:
     method: str = ""
     unit: str = ""
     domain: str = ""
+    reference_usage: List[Dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -912,6 +991,8 @@ class AnalysisReport:
     metric_role_summary: Dict[str, Any] = field(default_factory=dict)
     tool_metadata: Dict[str, Any] = field(default_factory=dict)
     intake_provenance: Dict[str, Any] = field(default_factory=dict)
+    evidence_coverage_basis: Dict[str, Any] = field(default_factory=dict)
+    aggregation: Dict[str, Any] = field(default_factory=dict)
 
 
 def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -1102,44 +1183,45 @@ def metric_config_digest(config: Optional[Dict[str, Dict[str, Any]]] = None) -> 
 
 
 def metric_role_summary(config: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
-    """Summarise which metric roles contribute to the AI-style aggregate."""
+    """Separate descriptive groups from nominal, configured contributions."""
     active = config if config is not None else METRIC_CONFIG
     groups: Counter = Counter()
     summary: Dict[str, Any] = {
-        "total_metrics": len(active),
-        "enabled_metrics": 0,
-        "authorship_signal_metrics": 0,
-        "quality_only_metrics": 0,
-        "context_only_metrics": 0,
-        "documentation_only_metrics": 0,
-        "other_non_contributing_metrics": 0,
-        "contributing_weight": 0.0,
-        "groups": {},
+        "total_metrics": len(active), "enabled_metrics": 0,
+        "authorship_signal_metrics": 0, "quality_only_metrics": 0,
+        "context_only_metrics": 0, "documentation_only_metrics": 0,
+        "other_non_contributing_metrics": 0, "contributing_weight": 0.0,
+        "configured_contributor_count": 0, "configured_contributors": [], "groups": {},
+        "weight_basis": "Nominal sum over enabled positive-weight Boolean contributors in all descriptive groups; applicability is assessed separately per file.",
+        "legacy_count_basis": "authorship_signal_metrics counts only configured stylometry-group contributors; it does not establish authorship validity.",
     }
-    for metric_data in active.values():
-        enabled = bool(metric_data.get("enabled", True))
+    policy = []
+    for name, metric_data in active.items():
         group = str(metric_data.get("group", "stylometry"))
-        contributes = bool(metric_data.get("contributes_to_overall", True))
-        weight = float(metric_data.get("weight", 0.0) or 0.0)
         groups[group] += 1
-        if not enabled:
+        if not metric_data.get("enabled", True):
             continue
         summary["enabled_metrics"] += 1
-        if contributes and group == "stylometry" and weight > 0:
-            summary["authorship_signal_metrics"] += 1
+        weight = float(metric_data.get("weight", 0.0) or 0.0)
+        if metric_data.get("contributes_to_overall", True) and weight > 0:
+            summary["configured_contributors"].append(name)
             summary["contributing_weight"] += weight
-        elif group == "quality":
-            summary["quality_only_metrics"] += 1
-        elif group == "context":
-            summary["context_only_metrics"] += 1
-        elif group == "documentation":
-            summary["documentation_only_metrics"] += 1
+            policy.append((name, group, weight))
+            if group == "stylometry":
+                summary["authorship_signal_metrics"] += 1
+        elif group in {"quality", "context", "documentation"}:
+            summary[group + "_only_metrics"] += 1
         else:
             summary["other_non_contributing_metrics"] += 1
+    default_policy = [(name, item.get("group", "stylometry"), float(item.get("weight", 0.0)))
+                      for name, item in METRIC_CONFIG.items()
+                      if item.get("enabled", True) and item.get("contributes_to_overall", True)
+                      and float(item.get("weight", 0.0)) > 0]
+    summary["configured_contributor_count"] = len(policy)
+    summary["custom_contribution_policy"] = sorted(policy) != sorted(default_policy)
     summary["contributing_weight"] = round(float(summary["contributing_weight"]), 6)
     summary["groups"] = dict(sorted(groups.items()))
     return summary
-
 
 def runtime_metadata(config: Optional[Dict[str, Dict[str, Any]]] = None, fingerprint: Any = None) -> Dict[str, Any]:
     """Return report-level metadata for reproducibility and release validation."""
@@ -1424,6 +1506,8 @@ def _public_calibration_validation(raw: Any) -> Dict[str, Any]:
         "evaluation_target_met",
         "target_status",
         "scoring_contract",
+        "descriptive_review_rates",
+        "legacy_rate_qualification",
     )
     return {key: raw[key] for key in allowed if key in raw}
 
@@ -4921,6 +5005,7 @@ class BaseMetric(ABC):
             explanation=explanation,
             detail=detail,
             references=list(self.references),
+            reference_usage=metric_reference_usage(self.references),
             group=self.metric_group,
             contributes_to_overall=self.effective_contributes_to_overall,
             method=method,
@@ -5101,7 +5186,7 @@ class LineLengthUniformityMetric(BaseMetric):
         cv = coefficient_of_variation(lengths)
         score = low_value_score(cv, float(self.threshold("ai_low", 0.22)), float(self.threshold("human_high", 0.70)))
         detail = f"cv={cv:.3f}, analysed_lines={len(lengths)}"
-        return self.result(cv, score, "Very low variation can indicate templated structure, although formatters and disciplined authors can look similar.", detail)
+        return self.result(cv, score, "Line-length variation is described here; low variation can also arise from formatters or task constraints. The score is configured, not a provenance estimate.", detail)
 
 
 @MetricRegistry.register
@@ -5120,7 +5205,7 @@ class CommentDensityMetric(BaseMetric):
         ai_high = float(self.threshold("ai_high", 0.32))
         score = 0.0 if density < human_low else bell_score(density, ai_low, (ai_low + ai_high) / 2.0, ai_high)
         detail = f"comments={len(context.comment_lines)}, non_blank={len(context.non_blank_lines)}, ratio={density:.3f}"
-        return self.result(density, score, "A moderate density of comments can align with generated scaffolding, but it is not reliable on its own.", detail)
+        return self.result(density, score, "Comment density is a source statistic. Its configured score band does not establish how the comments were produced.", detail)
 
 
 @MetricRegistry.register
@@ -5161,7 +5246,7 @@ class BlankLineRegularityMetric(BaseMetric):
         cv = coefficient_of_variation([float(item) for item in context.blank_runs])
         score = low_value_score(cv, float(self.threshold("ai_low", 0.18)), float(self.threshold("ai_high", 0.55)))
         detail = f"runs={context.blank_runs}, cv={cv:.3f}"
-        return self.result(cv, score, "Very regular separation can indicate mechanical generation.", detail)
+        return self.result(cv, score, "Blank-line separation regularity is a layout statistic; it does not distinguish generation from formatting conventions.", detail)
 
 
 @MetricRegistry.register
@@ -5217,7 +5302,7 @@ class ErrorHandlingDensityMetric(BaseMetric):
         ai_high = float(self.threshold("ai_high", 1.8))
         score = 0.0 if density < ai_low else band_score(density, ai_low, ai_high, softness=1.0)
         detail = f"patterns={count}, density_per_20={density:.3f}"
-        return self.result(density, score, "Generated code often adds explicit safety wrappers and error paths more consistently than student code does.", detail)
+        return self.result(density, score, "Supported guard and error-path cues are structural counts, not evidence of student or generator behaviour.", detail)
 
 
 @MetricRegistry.register
@@ -5271,7 +5356,7 @@ class IdentifierStyleMetric(BaseMetric):
             f"short_ratio={short_ratio:.1%}, dominant_style={dominant_ratio:.1%}, "
             f"discouraged_single={discouraged_single}, dictionary_ratio={dictionary_ratio:.1%}"
         )
-        return self.result(mean_length, score, "Consistent naming, moderate identifier length and semantically legible names often accompany carefully scaffolded code.", detail)
+        return self.result(mean_length, score, "Naming patterns and identifier lengths are lexical cues; their semantic adequacy or origin is not measured.", detail)
 
 @MetricRegistry.register
 class FunctionLengthMetric(BaseMetric):
@@ -5293,7 +5378,7 @@ class FunctionLengthMetric(BaseMetric):
             ]
         )
         detail = f"functions={len(lengths)}, mean={mean_length:.2f}, cv={cv:.2f}"
-        return self.result(mean_length, score, "Moderate function sizes and reduced spread are common in template-driven output.", detail)
+        return self.result(mean_length, score, "Function sizes and their dispersion describe the recognised functions. The configured score does not identify template-driven production.", detail)
 
 
 @MetricRegistry.register
@@ -5456,13 +5541,13 @@ class DefensiveProgrammingMetric(BaseMetric):
         detail = f"guards={count}, density={density:.2f}/20 lines"
         if lang == "python":
             return self.result(density, score, "AST guard cues are structural context. Calls to isinstance, issubclass, len, all and any are counted syntactically; they do not establish defensive intent or runtime behaviour.", detail)
-        return self.result(density, score, "Generated code often introduces guards and validations more conspicuously than spontaneous student code.", detail)
+        return self.result(density, score, "Recognised guards and validations describe structural cues; the count does not identify the author or generator.", detail)
 
 
 @MetricRegistry.register
 class CommentCodeRatioMetric(BaseMetric):
     name = "comment_to_code_ratio"
-    display_name = "Comment-to-code ratio (universal) [A]"
+    display_name = "Comment-to-code ratio (supported code languages) [A]"
     supported_languages = code_languages()
     references = [REFERENCE_LIBRARY["rahman_detection"]]
 
@@ -5474,7 +5559,7 @@ class CommentCodeRatioMetric(BaseMetric):
         if ratio < float(self.threshold("human_low", 0.03)):
             score = 0.0
         detail = f"comment_lines={len(context.comment_lines)}, code_lines={len(context.code_lines)}, ratio={ratio:.3f}"
-        return self.result(ratio, score, "This remains the strongest default stylometric signal in the bundled configuration.", detail)
+        return self.result(ratio, score, "This metric has the largest configured default weight. That is a policy choice, not validated predictive importance.", detail)
 
 
 @MetricRegistry.register
@@ -5507,7 +5592,7 @@ class ControlRatioMetric(BaseMetric):
         ratio = safe_div(context.control_line_count, total)
         score = band_score(ratio, float(self.threshold("ai_low", 0.10)), float(self.threshold("ai_high", 0.24)), softness=1.2)
         detail = f"control={context.control_line_count}, total_active={total}, ratio={ratio:.3f}"
-        return self.result(ratio, score, "Intermediate control density is more typical than either extreme.", detail)
+        return self.result(ratio, score, "Control density is a structural statistic; the score favours an intermediate range by configured policy.", detail)
 
 
 @MetricRegistry.register
@@ -5604,7 +5689,7 @@ class StructuralSelfSimilarityMetric(BaseMetric):
             return self.not_applicable("At least three Python functions are needed for structural self-similarity.")
         score = high_ratio_score(similarity, float(self.threshold("ai_low", 0.55)), float(self.threshold("ai_high", 0.82)))
         detail = f"adjacent_similarity={similarity:.3f}"
-        return self.result(similarity, score, "Strongly similar adjacent function structures can suggest serial generation from repeated prompts.", detail)
+        return self.result(similarity, score, "Adjacent recognised function structures are compared for similarity; repetition may follow the task and does not establish serial generation.", detail)
 
 
 @MetricRegistry.register
@@ -5621,7 +5706,7 @@ class FunctionComplexityUniformityMetric(BaseMetric):
         cv = coefficient_of_variation(complexities)
         score = low_value_score(cv, float(self.threshold("ai_low", 0.18)), float(self.threshold("ai_high", 0.48)))
         detail = f"complexities={complexities}, cv={cv:.3f}"
-        return self.result(cv, score, "Low variance in per-function complexity can indicate templated generation.", detail)
+        return self.result(cv, score, "Per-function complexity variation is descriptive. Low variation does not establish template use or generation.", detail)
 
 
 @MetricRegistry.register
@@ -5690,7 +5775,7 @@ class BashQuotingConsistencyMetric(BaseMetric):
     name = "bash_quoting_consistency"
     display_name = "Bash variable-quoting consistency"
     supported_languages = {"bash"}
-    references = [REFERENCE_LIBRARY["pep8"]]
+    references = [REFERENCE_LIBRARY["bash_manual"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
         refs = int(context.script_observations.get("bash_references", 0))
@@ -5805,7 +5890,7 @@ class RegisterPressureMetric(BaseMetric):
         else:
             quality_score = max(0.0, 0.5 * (1.25 - max_ratio) / (1.25 - moderate))
         detail = f"mean_ratio={mean_ratio:.3f}, max_ratio={max_ratio:.3f}, peak_live={max(peaks) if peaks else 0}, flagged={flagged[:5]}"
-        return self.result(max_ratio, quality_score, "Quality decreases continuously as the source-level live-scalar pressure proxy rises; this is not a hardware register or spill measurement.", detail)
+        return self.result(max_ratio, quality_score, "The source-level proxy overlaps declaration-to-last-textual-use spans against a fixed budget of 13. Its configured score decreases continuously; it does not establish semantic liveness, hardware allocation or spills.", detail + f"; heuristic_register_budget={DEFAULT_REGISTERS_X64}", method="source_name_occurrence_span_peak", unit="peak_scalar_names_per_13", domain="recognised_functions")
 
 
 @MetricRegistry.register
@@ -5836,7 +5921,7 @@ class StackFrameDepthMetric(BaseMetric):
         medium = float(self.threshold("medium", 4096.0))
         quality_score = 1.0 if max_frame <= small else low_value_score(max_frame, small, medium * 1.5)
         detail = f"mean_frame={mean_frame:.1f}B, max_frame={max_frame}B, recursive={recursive[:5]}, large_local_arrays={large_arrays[:5]}"
-        return self.result(max_frame, quality_score, "Smaller local stack frames are safer and more typical of robust low-level code.", detail)
+        return self.result(max_frame, quality_score, "This source-level proxy sums recognised declaration-size estimates and favours smaller totals by configured policy. It is not a compiler-emitted frame, ABI layout, safety judgement or performance measurement.", detail + "; layout=retained declaration-size table; no padding, optimisation or ABI reconstruction", method="recognised_declaration_size_sum_max", unit="estimated_bytes", domain="recognised_functions")
 
 
 @MetricRegistry.register
@@ -5864,7 +5949,7 @@ class RedundantMemoryAccessMetric(BaseMetric):
         mean_density = statistics.mean(densities) if densities else 0.0
         quality_score = low_value_score(mean_density, float(self.threshold("low", 0.40)), float(self.threshold("high", 1.60)))
         detail = f"mean_density={mean_density:.3f}, repeated={repeated}, loop_invariants={invariants}, missing_const_or_restrict={qualifiers}"
-        return self.result(mean_density, quality_score, "Fewer repeated memory expressions and clearer aliasing intent improve low-level quality.", detail)
+        return self.result(mean_density, quality_score, "This source-level proxy counts repeated textual memory expressions and qualifier-absence cues. It does not measure memory traffic, prove aliasing properties or establish that hoisting, const or restrict is safe.", detail + "; legacy loop_invariants/missing_const_or_restrict fields are lexical cues, not optimisation recommendations", method="lexical_memory_cue_density_mean", unit="cues_per_20_function_lines", domain="recognised_functions")
 
 
 @MetricRegistry.register
@@ -5913,7 +5998,7 @@ class PreprocessorHygieneMetric(BaseMetric):
             f"conditional_depth={profile['conditional_depth']}, has_guard={profile['has_guard']}, "
             f"system_before_project={profile['system_before_project']}"
         )
-        return self.result(score, score, "Cleaner preprocessor usage usually means lower configuration complexity and better maintainability.", detail)
+        return self.result(score, score, "This composite applies configured preferences to recognised preprocessor structure; it does not measure maintainability or evaluate conditional compilation.", detail)
 
 
 @MetricRegistry.register
@@ -5936,10 +6021,10 @@ class MarkdownHeadingStructureMetric(BaseMetric):
             if level == previous_level:
                 repeats += 1
             previous_level = level
-        penalty = safe_div(jumps + max(0, repeats - 1), len(headings), default=0.0)
+        penalty = safe_div(jumps, len(headings), default=0.0)
         score = clamp(1.0 - penalty)
         detail = f"headings={len(headings)}, large_jumps={jumps}, repeated_levels={repeats}"
-        return self.result(score, score, "A regular heading hierarchy usually reflects deliberate document structure.", detail)
+        return self.result(score, score, "The score penalises skipped heading levels as an editorial policy, not a CommonMark error. Repeated sibling levels are legitimate and receive no repetition penalty.", detail)
 
 
 @MetricRegistry.register
@@ -5950,11 +6035,13 @@ class MarkdownCodeFenceDensityMetric(BaseMetric):
     references = [REFERENCE_LIBRARY["commonmark"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
-        loc = max(context.loc, 1)
+        loc = context.loc
+        if not context.code.strip() or loc == 0:
+            return self.not_applicable("No non-whitespace document content is available for fence density; no denominator is fabricated.")
         density = safe_div(context.markdown.code_fence_count, loc / 100.0, default=0.0)
         score = band_score(density, float(self.threshold("low", 0.5)), float(self.threshold("high", 4.0)), softness=1.0)
         detail = f"code_fence_blocks={context.markdown.code_fence_count}, code_fence_lines={context.markdown.code_fence_line_count}, density_per_100_lines={density:.2f}"
-        return self.result(density, score, "A moderate density of fenced code often suits technical Markdown documents.", detail)
+        return self.result(density, score, "Code-fence density is descriptive; its score band is a configurable genre preference, not a quality standard. A document without code can be entirely appropriate.", detail)
 
 
 @MetricRegistry.register
@@ -5965,11 +6052,13 @@ class MarkdownLinkDensityMetric(BaseMetric):
     references = [REFERENCE_LIBRARY["commonmark"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
-        words = max(context.markdown.prose_word_count, 1)
+        words = context.markdown.prose_word_count
+        if words == 0:
+            return self.not_applicable("No recognised prose-token denominator is available for link density.")
         density = safe_div(context.markdown.link_count, words / 100.0, default=0.0)
         score = band_score(density, float(self.threshold("low", 0.5)), float(self.threshold("high", 8.0)), softness=1.0)
         detail = f"links={context.markdown.link_count}, prose_words={context.markdown.prose_word_count}, density_per_100_words={density:.2f}"
-        return self.result(density, score, "Moderate linking is typical of reference-rich technical prose.", detail)
+        return self.result(density, score, "Link density is descriptive; its score band is a configurable genre preference, not a quality standard. A document without links can be entirely appropriate.", detail)
 
 
 @MetricRegistry.register
@@ -5977,16 +6066,16 @@ class MarkdownProseEntropyMetric(BaseMetric):
     name = "markdown_prose_entropy"
     display_name = "Prose entropy"
     supported_languages = prose_languages()
-    references = [REFERENCE_LIBRARY["commonmark"], REFERENCE_LIBRARY["rahman_detection"]]
+    references = [REFERENCE_LIBRARY["commonmark"]]
 
     def compute(self, code: str, lang: str, context: AnalysisContext) -> MetricResult:
         if context.markdown.prose_word_count < 40:
-            return self.not_applicable("Too little prose for a stable entropy estimate.")
+            return self.not_applicable("The existing minimum of 40 recognised prose tokens is not met; no statistical stability is claimed by that eligibility rule.")
         words = re.findall(r"[A-Za-z0-9_]+", context.markdown.prose_text.lower())
         entropy = token_entropy(words, normalised=True)
         score = band_score(entropy, float(self.threshold("low", 0.55)), float(self.threshold("high", 0.88)), softness=0.7)
         detail = f"normalised_token_entropy={entropy:.3f}, prose_words={context.markdown.prose_word_count}, unique_words={len(set(words))}"
-        return self.result(entropy, score, "Prose token entropy gives a narrow documentation-quality view outside code fences.", detail)
+        return self.result(entropy, score, "Normalised token-frequency entropy is unchanged by reordering the same token multiset. The configured score band is a preference, not a measure of understanding, correctness, quality or authorship.", detail)
 
 
 @dataclass(frozen=True)
@@ -6978,6 +7067,10 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     contributing_count = len([report for report in included_reports if report.overall_applicable])
     duration = time.perf_counter() - start
     confidence = project_confidence(total_sloc, len(included_reports), contributing_count, len(warnings))
+    project_coverage_basis = coverage_basis("project", confidence, {
+        "sloc": total_sloc, "included_files": len(included_reports),
+        "contributing_files": contributing_count, "warning_count_at_classification": len(warnings),
+    })
 
     if aggregate_applicable and aggregate_score >= review_trigger_for_kind(review_policy, "project"):
         warnings.append(
@@ -7020,6 +7113,9 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             "overall_percent": round(report.overall_score * 100.0, 1),
             "overall_applicable": report.overall_applicable,
             "confidence": report.confidence,
+        "evidence_coverage": report.confidence,
+            "evidence_coverage_basis": report.evidence_coverage_basis,
+            "aggregation": report.aggregation,
             "verdict": report.verdict,
             "verdict_class": report.verdict_class,
             "reading": report.verdict,
@@ -7051,6 +7147,8 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     project_metric_digest = metric_config_digest(config)
     project_metric_summary = metric_role_summary(config)
     project_tool_metadata = runtime_metadata(config, project_fingerprint)
+    notes.extend([EVIDENCE_COVERAGE_NOTE, REFERENCE_QUALIFICATION,
+                  contribution_policy_note(project_metric_summary)])
 
     project_report = {
         "app_name": APP_NAME,
@@ -7077,6 +7175,8 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "overall_percent": round(aggregate_score * 100.0, 1),
         "overall_applicable": aggregate_applicable,
         "confidence": confidence,
+        "evidence_coverage": confidence,
+        "evidence_coverage_basis": project_coverage_basis,
         "verdict": verdict,
         "verdict_class": verdict_class,
         "reading": verdict,
@@ -7110,6 +7210,7 @@ def analyse_project_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "aggregation": {
             "method": "SLOC-weighted mean over applicable file reports",
             "per_file_sloc_cap": PROJECT_SLOC_WEIGHT_CAP,
+            "effective_weight_sloc": sum(item["weight"] for item in contributors),
             "contributors": contributors,
         },
         "project": {
@@ -7153,7 +7254,9 @@ def format_project_report_text(report: Dict[str, Any]) -> str:
         f"Total LOC: {report.get('loc', 0)}",
         f"Total SLOC: {report.get('sloc', 0)}",
         f"AI-style concern score: {report.get('overall_percent', 0):.1f}%" if report.get("overall_applicable") else "AI-style concern score: N/A",
-        f"Confidence: {report.get('confidence', 'Limited')}",
+        f"Evidence coverage: {report.get('evidence_coverage', report.get('confidence', 'Limited'))}",
+        coverage_text(report.get("evidence_coverage_basis", {})),
+        f"Exported warnings (including later notices): {len(report.get('warnings', []))}",
         f"Reading: {report.get('verdict', VERDICTS['insufficient'])}",
         f"Profile: {report.get('profile', DEFAULT_PROFILE)}",
         f"Calibration profile: {report.get('calibration_profile_id') or 'default provisional'}",
@@ -7171,7 +7274,15 @@ def format_project_report_text(report: Dict[str, Any]) -> str:
                 f"- {item.get('filename')}: {LANGUAGE_LABELS.get(item.get('language'), item.get('language'))}, "
                 f"SLOC {item.get('sloc')}, score {score_text}, {item.get('verdict')}"
             )
+            lines.append(f"  Evidence coverage: {item.get('evidence_coverage', item.get('confidence', 'Limited'))}. "
+                         + coverage_text(item.get("evidence_coverage_basis", {})))
+            aggregation = item.get("aggregation", {})
+            lines.append(f"  Nominal configured weight: {aggregation.get('nominal_weight', 0):.6g}; eligible metric denominator: {aggregation.get('effective_weight', 0):.6g}; aggregate-applied weight: {aggregation.get('aggregate_applied_weight', 0):.6g}")
             for metric in item.get("metrics", []):
+                if metric.get("name") in {"register_pressure", "stack_frame_depth", "redundant_memory_access"} or str(metric.get("name", "")).startswith("markdown_"):
+                    lines.append(f"  {metric.get('display_name')}: value={metric.get('value_display', 'N/A')}; {metric.get('detail', '')}; {metric.get('explanation', '')}")
+                    for reference in metric.get("reference_usage", []):
+                        lines.append(f"    Reference [{reference['role']}]: {reference['citation']} Scope: {reference['scope']}")
                 if metric.get("name") == "cyclomatic_complexity":
                     lines.append(f"  Cyclomatic complexity: value={metric.get('value_display', 'N/A')}; "
                                  + (metric.get("detail") or metric.get("explanation", "")))
@@ -7324,6 +7435,14 @@ class AnalysisEngine:
             else:
                 confidence = "Limited"
 
+        eligible_metric_count = sum(m.weight > 0 and m.contributes_to_overall for m in metrics)
+        report_coverage_basis = coverage_basis("file", confidence, {
+            "language": context.language, "sloc": context.sloc,
+            "applicable_contributors": len(ai_metrics),
+            "enabled_positive_weight_contributors": eligible_metric_count,
+            "applicable_contributor_fraction": len(ai_metrics) / eligible_metric_count if eligible_metric_count else None,
+            "effective_weight": total_weight, "warning_count_at_classification": len(warnings),
+        })
         duration = time.perf_counter() - start
         notes = [
             f"Detected language: {LANGUAGE_LABELS.get(context.language, context.language)}.",
@@ -7331,6 +7450,8 @@ class AnalysisEngine:
             f"Total lines: {context.loc}; non-blank lines: {context.sloc}; comment lines: {len(context.comment_lines)}.",
             f"Applicable metrics: {len([m for m in metrics if m.applicable])} of {len(metrics)}; profile: {profile}.",
             "The result is a heuristic concern signal and should be read alongside oral examination, version history and assignment context.",
+            EVIDENCE_COVERAGE_NOTE,
+            REFERENCE_QUALIFICATION,
         ]
         if self.calibration_profile.get("profile_id"):
             notes.append(f"Calibration profile active: {self.calibration_profile.get('profile_id')} ({self.calibration_profile.get('label')}).")
@@ -7339,13 +7460,12 @@ class AnalysisEngine:
         else:
             notes.append("No course-local calibration profile was supplied; built-in generic review policy was used.")
         if context.language == "markdown":
-            notes.append("Markdown is reported as documentation-quality context only; it is excluded from the AI-style code aggregate.")
-        if any(m.group in {"quality", "context"} and m.applicable for m in metrics):
-            notes.append("Quality and context metrics are reported separately from the AI-style aggregate so that good practice or generic structure does not inflate authorship concern.")
+            notes.append("Markdown reports descriptive statistics and configured editorial preferences, not a validated quality model; it is excluded from the AI-style code aggregate.")
 
         report_metric_digest = metric_config_digest(self.config)
         report_metric_summary = metric_role_summary(self.config)
         report_tool_metadata = runtime_metadata(self.config, self.engine_fingerprint)
+        notes.append(contribution_policy_note(report_metric_summary))
 
         return AnalysisReport(
             filename=filename,
@@ -7374,6 +7494,13 @@ class AnalysisEngine:
             metric_config_digest=report_metric_digest,
             metric_role_summary=report_metric_summary,
             tool_metadata=report_tool_metadata,
+            evidence_coverage_basis=report_coverage_basis,
+            aggregation={"method": "Weighted mean over applicable configured contributors",
+                         "nominal_weight": report_metric_summary["contributing_weight"],
+                         "effective_weight": total_weight,
+                         "aggregate_applied_weight": total_weight if overall_applicable else 0.0,
+                         "contributors": [m.name for m in ai_metrics],
+                         "overall_applicable": overall_applicable},
         )
 
 
@@ -7399,6 +7526,9 @@ def report_to_dict(report: AnalysisReport) -> Dict[str, Any]:
         "overall_percent": round(report.overall_score * 100.0, 1),
         "overall_applicable": report.overall_applicable,
         "confidence": report.confidence,
+            "evidence_coverage": report.confidence,
+            "evidence_coverage_basis": report.evidence_coverage_basis,
+            "aggregation": report.aggregation,
         "verdict": report.verdict,
         "verdict_class": report.verdict_class,
         "reading": report.verdict,
@@ -7432,6 +7562,7 @@ def report_to_dict(report: AnalysisReport) -> Dict[str, Any]:
                 "explanation": item.explanation,
                 "detail": item.detail,
                 "references": item.references,
+                "reference_usage": item.reference_usage,
                 "group": item.group,
                 "contributes_to_overall": item.contributes_to_overall,
                 **({"method": item.method, "unit": item.unit, "domain": item.domain} if item.method else {}),
@@ -7450,7 +7581,11 @@ def format_report_text(report: AnalysisReport) -> str:
         f"Total lines: {report.loc}",
         f"Non-blank lines: {report.sloc}",
         f"AI-style concern score: {report.overall_score * 100:.1f}%" if report.overall_applicable else "AI-style concern score: N/A",
-        f"Confidence: {report.confidence}",
+        f"Evidence coverage: {report.confidence}",
+        coverage_text(report.evidence_coverage_basis),
+        f"Nominal configured weight: {report.aggregation.get('nominal_weight', 0):.6g}; eligible metric denominator: {report.aggregation.get('effective_weight', 0):.6g}",
+        f"Weight applied to an applicable code aggregate: {report.aggregation.get('aggregate_applied_weight', 0):.6g}",
+        f"Exported warnings (including later notices): {len(report.warnings)}",
         f"Reading: {report.verdict}",
         f"Profile: {report.profile}",
         f"Calibration profile: {report.calibration_profile_id or 'default provisional'}",
@@ -7465,12 +7600,14 @@ def format_report_text(report: AnalysisReport) -> str:
         suffix = " [quality]" if metric.group == "quality" else (" [context]" if metric.group == "context" else (" [documentation]" if metric.group == "documentation" else ""))
         lines.append(
             f"- {metric.display_name}{suffix}: value={metric.value_display}, score={metric.score * 100:.1f}%, "
-            f"weight={metric.weight:.2f}, {state}"
+            f"weight={metric.weight:.2f}, {state}, configured contribution={metric.contributes_to_overall}"
         )
         if metric.detail:
             lines.append(f"    {metric.detail}")
         if metric.explanation:
             lines.append(f"    {metric.explanation}")
+        for reference in metric.reference_usage:
+            lines.append(f"    Reference [{reference['role']}]: {reference['citation']} Scope: {reference['scope']}")
     if report.intake_provenance:
         provenance = report.intake_provenance
         lines.extend(["", "Input provenance (declarations do not authenticate the original file):",

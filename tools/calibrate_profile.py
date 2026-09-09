@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a scoped CodeProbe profile with independent holdout evaluation."""
+"""Build a scoped CodeProbe profile with group-exclusive evaluation."""
 
 from __future__ import annotations
 
@@ -346,18 +346,29 @@ def describe_scores(values: Sequence[float]) -> Dict[str, Any]:
     }
 
 
-def threshold_rates(human_scores: Sequence[float], ai_scores: Sequence[float], hybrid_scores: Sequence[float], threshold: float) -> Dict[str, float]:
+def threshold_rates(human_scores: Sequence[float], ai_scores: Sequence[float], hybrid_scores: Sequence[float], threshold: float) -> Dict[str, Any]:
+    """Retain numeric aliases and attach the exact denominators they summarise."""
     positive_scores = list(ai_scores) + list(hybrid_scores)
+    groups = {"human": human_scores, "ai_generated": ai_scores,
+              "hybrid": hybrid_scores, "positive": positive_scores}
+    counts = {}
+    for label, scores in groups.items():
+        reviewed = sum(score >= threshold for score in scores)
+        eligible = len(scores)
+        counts[label] = {"reviewed": reviewed, "eligible": eligible,
+                         "rate": reviewed / eligible if eligible else None}
     return {
         "threshold": round(threshold, 4),
-        "false_positive_rate": round(sum(score >= threshold for score in human_scores) / len(human_scores), 4) if human_scores else 0.0,
-        "ai_generated_review_rate": round(sum(score >= threshold for score in ai_scores) / len(ai_scores), 4) if ai_scores else 0.0,
-        "hybrid_review_rate": round(sum(score >= threshold for score in hybrid_scores) / len(hybrid_scores), 4) if hybrid_scores else 0.0,
-        "true_positive_rate": round(sum(score >= threshold for score in positive_scores) / len(positive_scores), 4) if positive_scores else 0.0,
+        "false_positive_rate": round(counts["human"]["rate"], 4) if human_scores else 0.0,
+        "ai_generated_review_rate": round(counts["ai_generated"]["rate"], 4) if ai_scores else 0.0,
+        "hybrid_review_rate": round(counts["hybrid"]["rate"], 4) if hybrid_scores else 0.0,
+        "true_positive_rate": round(counts["positive"]["rate"], 4) if positive_scores else 0.0,
+        "rate_counts": counts,
+        "rate_interpretation": "descriptive; zero denominator unavailable",
+        "legacy_alias_qualification": "The four numeric rate aliases are rounded descriptive proportions. Their historical 0.0 for an absent class is a compatibility value, not an observed zero rate.",
     }
 
-
-def choose_review_trigger(human_scores: Sequence[float], ai_scores: Sequence[float], hybrid_scores: Sequence[float], target_fpr: float) -> Tuple[float, List[Dict[str, float]], str]:
+def choose_review_trigger(human_scores: Sequence[float], ai_scores: Sequence[float], hybrid_scores: Sequence[float], target_fpr: float) -> Tuple[float, List[Dict[str, Any]], str]:
     positive_scores = list(ai_scores) + list(hybrid_scores)
     grid = [round(x / 100.0, 2) for x in range(10, 91)]
     rows = [threshold_rates(human_scores, ai_scores, hybrid_scores, threshold) for threshold in grid]
@@ -424,7 +435,7 @@ def _assign_splits(results: Sequence[SampleResult], manifest: Dict[str, Any]) ->
         evaluation_groups: set[str] = set()
         for stratum, groups in groups_by_stratum.items():
             if len(groups) < 2:
-                raise ValueError(f"independent evaluation requires at least two {stratum} groups")
+                raise ValueError(f"group-exclusive evaluation requires at least two {stratum} groups")
             ordered = sorted(groups, key=lambda value: hashlib.sha256(f"{seed}|{stratum}|{value}".encode()).hexdigest())
             count = max(1, min(len(ordered) - 1, round(len(ordered) * fraction)))
             evaluation_groups.update(ordered[:count])
@@ -478,6 +489,32 @@ def _opaque_sample_results(results: Sequence[SampleResult]) -> list[dict[str, An
                       group_id=groups[item.group_id])
         rows.append(dict(row.__dict__))
     return rows
+
+
+def descriptive_review_rates(results: Sequence[SampleResult], threshold: float, unit: str) -> Dict[str, Any]:
+    """Count reported observations and groups, without assuming independent trials."""
+    labels = {}
+    label_sets = {"human": NEGATIVE_LABELS, "ai_generated": POSITIVE_LABELS,
+                  "hybrid": HYBRID_LABELS, "positive": POSITIVE_LABELS | HYBRID_LABELS}
+    for name, accepted in label_sets.items():
+        members = [item for item in results if item.label in accepted]
+        eligible = [item for item in members if item.applicable and item.score is not None]
+        reviewed = sum((item.decision_score if item.decision_score is not None else item.score) >= threshold
+                       for item in eligible)
+        labels[name] = {
+            "sample_count": len(members), "reviewed": reviewed, "eligible": len(eligible),
+            "group_count": len({item.group_id for item in members}),
+            "eligible_group_count": len({item.group_id for item in eligible}),
+            "rate": reviewed / len(eligible) if eligible else None,
+        }
+    return {
+        "threshold": threshold, "unit": unit, "sample_count": len(results),
+        "group_count": len({item.group_id for item in results}), "labels": labels,
+        "counting_basis": "One eligible file/project report is one observation. The positive row pools ai_generated and hybrid and overlaps those rows. Group counts are separate, not effective independent sample sizes.",
+        "statistical_independence": "not_established",
+        "uncertainty": {"status": "not_estimated",
+                        "reason": "Group-exclusive partitions prevent declared group overlap but do not establish statistical independence, representative sampling or an appropriate sampling model."},
+    }
 
 
 def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], target_fpr: float) -> Dict[str, Any]:
@@ -543,7 +580,9 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
             "selection_partition": "fit",
             "performance_partition": "evaluation",
             "group_exclusive": True,
-            "independence_basis": "declared group identifiers plus physical filesystem identity checks",
+            "independence_basis": "Declared group identifiers separate the partitions; physical filesystem identity checks belong to CLI intake, not this in-memory summary.",
+            "independent_holdout_alias_qualification": "The retained independent_holdout Boolean denotes separation from threshold selection, not independent Bernoulli trials or independent research review.",
+            "statistical_independence": "not_established",
             "independence_limitation": "Copied-identical, templated or semantically related samples are not inferred automatically.",
             "fit_sample_count": len(fit),
             "evaluation_sample_count": len(evaluation),
@@ -565,6 +604,12 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
             "ai_generated": describe_scores(eval_ai),
             "hybrid": describe_scores(eval_hybrid),
         },
+        "descriptive_review_rates": {
+            "fit": descriptive_review_rates(fit, trigger, kind),
+            "evaluation": descriptive_review_rates(evaluation, trigger, kind),
+            "all": descriptive_review_rates(assigned, trigger, kind),
+        },
+        "legacy_rate_qualification": fit_rates["legacy_alias_qualification"],
         "fit_at_selected_trigger": fit_rates,
         "evaluation_at_selected_trigger": evaluation_rates,
         "sensitivity_partition": "fit",
@@ -580,12 +625,14 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
     notes = [
         "Generated by tools/calibrate_profile.py from labelled local samples.",
         "Generated from a group-exclusive fit/evaluation design.",
-        "The trigger was selected only on the fit partition; reported performance comes from the untouched evaluation partition.",
+        "The trigger was selected only on the fit partition; evaluation rows describe the untouched evaluation partition.",
         "Sample and group identifiers are replaced by fresh random tokens after partitioning; paths and identity mappings are not exported.",
         "The trigger is a review threshold, not a probability boundary and not evidence of misconduct.",
+        "Statistical independence is not established; uncertainty is not estimated. Files within a group may remain dependent.",
+        "Operational denotes fit-target-met-and-scoring-bound for technical replay, not institutional approval or demonstrated external validity.",
     ]
     if len(fit_human) < 20 or len(fit_ai) + len(fit_hybrid) < 20 or len(eval_human) < 10 or len(eval_ai) + len(eval_hybrid) < 10:
-        notes.append("Calibration partitions are small; treat this profile as a draft and expand the corpus before high-stakes use.")
+        notes.append("Calibration partitions are small; treat this profile as a draft and expand the corpus before high-stakes use. These advisory counts do not establish statistical adequacy.")
     if not target_met:
         notes.append("The requested fit target was not met on the configured threshold grid. This draft is non-operational; evaluation data must not be used to select a replacement threshold.")
     if not bound_scores:
@@ -612,7 +659,6 @@ def build_profile(manifest: Dict[str, Any], results: Sequence[SampleResult], tar
 def render_summary(profile: Dict[str, Any]) -> str:
     validation = profile.get("validation", {})
     design = validation.get("evaluation_design", {})
-    evaluation = validation.get("evaluation_at_selected_trigger", {})
     distributions = validation.get("evaluation_score_distributions", {})
     sensitivity = validation.get("sensitivity", [])
     scope = profile.get("scope", {})
@@ -625,34 +671,50 @@ def render_summary(profile: Dict[str, Any]) -> str:
         f"Calibrated scope: `{kind}` / `{', '.join(scope.get('languages') or [])}`.",
         f"Suggested local review trigger: **{trigger * 100:.1f}%**.",
         f"Operational for replay: `{profile.get('operational', False)}` ({profile.get('operational_reason', 'unbound')}).",
+        "This is technical replay eligibility, not institutional approval or demonstrated external validity.",
         f"Fit target met: `{validation.get('target_met', False)}`; evaluation target met: `{validation.get('evaluation_target_met', False)}` (not used for selection).",
         f"Selection source: `{validation.get('trigger_source', 'unknown')}` using only the fit partition.",
-        f"Evaluation design: `{design.get('strategy', 'unknown')}`; group-exclusive independent holdout: `{design.get('independent_holdout', False)}`.",
+        f"Evaluation design: `{design.get('strategy', 'unknown')}`; group-exclusive: `{design.get('group_exclusive', False)}`.",
+        "Statistical independence is not established; uncertainty is not estimated. Group exclusivity alone does not justify a binomial interval.",
         f"Fit/evaluation samples: {design.get('fit_sample_count', 0)}/{design.get('evaluation_sample_count', 0)}.",
         "",
-        "## Independent evaluation at the selected trigger",
+        "## Descriptive review rates at the fit-selected trigger",
         "",
-        f"- Known-human false-positive review rate: {float(evaluation.get('false_positive_rate', 0.0)):.3f}",
-        f"- AI-generated review rate: {float(evaluation.get('ai_generated_review_rate', 0.0)):.3f}",
-        f"- Hybrid review rate: {float(evaluation.get('hybrid_review_rate', 0.0)):.3f}",
-        f"- Combined positive review rate: {float(evaluation.get('true_positive_rate', 0.0)):.3f}",
-        "",
-        "## Evaluation score distributions",
-        "",
+        "| Partition | Label | Unit | Reviewed/eligible | Distinct groups | Rate |",
+        "|---|---|---|---:|---:|---:|",
+    ]
+    canonical = validation.get("descriptive_review_rates", {})
+    for partition in ("fit", "evaluation", "all"):
+        summary = canonical.get(partition, {})
+        for label in ("human", "ai_generated", "hybrid", "positive"):
+            row = summary.get("labels", {}).get(label)
+            if not row:
+                lines.append(f"| {partition} | {label} | {kind} | unavailable | unavailable | N/A |")
+                continue
+            rate = "N/A" if row["rate"] is None else f"{row['rate']:.6f}"
+            lines.append(f"| {partition} | {label} | {summary['unit']} | {row['reviewed']}/{row['eligible']} | {row['group_count']} | {rate} |")
+    lines.extend([
+        "", "Rates describe the retained observations, not a population accuracy estimate. The all partition pools fit and evaluation and is not an independent evaluation. The positive row pools AI-generated and hybrid observations; do not sum overlapping rows.",
+        "A zero denominator yields N/A. Historical numeric aliases may contain 0.0 for an absent class; that value is not an observed zero rate.",
+        "", "## Evaluation score distributions", "",
         "| Label group | n | mean | median | p90 | max |",
         "|---|---:|---:|---:|---:|---:|",
-    ]
+    ])
     for group in ("human", "ai_generated", "hybrid"):
         stats = distributions.get(group, {"count": 0})
         lines.append(f"| {group} | {stats.get('count', 0)} | {stats.get('mean', 'n/a')} | {stats.get('median', 'n/a')} | {stats.get('p90', 'n/a')} | {stats.get('max', 'n/a')} |")
-    lines.extend(["", "## Fit-partition sensitivity grid", "", "| threshold | fit human FPR | fit AI review rate | fit hybrid review rate | fit combined positive rate |", "|---:|---:|---:|---:|---:|"])
+    lines.extend(["", "## Fit-partition sensitivity grid", "", "Each cell is reviewed/eligible; N/A means no eligible observation, not a measured zero rate.", "",
+                  "| threshold | human | AI-generated | hybrid | combined positive |", "|---:|---:|---:|---:|---:|"])
     for row in sensitivity:
         if int(float(row["threshold"]) * 100) % 5 == 0:
-            lines.append(f"| {row['threshold']:.2f} | {row['false_positive_rate']:.3f} | {row.get('ai_generated_review_rate', 0.0):.3f} | {row.get('hybrid_review_rate', 0.0):.3f} | {row['true_positive_rate']:.3f} |")
+            cells = []
+            for label in ("human", "ai_generated", "hybrid", "positive"):
+                counts = row.get("rate_counts", {}).get(label)
+                cells.append(f"{counts['reviewed']}/{counts['eligible']}" if counts and counts["eligible"] else "N/A")
+            lines.append(f"| {row['threshold']:.2f} | " + " | ".join(cells) + " |")
     lines.extend(["", "## Caveats", ""])
     lines.extend(f"- {note}" for note in profile.get("notes", []))
     return "\n".join(lines) + "\n"
-
 
 def render_observations_csv(results: Sequence[SampleResult]) -> str:
     fields = ["sample_id", "group_id", "split", "path", "label", "kind", "language", "applicable", "score", "score_percent", "decision_score", "sloc", "verdict_class", "warning"]
@@ -680,14 +742,26 @@ def render_observations_csv(results: Sequence[SampleResult]) -> str:
 
 
 def render_sensitivity_csv(profile: Dict[str, Any]) -> str:
-    fields = ["threshold", "false_positive_rate", "ai_generated_review_rate", "hybrid_review_rate", "true_positive_rate"]
+    legacy = ["threshold", "false_positive_rate", "ai_generated_review_rate", "hybrid_review_rate", "true_positive_rate"]
+    labels = ("human", "ai_generated", "hybrid", "positive")
+    fields = legacy + [label + suffix for label in labels for suffix in ("_reviewed", "_eligible", "_descriptive_rate")] + ["partition", "unit", "rate_interpretation", "uncertainty"]
     handle = io.StringIO(newline="")
     writer = csv.DictWriter(handle, fieldnames=fields)
     writer.writeheader()
+    kind = (profile.get("scope", {}).get("report_kinds") or ["unknown"])[0]
     for row in profile.get("validation", {}).get("sensitivity", []):
-        writer.writerow({field: row.get(field, "") for field in fields})
+        output = {field: row.get(field, "") for field in legacy}
+        for label in labels:
+            counts = row.get("rate_counts", {}).get(label, {})
+            output[label + "_reviewed"] = counts.get("reviewed", "")
+            output[label + "_eligible"] = counts.get("eligible", "")
+            rate = counts.get("rate")
+            output[label + "_descriptive_rate"] = "" if rate is None else repr(rate)
+        output.update(partition="fit", unit=kind,
+                      rate_interpretation="descriptive; zero denominator unavailable",
+                      uncertainty="not_estimated; statistical independence not established")
+        writer.writerow(output)
     return handle.getvalue()
-
 
 def _manifest_records(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
     samples = manifest.get("samples") or manifest.get("records") or []
@@ -1157,7 +1231,7 @@ def print_calibration_outputs(result: Dict[str, Any]) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Generate a scoped CodeProbe calibration profile with independent evaluation.")
+    parser = argparse.ArgumentParser(description="Generate a scoped CodeProbe calibration profile with group-exclusive evaluation and descriptive rates.")
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--root", default="")
     parser.add_argument("--profile", default="default", choices=sorted(engine.SCORING_PROFILES))

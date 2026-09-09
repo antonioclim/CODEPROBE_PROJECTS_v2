@@ -2,7 +2,7 @@
 
 CodeProbe should be calibrated for the course, programming language and assignment family before its numeric review trigger is treated as operational. Calibration estimates where known-human, LLM-generated and declared-hybrid code fall under the same analysis pipeline used for submissions.
 
-A calibration profile does **not** transform CodeProbe into an authorship detector. It records a locally approved review policy, sample counts and threshold sensitivity so that the bundled 60% trigger is not treated as universal.
+A calibration profile does **not** transform CodeProbe into an authorship detector. It records a technically replayable review policy, sample counts and threshold sensitivity; institutional approval must be recorded separately so that the bundled 60% trigger is not treated as universal.
 
 ## Recommended workflow
 
@@ -45,7 +45,7 @@ samples/hybrid_project,hybrid,python,project,declared assisted project folder
 
 Paths are resolved relative to the manifest location unless `--root` is supplied.
 Manifest and corpus traversal rejects symbolic links, reparse points and special filesystem entries. Output paths must be distinct from the manifest and all samples; an output is also rejected when it is redirected through a link or placed inside a project sample.
-Generated profiles use deterministic pseudonyms for sample paths by default. A manifest may supply an explicit, non-sensitive `sample_id` when local traceability is required. Ordinary analysis reports retain aggregate calibration design and evaluation metadata but do not embed sample-level observations or the full sensitivity grid.
+Generated profiles replace internal sample and group identifiers with fresh per-export tokens, as described below. An explicit manifest identifier is not exported unchanged. Ordinary analysis reports retain aggregate calibration design and evaluation metadata but do not embed sample-level observations or the full sensitivity grid.
 
 ## Generate a profile
 
@@ -96,7 +96,7 @@ The report records:
 
 ## Reading the sensitivity grid
 
-The sensitivity grid reports the proportion of each labelled set that would be sent to review at each threshold. The `human` column is the false-positive review rate under the labelled human baseline. The operational trigger should be selected by balancing student fairness against the amount of manual review the course can sustain.
+The sensitivity grid describes the fit partition only. Its human review rate is the count sent to review divided by eligible labelled-human observations, not a population false-positive probability. Selection uses the fit partition and the declared target. Evaluation is held apart from selection; a moderation decision must not silently retune the trigger against evaluation results. A changed selection protocol requires a separately documented calibration.
 
 ## Minimum quality checks before adoption
 
@@ -113,9 +113,9 @@ Do not approve a profile unless:
 
 A calibrated trigger is still a **review trigger**, not proof. A score above the trigger should lead to revision, explanation and evidence review, not an automatic academic-integrity conclusion. A low score means that the selected signals were not detected; it does not certify independent authorship.
 
-## Independent evaluation and profile scope
+## Group-exclusive evaluation and profile scope
 
-A generated profile must use group-exclusive fit and evaluation partitions. The review trigger is selected only on the fit partition. False-positive and positive review rates reported as performance are calculated only on the untouched evaluation partition. A profile is scoped to one report kind and one language; mixed file/project or mixed-language corpora must be split into separate profiles. Sample paths are corpus-relative or pseudonymised and failed sample reads abort generation before any profile is written.
+A generated profile must use group-exclusive fit and evaluation partitions. The review trigger is selected only on the fit partition. The untouched evaluation partition reports its own descriptive review rates. The additional pooled all-partition row is not an independent performance estimate. A profile is scoped to one report kind and one language; mixed file/project or mixed-language corpora must be split into separate profiles. Sample paths are corpus-relative or pseudonymised and failed sample reads abort generation before any profile is written.
 
 ## Duplicate-evidence boundary
 
@@ -182,3 +182,48 @@ they are not a fitted corpus, new empirical evaluation or proof of improved
 authorship detection. Metric units, finite extraction boundaries and the
 declared pressure anchors are described in the
 [report schema notes](03-report-schema.md#metric-values-and-measurement-scope).
+
+## Counts, denominators and unavailable rates
+
+The canonical `validation.descriptive_review_rates` object contains `fit`,
+`evaluation` and `all`, each evaluated at the fit-selected threshold. Every
+partition identifies its `unit`, sample count and distinct declared-group count.
+Every label row identifies reviewed and eligible observations, all samples,
+distinct groups, eligible groups and `rate = reviewed / eligible`. Thus two
+reviewed human files out of four eligible files yield **2/4 = 0.5**, regardless
+of whether the files belong to one group or four. Group counts are reported
+separately; the files do not thereby become independent trials. For project
+calibration the unit is the project report, not its constituent files.
+
+With no eligible member of a class, `rate` is `null` and the summary displays
+N/A. An observed **0/n**, where n is positive, remains an actual zero rate. The
+pooled `positive` row combines AI-generated and hybrid labels and overlaps those
+rows. Do not add their counts together a second time. The `all` partition pools
+fit and evaluation: it is descriptive, not an additional held-out evaluation.
+
+Legacy numeric aliases (`false_positive_rate`, `ai_generated_review_rate`,
+`hybrid_review_rate` and `true_positive_rate`) remain compatible. They may store
+0.0 for an absent class. The adjacent `rate_counts`,
+`legacy_alias_qualification`/`legacy_rate_qualification` and new CSV
+`*_reviewed`, `*_eligible`, `*_descriptive_rate` columns disambiguate that value.
+A blank canonical rate in CSV is unavailable, not zero. Each sensitivity row
+also names its fit partition, unit and interpretation.
+
+Statistical independence is not established and uncertainty is not estimated.
+Group-exclusive splitting does not justify a binomial interval by itself. No
+fixed minimum sample count, effective sample size, confidence interval or
+external detection accuracy is inferred from these descriptive counts.
+`operational: true` means the fit target and scoring-identity requirements allow
+technical replay. It is not institutional approval. Record adoption decisions
+separately using `calibration/04-validation-summary-template.md`.
+
+## Reference and configuration scope
+
+The report's Evidence coverage label is a heuristic category, with the retained
+`confidence` alias and explicit factors. It is not a confidence interval for a
+calibration rate. Role labels, nominal weights and per-file eligible metric
+weights are distinct. Enabling a custom contribution does not turn a contextual
+metric or its references into validated authorship evidence. Keep the exact
+engine and configuration identities with every fitted profile; source or
+configuration changes can require refitting even when selected raw observations
+remain unchanged.

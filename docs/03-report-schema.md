@@ -4,6 +4,90 @@
 
 This document describes the stable report fields that matter for course audit and release comparison. It is not a formal JSON Schema file, but it records the expected structure of CodeProbe `2.2.0` reports.
 
+## Evidence coverage and configured contributions
+
+`evidence_coverage` is the displayed category. The legacy `confidence` key retains
+exactly the same value for compatibility; it is not statistical confidence.
+`evidence_coverage_basis` records the method, category, interpretation, actual
+classification factors, ordered rules and warning timing. It is available on
+file reports, project reports and included project members. Older reports may
+lack the new fields; the interface labels their missing basis rather than
+inventing one.
+
+For a code file, fewer than five non-blank lines, fewer than four applicable
+positive-weight contributors or a zero metric denominator gives **Limited** and
+an inapplicable code aggregate. Otherwise, **High** requires at least 80
+non-blank lines, an applicable-contributor fraction of at least 0.75 and at most
+two warnings at classification. **Moderate** requires at least 25 non-blank
+lines and a fraction of at least 0.55. Remaining code files are Limited.
+Markdown uses **N/A**. The fraction's denominator is the positive-weight
+contributor set returned for the file, not the number of metric declarations
+in the source catalogue.
+
+For a project, no contributing file gives Limited. Otherwise, High requires at
+least 250 non-blank lines, five contributing files and at most four warnings at
+classification. Moderate requires at least 80 non-blank lines and two included
+files; other projects are Limited. These are the retained heuristic rules, not
+newly fitted cut-offs. Classification uses the warnings present at that point;
+later intake, exclusion or review notices remain visible without retroactively
+changing the category. Read `warning_count_at_classification` separately from
+the length of the final warning list.
+
+A descriptive `group` and `contributes_to_overall` answer different questions.
+The default policy has seven positive-weight stylometric contributors with a
+nominal total weight of **0.31**. Valid overrides may enable a Boolean
+contribution in any of the four recognised groups. For example, enabling
+`docstring_coverage` with weight 0.5 raises the nominal denominator to **0.81**;
+this is a configured choice, not evidence that docstrings identify an author.
+Disabled, zero-weight and explicitly non-contributing metrics are absent from
+the nominal sum. The browser and native engine accept Boolean contributions;
+non-Boolean flags, non-finite weights and unknown groups remain invalid. The
+existing range policy is unchanged: native finite weights are clamped to [0, 1],
+whereas the browser refuses out-of-range values before dispatch.
+
+`metric_role_summary.contributing_weight` now covers all descriptive groups.
+`configured_contributors`, `configured_contributor_count` and
+`custom_contribution_policy` identify the actual policy. The compatibility key
+`authorship_signal_metrics` still counts only positive-weight contributors in
+the stylometry group; its name does not establish authorship validity.
+
+For each file, `aggregation.nominal_weight` is the configured sum and
+`effective_weight` is the denominator over applicable positive-weight metric
+results. `contributors` lists that eligible metric set. The separate
+`aggregate_applied_weight` is zero when `overall_applicable` is false. This
+matters for sparse code and documentation: a calculable metric denominator does
+not make an inapplicable code aggregate meaningful. Markdown remains excluded
+from the code aggregate even under custom documentation weights. Project
+`aggregation.effective_weight_sloc` sums the retained capped per-file SLOC
+weights, not metric weights. Do not interchange these denominators.
+
+## References and source-level proxies
+
+Metric `references` remain compatible bibliographic strings. The additive
+`reference_usage` list associates each string with a `role` (definition,
+motivation or context) and its `scope`. File JSON/text, project members and the
+main metric-detail panel carry the qualification. Definitions and contextual
+papers do not validate CodeProbe's configured weights, thresholds or attribution
+claims. The Rahman reference identifies arXiv:2409.01382v1 explicitly; the title
+is not silently attached to a later revision. Bash quoting cites the GNU Bash
+5.3 manual, not Python's PEP 8. CommonMark 0.31.2 supplies syntax, not quality
+scores. Unverified C/C++/C# specification editions are not asserted.
+
+The three memory-related metrics retain their calculations and normalisation:
+
+| Metric | Method | Unit | What the result does not establish |
+|---|---|---|---|
+| `register_pressure` | `source_name_occurrence_span_peak` | `peak_scalar_names_per_13` | Semantic liveness, allocated registers or emitted spill code |
+| `stack_frame_depth` | `recognised_declaration_size_sum_max` | `estimated_bytes` | ABI layout, padding, optimisation or the emitted stack frame |
+| `redundant_memory_access` | `lexical_memory_cue_density_mean` | `cues_per_20_function_lines` | Memory traffic, alias safety or safe hoisting/`const`/`restrict` transformations |
+
+Their domain is `recognised_functions`, subject to the existing finite-parser
+availability rules. The register budget of 13 is a fixed heuristic, not a
+hardware measurement. Legacy detail labels such as `peak_live`, `loop_invariants`
+and `missing_const_or_restrict` are qualified source cues. Review the code and
+compiler evidence separately before making optimisation claims. Unavailable
+measurements do not acquire a method label merely from a bibliography entry.
+
 ## File report
 
 A file analysis report has schema version `2.2.0` and includes at least:
@@ -338,6 +422,55 @@ validate existing editorial score preferences, thresholds or authorship claims.
 Fenced programmes remain data and are never executed or recursively added to
 the code aggregate. A new engine still requires a newly bound profile; Markdown
 does not bypass engine-identity checks merely because its code score is N/A.
+
+### Descriptive statistics versus editorial preferences
+
+Repeated sibling headings do not reduce `markdown_heading_structure`: the
+retained preference is `1 - upward_level_jumps / heading_count`, clamped to the
+existing range, and it requires at least two recognised headings. H1/H2/H2/H2
+therefore yields 1; H1/H3 yields 0.5. A skipped heading level is not a CommonMark
+syntax error. The repeat count may remain in details as a descriptive count.
+
+Fence density is recognised blocks per 100 source lines. An empty or
+whitespace-only document has no applicable content denominator and yields N/A;
+a non-empty document without fences yields an observed zero. Link density is
+recognised hyperlinks per 100 extracted prose tokens: no prose tokens yields
+N/A, while non-empty link-free prose yields zero. N/A retains `value: null` and
+`applicable: false`; the compatibility score placeholder is not a measurement.
+Neither code examples nor hyperlinks are compulsory for a legitimate document.
+Their configured score bands are genre-dependent editorial preferences.
+
+Prose entropy is a token-frequency statistic with the existing 40-token minimum.
+Permuting the same token multiset leaves it unchanged. It measures neither
+logical progression, comprehension nor writing quality. These clarifications do
+not extend Markdown parsing, change project admission or enable recursive
+analysis of code fences.
+
+## Calibration rates carried into analysis reports
+
+Statistical independence is not established; uncertainty is not estimated.
+
+The public calibration block retains aggregate
+`validation.descriptive_review_rates` for `fit`, `evaluation` and `all`.
+Each partition states the report unit (`file` or `project`), sample/group counts,
+threshold and counts for `human`, `ai_generated`, `hybrid` and pooled `positive`.
+Each label has `reviewed`, `eligible`, `sample_count`, `group_count`,
+`eligible_group_count` and an unrounded `rate`. A zero denominator gives JSON
+`null` and textual N/A, not an observed zero. The positive row overlaps its two
+component labels; the all partition pools fit and evaluation and is not an
+independent evaluation.
+
+The fit partition alone selects the trigger. Evaluation and pooled counts do
+not retune it. `statistical_independence: not_established` and
+`uncertainty.status: not_estimated` are explicit. Declared group separation is
+not a sampling model; group counts are not effective independent sample sizes.
+Historical numeric rate aliases remain for compatibility and may contain zero
+for an absent class. Read their `rate_counts` and `legacy_rate_qualification`.
+The legacy `independent_holdout` flag refers to separation from selection, not
+statistically independent trials or an independent institutional reviewer.
+Ordinary analysis exports omit sample observations and the sensitivity grid;
+aggregate forwarding is not a promise that user-supplied profile free text is
+anonymous. See the [calibration guide](06-calibration-guide.md).
 
 ## Python diagnostics and structural metadata
 

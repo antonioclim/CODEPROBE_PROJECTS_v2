@@ -141,7 +141,7 @@ The oral walkthrough should focus on specific implementation decisions, edge cas
 - Do not include dependencies, generated folders or instructor starter code.
 - Do not treat a single score as a misconduct finding.
 - Do not infer that a low score proves independent authorship.
-- Do not compare students using Markdown scores; Markdown is documentation-quality context only.
+- Do not compare students using Markdown scores; Markdown supplies descriptive statistics and configured editorial preferences, not a validated quality judgement.
 - Do not call a course-local trigger empirical unless the validation summary is retained and reviewed.
 
 ## Minimal repository layout
@@ -165,6 +165,34 @@ project-root/
 ## Recommended assignment wording
 
 > Before final submission, run CodeProbe on the source files you wrote for this assignment. For a multi-file project, use project mode and check that `.codeprobeignore` excludes starter code, libraries, generated files, minified assets, build output and documentation. The aim is not to obtain the lowest possible number, but to submit coherent, purposeful code that you understand and can defend. A score above the active review trigger requires revision and, where requested, a short disclosure. The tool is a self-check; final academic reading depends on the submitted code, development evidence and your explanation.
+
+## Interpretation and reference limits
+
+The visible **Evidence coverage** category describes source quantity, metric
+availability and selected warnings under fixed heuristic rules. The historical
+JSON name `confidence` is retained only for compatibility. Neither the category
+nor a well-formed report is a probability or a guarantee of correctness.
+
+The default score uses seven configured contributors. A custom positive-weight
+contribution in a quality, context or documentation role is a policy choice,
+not new evidence of authorship. Examine the nominal and per-file eligible
+weights and the applicability of the aggregate. Markdown remains excluded from
+the code aggregate. Memory-related feedback describes source cues: it does not
+measure allocated registers, emitted stack frames or safe optimisation.
+
+Calibration summaries separate fit, evaluation and pooled observations and show
+reviewed/eligible counts, declared groups and file/project units. Missing classes
+have unavailable rates, not measured zero rates. Statistical independence is
+not established and uncertainty is not estimated. Technical `operational`
+status does not approve use in a course; a named institutional decision belongs
+in the separately completed validation summary. Evaluation must not be used to
+retune the fit-selected trigger without a new declared protocol.
+
+The references below provide educational, policy or authorship-research
+background. They do not validate the CodeProbe implementation, manual weights,
+review bands or a language-independent detection rate. The runtime separately
+labels metric references by definition, motivation or context. A real DOI is
+not evidence that a paper supports an unrelated software claim.
 
 ## Academic background
 

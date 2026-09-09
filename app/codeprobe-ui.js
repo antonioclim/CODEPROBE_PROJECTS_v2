@@ -7,17 +7,6 @@
     const MAX_BROWSER_PROJECT_ENTRIES = 2000;
     const ALLOWED_CONFIG_KEYS = new Set(["enabled", "weight", "thresholds", "notes", "group", "contributes_to_overall"]);
     const ALLOWED_METRIC_GROUPS = new Set(["stylometry", "context", "quality", "documentation"]);
-    const NON_AUTHORSHIP_METRICS = new Set([
-      "magic_numbers", "dead_code_residue", "indentation_consistency", "used_import_ratio",
-      "docstring_coverage", "type_hint_coverage", "javascript_modern_syntax",
-      "bash_quoting_consistency", "import_organization", "register_pressure",
-      "stack_frame_depth", "redundant_memory_access", "code_elegance",
-      "preprocessor_hygiene", "error_handling_density", "boilerplate_presence",
-      "cyclomatic_complexity", "halstead_difficulty", "nesting_depth",
-      "defensive_programming", "declarative_ratio", "control_ratio",
-      "markdown_heading_structure", "markdown_code_fence_density",
-      "markdown_link_density", "markdown_prose_entropy"
-    ]);
     const LANGUAGE_LABELS = {
       auto: "Auto",
       python: "Python",
@@ -131,6 +120,7 @@
       scoreBar: document.getElementById("scoreBar"),
       verdictValue: document.getElementById("verdictValue"),
       confidenceValue: document.getElementById("confidenceValue"),
+      evidenceCoverageBasis: document.getElementById("evidenceCoverageBasis"),
       summaryLanguage: document.getElementById("summaryLanguage"),
       summaryProfile: document.getElementById("summaryProfile"),
       lowLevelQualityCard: document.getElementById("lowLevelQualityCard"),
@@ -581,7 +571,10 @@
       setProgressBar(els.scoreProgress, els.scoreBar, overallApplicable ? percent : null, "Not applicable");
       els.verdictValue.textContent = report.reading || report.verdict || "—";
       els.verdictValue.className = `value ${verdictClassName(report)}`;
-      els.confidenceValue.textContent = report.confidence || "—";
+      els.confidenceValue.textContent = report.evidence_coverage || report.confidence || "—";
+      const basis = report.evidence_coverage_basis || {};
+      const coverage = els.evidenceCoverageBasis;
+      if (coverage) coverage.textContent = `${basis.interpretation || "Heuristic source coverage, not statistical confidence."} Factors at classification: ${JSON.stringify(basis.factors || {})}`;
       els.summaryLanguage.textContent = isProject
         ? `Project (${Number(project.included_file_count || 0)} files)`
         : (LANGUAGE_LABELS[report.language] || report.language || "—");
@@ -716,7 +709,12 @@
       });
       const metric = metrics[index];
       const refs = metric.references && metric.references.length
-        ? `<h3 class="mt-xl">References</h3><ul class="ref-list">${metric.references.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+        ? `<h3 class="mt-xl">References and scope</h3><ul class="ref-list">${metric.references.map(item => {
+            const usage = Array.isArray(metric.reference_usage)
+              ? metric.reference_usage.find(record => record.citation === item) : null;
+            const scope = usage ? `${usage.role}: ${usage.scope}` : "Reference scope is unavailable in this older report.";
+            return `<li>${escapeHtml(item)}<p class="muted">${escapeHtml(scope)}</p></li>`;
+          }).join("")}</ul>`
         : "";
       const group = metric.group ? `<div>Group: ${escapeHtml(metric.group)}</div>` : "";
       els.metricDetail.innerHTML = `
@@ -725,6 +723,7 @@
         <div>Score: ${Number(metric.score_percent ?? 0).toFixed(1)}%</div>
         <div>Weight: ${Number(metric.weight ?? 0).toFixed(2)}</div>
         <div>Applicable: ${metric.applicable ? "yes" : "no"}</div>
+        <div>Configured contribution: ${metric.contributes_to_overall ? "yes" : "no"}; active metric weight: ${metric.applicable && metric.contributes_to_overall ? Number(metric.weight || 0).toFixed(2) : "0.00"}. A Markdown report does not enter the code aggregate.</div>
         ${group}
         <div class="mt-xl">${escapeHtml(metric.explanation || "")}</div>
         ${metric.detail ? `<div class="mt-lg">${escapeHtml(metric.detail)}</div>` : ""}
@@ -846,9 +845,6 @@
           if (key === "enabled" || key === "contributes_to_overall") {
             if (typeof value !== "boolean") {
               throw new Error(`${key} for ${metricName} must be true or false.`);
-            }
-            if (key === "contributes_to_overall" && value && NON_AUTHORSHIP_METRICS.has(metricName)) {
-              throw new Error(`${metricName} is quality/context/documentation-only and cannot be re-enabled in the AI-style aggregate from the browser.`);
             }
           } else if (key === "weight") {
             if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -1335,6 +1331,7 @@
       els.verdictValue.textContent = "Insufficient data";
       els.verdictValue.className = "value verdict-insufficient";
       els.confidenceValue.textContent = "—";
+      if (els.evidenceCoverageBasis) els.evidenceCoverageBasis.textContent = "Heuristic source and metric coverage; not statistical confidence.";
       els.summaryLanguage.textContent = "—";
       els.summaryProfile.textContent = els.profileSelect.value;
       els.lowLevelQualityCard.classList.add("hidden");

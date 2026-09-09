@@ -208,5 +208,108 @@ class CyclomaticMethodSchemaTests(unittest.TestCase):
                 self.assertFalse(result.get(key))
 
 
+
+class EvidenceCoverageReportingTests(unittest.TestCase):
+    SOURCE = "\n".join(f'def scale_{i}(value):\n    """Return a scaled value."""\n    result = value * {i + 2}\n    return result\n' for i in range(8))
+
+    def file_bundle(self, source=None, filename="sample.py", **extra):
+        return json.loads(engine.codeprobe_analyze(json.dumps({
+            "code": self.SOURCE if source is None else source, "filename": filename, **extra})))
+
+    def test_file_category_alias_factors_and_text_are_consistent(self):
+        bundle = self.file_bundle()
+        report = bundle["report"]
+        basis = report["evidence_coverage_basis"]
+        self.assertEqual(report["evidence_coverage"], report["confidence"])
+        self.assertEqual(basis["category"], report["confidence"])
+        self.assertEqual(basis["factors"]["sloc"], report["sloc"])
+        eligible = [m for m in report["metrics"] if m["applicable"] and m["weight"] > 0 and m["contributes_to_overall"]]
+        self.assertTrue(eligible)
+        self.assertEqual(basis["factors"]["applicable_contributors"], len(eligible))
+        self.assertIn("not a probability", basis["interpretation"])
+        self.assertIn("Evidence coverage: " + report["confidence"], bundle["text"])
+        self.assertNotIn("Confidence:", bundle["text"])
+        self.assertIn("Nominal configured weight: 0.31", bundle["text"])
+        self.assertIn(f"eligible metric denominator: {report['aggregation']['effective_weight']:.6g}", bundle["text"])
+
+    def test_sparse_and_markdown_reports_do_not_apply_an_ineligible_aggregate(self):
+        override = {"markdown_heading_structure": {"contributes_to_overall": True, "weight": 0.5}}
+        for source, name, options, category in (
+            ("value = 1\n", "tiny.py", {}, "Limited"),
+            ("# Title\n## Detail\n", "notes.md", {"config_override": override}, "N/A"),
+        ):
+            with self.subTest(name=name):
+                report = self.file_bundle(source, name, **options)["report"]
+                self.assertEqual(report["evidence_coverage"], category)
+                self.assertFalse(report["overall_applicable"])
+                self.assertEqual(report["aggregation"]["aggregate_applied_weight"], 0)
+                self.assertGreater(report["aggregation"]["effective_weight"], 0)
+
+    def test_project_and_child_factors_keep_late_exclusion_warning_separate(self):
+        bundle = json.loads(engine.codeprobe_analyze_project(json.dumps({
+            "project_name": "coverage-fixture", "files": [
+                {"path": f"module_{i}.py", "content": self.SOURCE} for i in range(3)
+            ] + [{"path": "README.md", "content": "# Documentation\n"}]})))
+        report = bundle["report"]
+        basis = report["evidence_coverage_basis"]
+        self.assertEqual(report["evidence_coverage"], report["confidence"])
+        self.assertEqual(basis["factors"]["included_files"], 3)
+        self.assertEqual(report["excluded_file_count"], 1)
+        self.assertGreater(len(report["warnings"]), basis["factors"]["warning_count_at_classification"])
+        self.assertIn("later", basis["warning_timing"])
+        self.assertEqual(report["aggregation"]["effective_weight_sloc"],
+                         sum(item["weight"] for item in report["aggregation"]["contributors"]))
+        for child in report["files"]:
+            self.assertEqual(child["confidence"], child["evidence_coverage"])
+            self.assertEqual(child["evidence_coverage_basis"]["factors"]["sloc"], child["sloc"])
+        self.assertIn("Nominal configured weight: 0.31", bundle["text"])
+
+    def test_project_category_rule_boundaries_remain_the_retained_rules(self):
+        cases = ((0, 0, 0, 0, "Limited"), (79, 2, 2, 0, "Limited"),
+                 (80, 2, 2, 0, "Moderate"), (249, 5, 5, 0, "Moderate"),
+                 (250, 5, 5, 4, "High"), (250, 5, 5, 5, "Moderate"),
+                 (1000, 8, 0, 0, "Limited"))
+        for sloc, included, contributing, warnings, expected in cases:
+            with self.subTest(values=(sloc, included, contributing, warnings)):
+                self.assertEqual(engine.project_confidence(sloc, included, contributing, warnings), expected)
+
+
+class SourceProxyReportingTests(unittest.TestCase):
+    SOURCE = "int sum(int *items, int n) {\n  int total = 0;\n  int scratch[10];\n  for (int i=0; i<n; i++) { total += items[i] + items[i]; }\n  return total;\n}\n"
+
+    def test_memory_proxy_values_remain_visible_with_bounded_meanings(self):
+        expected = {"register_pressure": (2/13, "peak_scalar_names_per_13"),
+                    "stack_frame_depth": (48, "estimated_bytes"),
+                    "redundant_memory_access": (20/3, "cues_per_20_function_lines")}
+        for project in (False, True):
+            with self.subTest(project=project):
+                payload = {"files": [{"path": "sample.c", "content": self.SOURCE}]} if project else {"filename": "sample.c", "code": self.SOURCE}
+                bundle = json.loads((engine.codeprobe_analyze_project if project else engine.codeprobe_analyze)(json.dumps(payload)))
+                report = bundle["report"]["files"][0] if project else bundle["report"]
+                metrics = {item["name"]: item for item in report["metrics"]}
+                for name, (value, unit) in expected.items():
+                    metric = metrics[name]
+                    self.assertTrue(metric["applicable"])
+                    self.assertAlmostEqual(metric["value"], value)
+                    self.assertEqual(metric["unit"], unit)
+                    self.assertEqual(metric["domain"], "recognised_functions")
+                    self.assertIn("source", metric["explanation"].lower())
+                    self.assertIn("not", metric["explanation"].lower())
+                    self.assertIn(metric["explanation"], bundle["text"])
+                    self.assertTrue(metric["reference_usage"])
+                    self.assertEqual([x["citation"] for x in metric["reference_usage"]], metric["references"])
+                    for reference in metric["reference_usage"]:
+                        self.assertIn(reference["role"], {"definition", "motivation", "context"})
+                        self.assertTrue(reference["scope"])
+
+    def test_unavailable_proxy_does_not_claim_a_measurement_method(self):
+        report = engine.report_to_dict(engine.AnalysisEngine(engine.merged_metric_config("default")).analyse("int value;\n", "no_functions.c"))
+        for metric in report["metrics"]:
+            if metric["name"] in {"register_pressure", "stack_frame_depth", "redundant_memory_access"}:
+                self.assertFalse(metric["applicable"])
+                self.assertIsNone(metric["value"])
+                self.assertFalse(metric.get("method"))
+
+
 if __name__ == "__main__":
     unittest.main()

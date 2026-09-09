@@ -619,7 +619,7 @@ class MetricConfigurationMeaningTests(unittest.TestCase):
                    ("halstead_difficulty", "mi_high", 72.0))
         original = engine.merged_metric_config("strict")
         digest = engine.metric_config_digest(original)
-        self.assertEqual(digest, "855f2d2146821cb5393ded507205a29f5469b4390ddaafc70044fbfbf94743e7")
+        self.assertEqual(digest, "3ec6088561b98b4b7a4522f2c97fb37901a2a4c38352a19c89c9fceae9e51e00")
         digests = {digest}
         for metric, key, value in changes:
             with self.subTest(metric=metric, key=key):
@@ -669,6 +669,105 @@ class MetricConfigurationMeaningTests(unittest.TestCase):
         changed = engine.merged_metric_config("default", {"register_pressure": {"thresholds": {"low": .25, "moderate": .75}}})
         self.assertEqual(changed["register_pressure"]["thresholds"]["low"], .25)
         self.assertEqual(changed["register_pressure"]["thresholds"]["moderate"], .75)
+
+
+
+class ConfiguredContributionTests(unittest.TestCase):
+    def test_nominal_policy_covers_every_role_without_changing_default_seven(self):
+        base = engine.merged_metric_config("default")
+        summary = engine.metric_role_summary(base)
+        self.assertEqual(summary["configured_contributor_count"], 7)
+        self.assertEqual(summary["authorship_signal_metrics"], 7)
+        self.assertAlmostEqual(summary["contributing_weight"], .31)
+        self.assertFalse(summary["custom_contribution_policy"])
+        for group in ("stylometry", "quality", "context", "documentation"):
+            with self.subTest(group=group):
+                config = engine.merged_metric_config("default", {"docstring_coverage": {
+                    "group": group, "weight": .5, "contributes_to_overall": True}})
+                custom = engine.metric_role_summary(config)
+                self.assertEqual(custom["configured_contributor_count"], 8)
+                self.assertAlmostEqual(custom["contributing_weight"], .81)
+                self.assertIn("docstring_coverage", custom["configured_contributors"])
+                self.assertTrue(custom["custom_contribution_policy"])
+
+    def test_disabled_zero_and_false_flags_do_not_enter_the_nominal_sum(self):
+        for change in ({"enabled": False}, {"weight": 0}, {"contributes_to_overall": False}):
+            with self.subTest(change=change):
+                override = {"docstring_coverage": {"weight": .5, "contributes_to_overall": True, **change}}
+                summary = engine.metric_role_summary(engine.merged_metric_config("default", override))
+                self.assertAlmostEqual(summary["contributing_weight"], .31)
+                self.assertNotIn("docstring_coverage", summary["configured_contributors"])
+
+    def test_effective_denominator_matches_actual_applicable_metric_results(self):
+        override = {"docstring_coverage": {"weight": .5, "contributes_to_overall": True}}
+        report = engine.AnalysisEngine(engine.merged_metric_config("default", override)).analyse(CODE, "sample.py")
+        contributors = [m for m in report.metrics if m.applicable and m.weight > 0 and m.contributes_to_overall]
+        self.assertTrue(report.overall_applicable)
+        self.assertTrue(contributors)
+        self.assertEqual(report.aggregation["contributors"], [m.name for m in contributors])
+        self.assertAlmostEqual(report.aggregation["effective_weight"], sum(m.weight for m in contributors))
+        self.assertAlmostEqual(report.overall_score, sum(m.weight*m.score for m in contributors)/sum(m.weight for m in contributors))
+        self.assertIn("custom contribution policy", " ".join(report.notes).lower())
+        self.assertIn("Nominal configured weight: 0.81", engine.format_report_text(report))
+
+    def test_non_boolean_flags_non_finite_weights_and_unknown_groups_are_refused(self):
+        for flag in (0, 1, None, "true", [], {}):
+            with self.subTest(flag=flag), self.assertRaises(ValueError):
+                engine.validate_metric_config_override({"docstring_coverage": {"contributes_to_overall": flag}})
+        for weight in (float("nan"), float("inf"), -float("inf"), True):
+            with self.subTest(weight=weight), self.assertRaises(ValueError):
+                engine.validate_metric_config_override({"docstring_coverage": {"weight": weight}})
+        with self.assertRaises(ValueError):
+            engine.validate_metric_config_override({"docstring_coverage": {"group": "authorship-proof"}})
+
+    def test_native_weight_clamping_is_preserved_and_not_confused_with_browser_policy(self):
+        for requested, expected in ((-1, 0.0), (2, 1.0)):
+            with self.subTest(requested=requested):
+                config = engine.merged_metric_config("default", {"docstring_coverage": {"weight": requested}})
+                self.assertEqual(config["docstring_coverage"]["weight"], expected)
+
+
+class MarkdownDescriptivePreferenceTests(unittest.TestCase):
+    def metrics(self, source):
+        report = engine.AnalysisEngine(engine.merged_metric_config("default")).analyse(source, "notes.md")
+        self.assertFalse(report.overall_applicable)
+        return {item.name: item for item in report.metrics}
+
+    def test_sibling_headings_are_not_penalised_and_jumps_are_editorial(self):
+        siblings = self.metrics("# Top\n## One\n## Two\n## Three\n")["markdown_heading_structure"]
+        self.assertEqual(siblings.value, 1)
+        self.assertEqual(siblings.score, 1)
+        jumped = self.metrics("# Top\n### Detail\n")["markdown_heading_structure"]
+        self.assertEqual(jumped.value, .5)
+        self.assertIn("not a CommonMark error", jumped.explanation)
+        self.assertFalse(self.metrics("# Only\n")["markdown_heading_structure"].applicable)
+
+    def test_empty_and_whitespace_documents_have_no_fence_or_prose_denominator(self):
+        for source in ("", " ", "\n\t\n"):
+            for name in ("markdown_code_fence_density", "markdown_link_density"):
+                with self.subTest(source=source, name=name):
+                    metric = self.metrics(source)[name]
+                    self.assertFalse(metric.applicable)
+                    self.assertIsNone(metric.value)
+                    self.assertTrue(metric.explanation)
+
+    def test_code_free_and_link_free_prose_yields_observed_zeros(self):
+        metrics = self.metrics("This guide uses prose without links or code.\n")
+        for name in ("markdown_code_fence_density", "markdown_link_density"):
+            self.assertTrue(metrics[name].applicable)
+            self.assertEqual(metrics[name].value, 0)
+        fenced = self.metrics("```python\nprint('not executed')\n```\n")
+        self.assertTrue(fenced["markdown_code_fence_density"].applicable)
+        self.assertFalse(fenced["markdown_link_density"].applicable)
+
+    def test_prose_entropy_uses_the_multiset_not_word_order(self):
+        words = ["alpha"]*20 + ["beta"]*10 + ["gamma"]*10
+        first = self.metrics(" ".join(words))["markdown_prose_entropy"]
+        second = self.metrics(" ".join(reversed(words)))["markdown_prose_entropy"]
+        self.assertTrue(first.applicable)
+        self.assertEqual(first.value, second.value)
+        self.assertEqual(first.score, second.score)
+        self.assertFalse(self.metrics(" ".join(words[:39]))["markdown_prose_entropy"].applicable)
 
 
 if __name__ == "__main__":

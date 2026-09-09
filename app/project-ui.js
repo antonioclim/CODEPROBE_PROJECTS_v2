@@ -64,6 +64,8 @@
       }).join("") : `<p class="muted">No risk zone reached the reporting threshold.</p>`;
       els.reviewPanel.innerHTML = `
         <article class="review-card"><h3>Status</h3><p><strong>${escapeHtml(guidance.status_label || guidance.status || "not specified")}</strong></p><p>${escapeHtml(guidance.defensibility_note || "The score is a triage signal, not a misconduct finding.")}</p></article>
+        <article class="review-card"><h3>Evidence coverage</h3><p><strong>${escapeHtml(report.evidence_coverage || report.confidence || "Not recorded")}</strong></p><p>${escapeHtml(report.evidence_coverage_basis?.interpretation || "Heuristic source and metric coverage; basis unavailable in this older report.")}</p><p>${escapeHtml(JSON.stringify(report.evidence_coverage_basis?.factors || {}))}</p></article>
+        <article class="review-card"><h3>Contribution policy</h3>${renderList((report.notes || []).filter(note => /contribution policy|configured choice/.test(note)))}</article>
         <article class="review-card"><h3>Input packaging</h3><p>${escapeHtml(packagingText)}</p><p>${escapeHtml(packaging.common_root_reason || "Packaging normalisation was not needed or not available for this report.")}</p></article>
         <article class="review-card"><h3>Input and analysis warnings</h3>${renderList(intakeWarnings)}</article>
         <article class="review-card"><h3>Recommended manual steps</h3>${renderList(guidance.recommended_manual_steps || [])}</article>
