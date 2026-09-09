@@ -16,9 +16,9 @@
     },
     {
       "path": "pyodide-loader.js",
-      "size_bytes": 35678,
-      "sha256_hex": "270f878974233442f5da4fcb24968836233fe3b17aad7f6e4149c8143eed3485",
-      "sri_sha256": "sha256-Jw+HiXQjNEL12k/LJJaINiM/47F6rX9uQUnIFD7tNIU="
+      "size_bytes": 40542,
+      "sha256_hex": "e9d8859b4c16b1cb236438ecad7ca41db92c6d63225e8468c359b1523811a628",
+      "sri_sha256": "sha256-6diFm0wWscsjZDjsrXykHbksbWMiXoRow1mxUjgRpig="
     },
     {
       "path": "codeprobe-ui.js",

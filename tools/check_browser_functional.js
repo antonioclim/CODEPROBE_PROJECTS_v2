@@ -8,6 +8,7 @@ const http = require("node:http");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..");
 const TIMEOUT_MS = 120_000;
@@ -53,6 +54,252 @@ function delay(milliseconds) {
 
 function sha256File(filePath) {
   return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function sha256Bytes(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function sriForBytes(value) {
+  return `sha256-${crypto.createHash("sha256").update(value).digest("base64")}`;
+}
+
+function runtimeLoaderVm(fetchImpl, importState = { calls: 0 }) {
+  const context = {
+    AbortController,
+    ArrayBuffer,
+    Blob,
+    CODEPROBE_BASE_URL: "http://127.0.0.1/app/",
+    DataView,
+    Headers,
+    ReadableStream,
+    Request,
+    Response,
+    TextDecoder,
+    TextEncoder,
+    URL,
+    Uint8Array,
+    clearTimeout,
+    console,
+    crypto: globalThis.crypto,
+    fetch: fetchImpl,
+    location: new URL("http://127.0.0.1/app/index.html"),
+    setTimeout,
+  };
+  context.globalThis = context;
+  context.self = context;
+  context.importScripts = () => {
+    importState.calls += 1;
+    if (importState.calls === 1) context.loadPyodide = async () => ({});
+    if (importState.calls === 2) context._createPyodideModule = () => ({});
+  };
+  vm.createContext(context);
+  vm.runInContext(
+    fs.readFileSync(path.join(ROOT, "app", "pyodide-loader.js"), "utf8"),
+    context,
+    { filename: "app/pyodide-loader.js" },
+  );
+  return context;
+}
+
+function localRuntimeConfig(expectedLoaderSha256) {
+  return {
+    schema: "codeprobe-runtime-config/v1",
+    production: true,
+    pyodide: {
+      mode: "local",
+      version: "0.25.0",
+      local_loader_url: "vendor/pyodide/v0.25.0/full/pyodide.js",
+      local_index_url: "vendor/pyodide/v0.25.0/full/",
+      provenance_url: "pyodide-provenance.json",
+      expected_loader_sha256: expectedLoaderSha256,
+      require_integrity: true,
+      verify_core_startup_set: true,
+    },
+  };
+}
+
+function syntheticStartupFixture() {
+  const bytes = new Map([
+    ["pyodide.js", Buffer.from("self.syntheticLoader = true;\n", "utf8")],
+    ["pyodide-lock.json", Buffer.from('{"version":"0.25.0"}\n', "utf8")],
+    ["python_stdlib.zip", Buffer.from("synthetic-stdlib-fixture", "utf8")],
+    ["pyodide.asm.js", Buffer.from("self.syntheticAsm = true;\n", "utf8")],
+    ["pyodide.asm.wasm", Buffer.from([0, 97, 115, 109, 1, 0, 0, 0])],
+  ]);
+  const records = CORE_NAMES.map(name => {
+    const value = bytes.get(name);
+    return {
+      name,
+      size_bytes: value.length,
+      sha256_hex: sha256Bytes(value),
+      sri_sha256: sriForBytes(value),
+    };
+  });
+  return {
+    bytes,
+    config: localRuntimeConfig(records.find(item => item.name === "pyodide.js").sha256_hex),
+    provenance: {
+      schema: "codeprobe-pyodide-provenance/v1",
+      version: "0.25.0",
+      upstream: { tag: "0.25.0", commit: "0".repeat(40) },
+      startup_artifacts: records,
+      lock_info: { version: "0.25.0", python: "3.11.3", package_count: 1 },
+    },
+  };
+}
+
+function responseJson(value, status = 200) {
+  return new Response(typeof value === "string" ? value : JSON.stringify(value), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function expectRuntimeConfigRefusal(raw, label) {
+  const calls = [];
+  const context = runtimeLoaderVm(async url => {
+    calls.push(String(url));
+    return responseJson(raw);
+  });
+  const error = await context.CodeProbeRuntime.loadRuntimeConfig().then(() => null, value => value);
+  assert(error && error.name === "RuntimeConfigError" && error.code === "runtime_config_invalid",
+    `${label}: invalid runtime configuration was accepted`);
+  assert(calls.length === 1 && calls[0].endsWith("/app/runtime-config.json"),
+    `${label}: invalid configuration advanced beyond the configuration request`);
+}
+
+async function testRuntimeConfigurationContracts() {
+  const fixture = syntheticStartupFixture();
+  const invalidCases = [
+    [null, "null root"],
+    [[], "array root"],
+    [17, "numeric root"],
+    [{ schema: "unsupported/v999" }, "wrong schema"],
+    [{ production: "false" }, "string production"],
+    [{ pyodide: { require_integrity: "false" } }, "string integrity flag"],
+    [{ pyodide: { verify_core_startup_set: "false" } }, "string core-set flag"],
+    [{ privacy: { history_enabled_default: "false" } }, "string privacy flag"],
+    [{ pyodide: null }, "null pyodide object"],
+    [{ unexpected: true }, "unknown root field"],
+  ];
+  for (const [raw, label] of invalidCases) await expectRuntimeConfigRefusal(raw, label);
+
+  {
+    const calls = [];
+    const context = runtimeLoaderVm(async url => {
+      calls.push(String(url));
+      return responseJson(fixture.config);
+    });
+    const config = await context.CodeProbeRuntime.loadRuntimeConfig();
+    assert(config.production === true && config.pyodide.mode === "local", "documented partial local configuration was not retained");
+    assert(config.privacy.history_enabled_default === false, "documented default privacy configuration was not applied");
+    assert(context.CodeProbeRuntime.getPyodideLoaderURL() === "http://127.0.0.1/app/vendor/pyodide/v0.25.0/full/pyodide.js",
+      "local loader URL did not remain same-origin");
+    assert(context.CodeProbeRuntime.getPyodideIndexURL() === "http://127.0.0.1/app/vendor/pyodide/v0.25.0/full/",
+      "local index URL did not remain same-origin");
+    assert(calls.length === 1 && !calls.some(url => url.startsWith("https://cdn.jsdelivr.net/")),
+      "local configuration unexpectedly contacted the CDN during configuration admission");
+  }
+
+  for (const mode of ["fetch", "http", "json"]) {
+    const calls = [];
+    const context = runtimeLoaderVm(async url => {
+      calls.push(String(url));
+      if (mode === "fetch") throw new Error("owned fetch refusal");
+      if (mode === "http") return responseJson({ error: true }, 503);
+      return responseJson("{not-json");
+    });
+    const error = await context.CodeProbeRuntime.loadRuntimeConfig().then(() => null, value => value);
+    assert(error && error.name === "RuntimeConfigError" && error.code === "runtime_config_acquisition",
+      `${mode}: configuration acquisition did not fail closed`);
+    assert(calls.length === 1 && !calls.some(url => url.startsWith("https://cdn.jsdelivr.net/")),
+      `${mode}: configuration acquisition failure silently selected the CDN`);
+  }
+
+  {
+    let attempt = 0;
+    const context = runtimeLoaderVm(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error("owned first-attempt refusal");
+      return responseJson(fixture.config);
+    });
+    const first = await context.CodeProbeRuntime.loadRuntimeConfig().then(() => null, value => value);
+    assert(first && first.code === "runtime_config_acquisition", "first configuration attempt did not fail as expected");
+    const second = await context.CodeProbeRuntime.loadRuntimeConfig();
+    assert(second.pyodide.mode === "local" && attempt === 2, "clean configuration retry did not refetch after failure");
+  }
+
+  {
+    const invalid = structuredClone(fixture.provenance);
+    invalid.startup_artifacts[0].sri_sha256 = "sha256-not-a-base64-digest";
+    const context = runtimeLoaderVm(async url => {
+      const rendered = String(url);
+      if (rendered.endsWith("runtime-config.json")) return responseJson(fixture.config);
+      if (rendered.endsWith("pyodide-provenance.json")) return responseJson(invalid);
+      throw new Error(`unexpected request ${rendered}`);
+    });
+    const error = await context.CodeProbeRuntime.loadProvenance().then(() => null, value => value);
+    assert(error && String(error.message).includes("SRI SHA-256 does not match sha256_hex"),
+      "browser provenance accepted malformed redundant SRI metadata");
+  }
+
+  {
+    const context = runtimeLoaderVm(async url => {
+      const rendered = String(url);
+      if (rendered.endsWith("runtime-config.json")) return responseJson(fixture.config);
+      if (rendered.endsWith("pyodide-provenance.json")) return responseJson(fixture.provenance);
+      throw new Error(`unexpected request ${rendered}`);
+    });
+    const provenance = await context.CodeProbeRuntime.loadProvenance();
+    assert(provenance.version === "0.25.0", "exact SRI provenance metadata was rejected");
+  }
+
+  for (const tamperedName of CORE_NAMES) {
+    const calls = new Map();
+    const imports = { calls: 0 };
+    const context = runtimeLoaderVm(async url => {
+      const rendered = String(url);
+      calls.set(rendered, (calls.get(rendered) || 0) + 1);
+      if (rendered.endsWith("runtime-config.json")) return responseJson(fixture.config);
+      if (rendered.endsWith("pyodide-provenance.json")) return responseJson(fixture.provenance);
+      const name = CORE_NAMES.find(candidate => rendered.endsWith(`/${candidate}`));
+      if (!name) throw new Error(`unexpected request ${rendered}`);
+      let value = Buffer.from(fixture.bytes.get(name));
+      if (name === tamperedName) {
+        value = Buffer.from(value);
+        value[0] ^= 0xff;
+      }
+      return new Response(value, { status: 200, headers: { "Content-Length": String(value.length) } });
+    }, imports);
+    const error = await context.CodeProbeRuntime.ensurePyodideLoader().then(() => null, value => value);
+    assert(error && String(error.message).includes("integrity mismatch"), `${tamperedName}: altered startup bytes were accepted`);
+    assert(imports.calls === 0, `${tamperedName}: a verified script was installed before the complete startup set passed`);
+  }
+
+  {
+    const calls = new Map();
+    const imports = { calls: 0 };
+    const context = runtimeLoaderVm(async url => {
+      const rendered = String(url);
+      calls.set(rendered, (calls.get(rendered) || 0) + 1);
+      if (rendered.endsWith("runtime-config.json")) return responseJson(fixture.config);
+      if (rendered.endsWith("pyodide-provenance.json")) return responseJson(fixture.provenance);
+      const name = CORE_NAMES.find(candidate => rendered.endsWith(`/${candidate}`));
+      if (!name) throw new Error(`unexpected request ${rendered}`);
+      const value = fixture.bytes.get(name);
+      return new Response(value, { status: 200, headers: { "Content-Length": String(value.length) } });
+    }, imports);
+    await context.CodeProbeRuntime.ensurePyodideLoader();
+    assert(imports.calls === 2, "valid verified loader and ASM JavaScript were not installed exactly once");
+    for (const name of CORE_NAMES) {
+      const suffix = `/app/vendor/pyodide/v0.25.0/full/${name}`;
+      const entry = [...calls.entries()].find(([url]) => url.endsWith(suffix));
+      assert(entry && entry[1] === 1, `${name}: valid startup artefact was not fetched exactly once`);
+    }
+  }
+
+  console.log("[PASS] runtime-config-contract: strict raw admission, fail-closed acquisition, clean retry, exact SRI parity and five-artifact tamper refusal");
 }
 
 async function freePort() {
@@ -116,6 +363,101 @@ function cleanup() {
 process.once("exit", cleanup);
 process.once("SIGINT", () => { cleanup(); process.exit(130); });
 process.once("SIGTERM", () => { cleanup(); process.exit(143); });
+
+function createFunctionalResourceScope() {
+  const owned = { working: null, server: null, chrome: null, cdp: null };
+  return {
+    ownWorking(value) { owned.working = value; return value; },
+    ownServer(value) { owned.server = value; return value; },
+    ownChrome(value) { owned.chrome = value; processes.add(value); return value; },
+    ownCdp(value) { owned.cdp = value; return value; },
+    async close() {
+      const errors = [];
+      if (owned.cdp) {
+        try { owned.cdp.close(); } catch (error) { errors.push(error); }
+        owned.cdp = null;
+      }
+      if (owned.chrome) {
+        try { stopProcess(owned.chrome); } catch (error) { errors.push(error); }
+        processes.delete(owned.chrome);
+        owned.chrome = null;
+      }
+      if (owned.server) {
+        try {
+          if (owned.server.listening) {
+            await new Promise((resolve, reject) => owned.server.close(error => error ? reject(error) : resolve()));
+          }
+        } catch (error) { errors.push(error); }
+        owned.server = null;
+      }
+      if (owned.working) {
+        try {
+          fs.rmSync(owned.working, { recursive: true, force: true });
+          if (fs.existsSync(owned.working)) throw new Error("functional browser workspace still exists after cleanup");
+        } catch (error) { errors.push(error); }
+        owned.working = null;
+      }
+      if (errors.length) throw new AggregateError(errors, "Functional browser resource cleanup failed.");
+    },
+  };
+}
+
+async function withFunctionalResourceScope(operation) {
+  const scope = createFunctionalResourceScope();
+  let operationError = null;
+  try {
+    return await operation(scope);
+  } catch (error) {
+    operationError = error;
+    throw error;
+  } finally {
+    try { await scope.close(); }
+    catch (cleanupError) {
+      if (operationError) throw new AggregateError([operationError, cleanupError], "Functional browser setup failed and cleanup was incomplete.");
+      throw cleanupError;
+    }
+  }
+}
+
+async function testFunctionalResourceCleanup() {
+  for (const stage of ["working", "server", "chrome", "cdp"]) {
+    let working = null;
+    let serverClosed = 0;
+    let chromeKilled = 0;
+    let cdpClosed = 0;
+    const server = {
+      listening: true,
+      close(callback) { this.listening = false; serverClosed += 1; callback(); },
+    };
+    const chrome = {
+      exitCode: null,
+      killed: false,
+      kill() { this.killed = true; chromeKilled += 1; },
+    };
+    const cdp = { close() { cdpClosed += 1; } };
+    let refused = false;
+    try {
+      await withFunctionalResourceScope(async scope => {
+        working = scope.ownWorking(fs.mkdtempSync(path.join(os.tmpdir(), "codeprobe-cleanup-probe-")));
+        if (stage === "working") throw new Error("owned cleanup probe");
+        scope.ownServer(server);
+        if (stage === "server") throw new Error("owned cleanup probe");
+        scope.ownChrome(chrome);
+        if (stage === "chrome") throw new Error("owned cleanup probe");
+        scope.ownCdp(cdp);
+        throw new Error("owned cleanup probe");
+      });
+    } catch (error) {
+      refused = String(error && error.message).includes("owned cleanup probe");
+    }
+    assert(refused, `${stage}: owned setup failure was not propagated`);
+    assert(working && !fs.existsSync(working), `${stage}: owned workspace was not removed`);
+    assert(serverClosed === (stage === "working" ? 0 : 1), `${stage}: fixture server cleanup count differs`);
+    assert(chromeKilled === (["chrome", "cdp"].includes(stage) ? 1 : 0), `${stage}: browser cleanup count differs`);
+    assert(cdpClosed === (stage === "cdp" ? 1 : 0), `${stage}: CDP cleanup count differs`);
+  }
+  console.log("[PASS] browser-functional-cleanup: owned workspace, fixture server, browser and CDP resources unwind after staged setup failures");
+}
 
 async function waitForJson(url, timeout = TIMEOUT_MS) {
   const deadline = Date.now() + timeout;
@@ -291,12 +633,16 @@ function createFixtureServer(root) {
     tamperCore: "",
     tamperWorker: false,
     tamperLoaderSecond: false,
-    reset({ tamperEngine = false, tamperCore = "", tamperWorker = false, tamperLoaderSecond = false } = {}) {
+    runtimeConfigFailure: "",
+    tamperProvenanceSRI: false,
+    reset({ tamperEngine = false, tamperCore = "", tamperWorker = false, tamperLoaderSecond = false, runtimeConfigFailure = "", tamperProvenanceSRI = false } = {}) {
       this.counts.clear();
       this.tamperEngine = tamperEngine;
       this.tamperCore = tamperCore;
       this.tamperWorker = tamperWorker;
       this.tamperLoaderSecond = tamperLoaderSecond;
+      this.runtimeConfigFailure = runtimeConfigFailure;
+      this.tamperProvenanceSRI = tamperProvenanceSRI;
     },
     count(pathname) { return this.counts.get(pathname) || 0; },
   };
@@ -329,6 +675,19 @@ function createFixtureServer(root) {
     }
     const count = state.count(pathname) + 1;
     state.counts.set(pathname, count);
+    if (pathname === "/app/runtime-config.json" && state.runtimeConfigFailure === "http") {
+      response.writeHead(503, { "Content-Type": "application/json; charset=utf-8" });
+      response.end('{"error":"owned runtime config refusal"}');
+      return;
+    }
+    if (pathname === "/app/runtime-config.json" && state.runtimeConfigFailure === "json") {
+      content = Buffer.from("{not-json", "utf8");
+    }
+    if (pathname === "/app/pyodide-provenance.json" && state.tamperProvenanceSRI) {
+      const payload = JSON.parse(content.toString("utf8"));
+      payload.startup_artifacts[0].sri_sha256 = "sha256-not-a-base64-digest";
+      content = Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+    }
     const basename = path.basename(pathname);
     if (CORE_NAMES.includes(basename) && (count > 1 || (state.tamperCore === basename && count === 1))) {
       content = Buffer.from(content);
@@ -521,6 +880,46 @@ async function testTamperedCoreFailsClosedAndReloadRetries(cdp, baseUrl, state) 
   } finally {
     await closeSession(cdp, retried);
   }
+}
+
+async function testRuntimeConfigFailuresFailClosedAndRetry(cdp, baseUrl, state) {
+  for (const runtimeConfigFailure of ["http", "json"]) {
+    state.reset({ runtimeConfigFailure });
+    const failed = await createSession(cdp, `${baseUrl}/app/index.html?runtime-config-failure=${runtimeConfigFailure}`);
+    try {
+      await waitForExpression(cdp, failed.sessionId, "document.getElementById('engineBadge').textContent === 'Initialisation failed'");
+      const outcome = await evaluate(cdp, failed.sessionId, `({
+        status: document.getElementById('statusText').textContent,
+        disabled: document.getElementById('analyzeBtn').disabled,
+      })`);
+      assert(outcome.status === "The in-browser Python engine could not be loaded.", `${runtimeConfigFailure}: configuration failure was not visible in the UI failure state`);
+      assert(outcome.disabled, `${runtimeConfigFailure}: configuration failure did not fail closed`);
+      for (const name of CORE_NAMES) {
+        assert(state.count(`/app/vendor/pyodide/v0.25.0/full/${name}`) === 0,
+          `${runtimeConfigFailure}: runtime startup advanced to ${name} after configuration failure`);
+      }
+    } finally { await closeSession(cdp, failed); }
+  }
+
+  state.reset({ tamperProvenanceSRI: true });
+  const malformedSRI = await createSession(cdp, `${baseUrl}/app/index.html?provenance-sri-failure=1`);
+  try {
+    await waitForExpression(cdp, malformedSRI.sessionId, "document.getElementById('engineBadge').textContent === 'Initialisation failed'");
+    assert(await evaluate(cdp, malformedSRI.sessionId, "document.getElementById('analyzeBtn').disabled"),
+      "malformed provenance SRI did not fail closed");
+    for (const name of CORE_NAMES) {
+      assert(state.count(`/app/vendor/pyodide/v0.25.0/full/${name}`) === 0,
+        `malformed provenance SRI advanced to ${name}`);
+    }
+  } finally { await closeSession(cdp, malformedSRI); }
+
+  state.reset();
+  const retried = await createSession(cdp, `${baseUrl}/app/index.html?runtime-config-clean-retry=1`);
+  try {
+    await waitForExpression(cdp, retried.sessionId, "document.getElementById('statusText').textContent === 'The analysis engine is ready.'");
+    assertSingleVerifiedRequests(state);
+  } finally { await closeSession(cdp, retried); }
+  console.log("[PASS] browser-runtime-config: HTTP/JSON acquisition and malformed SRI fail closed; a clean authenticated retry succeeds");
 }
 
 async function testTamperedEngineFailsClosed(cdp, baseUrl, state) {
@@ -3371,94 +3770,98 @@ async function testReportingContracts(cdp, baseUrl, downloads, fixtureState, eng
 }
 
 async function main() {
-  const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
-  assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
-  for (const name of CORE_NAMES) assert(fs.existsSync(path.join(pyodideDirectory, name)), `missing fixture: ${name}`);
-
-  const working = fs.mkdtempSync(path.join(os.tmpdir(), "codeprobe-functional-"));
-  const fixtureRoot = path.join(working, "kit");
-  const downloads = path.join(working, "downloads");
-  const userData = path.join(working, "chrome-profile");
-  copyFixtureTree(fixtureRoot, pyodideDirectory);
-  const engineDigest = sha256File(path.join(fixtureRoot, "src", "codeprobe_runtime.py"));
-
-  const { server, state } = createFixtureServer(fixtureRoot);
-  const serverPort = await freePort();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(serverPort, "127.0.0.1", resolve);
-  });
-  const baseUrl = `http://127.0.0.1:${serverPort}`;
-
-  const browser = findBrowser();
-  const debugPort = await freePort();
   const browserLog = [];
-  const chrome = childProcess.spawn(browser, [
-    "--headless=new",
-    "--disable-background-networking",
-    "--disable-component-update",
-    "--disable-default-apps",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--disable-sync",
-    "--metrics-recording-only",
-    "--mute-audio",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--no-proxy-server",
-    "--no-sandbox",
-    `--remote-debugging-port=${debugPort}`,
-    `--user-data-dir=${userData}`,
-    "about:blank",
-  ], { stdio: ["ignore", "pipe", "pipe"] });
-  processes.add(chrome);
-  chrome.stdout.on("data", chunk => browserLog.push(String(chunk)));
-  chrome.stderr.on("data", chunk => browserLog.push(String(chunk)));
-
-  let cdp = null;
   try {
-    const version = await waitForJson(`http://127.0.0.1:${debugPort}/json/version`);
-    assert(version.webSocketDebuggerUrl, "Chrome did not expose a DevTools WebSocket URL.");
-    cdp = new CdpConnection(version.webSocketDebuggerUrl);
-    await cdp.connect();
-    await testMainAnalysis(cdp, baseUrl, downloads, state, engineDigest);
-    await testProjectAnalysis(cdp, baseUrl, downloads, state, engineDigest);
-    await testTamperedCoreFailsClosedAndReloadRetries(cdp, baseUrl, state);
-    await testTamperedEngineFailsClosed(cdp, baseUrl, state);
-    await testWorkerResponsiveness(cdp, baseUrl, state, false);
-    await testWorkerResponsiveness(cdp, baseUrl, state, true);
-    await testTamperedWorkerBootstrap(cdp, baseUrl, state);
-    await testInputReportContracts(cdp, baseUrl, downloads, state, false);
-    await testInputReportContracts(cdp, baseUrl, downloads, state, true);
-    await testPrivacyStorageFailures(cdp, baseUrl, state);
-    await testNativeBrowserReplay(cdp, baseUrl, state);
-    const parserFixtures = await testParserReplayBoundary(cdp, baseUrl, state);
-    await testStrictJsonContracts(cdp, baseUrl, state, engineDigest);
-    await testIntakeContracts(cdp, baseUrl, downloads, state, false, engineDigest);
-    await testIntakeContracts(cdp, baseUrl, downloads, state, true, engineDigest);
-    await testPythonStructureContracts(cdp, baseUrl, downloads, state, engineDigest, parserFixtures);
-    await testCLikeStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
-    await testScriptStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
-    await testDocumentLanguageContracts(cdp, baseUrl, downloads, state, engineDigest);
-    await testMetricContracts(cdp, baseUrl, downloads, state, engineDigest);
-    await testReportingContracts(cdp, baseUrl, downloads, state, engineDigest);
-    const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
-    const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
-    console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);
-    console.log("[PASS] browser-functional: file and project JSON/text exports were downloaded and validated");
-    console.log("[PASS] browser-functional: each core artefact reached the origin once; a hostile second response was never consumed");
-    console.log("[PASS] browser-functional: a tampered core artefact failed closed and a clean reload recovered");
-    console.log("[PASS] browser-functional: a tampered Python engine failed before import");
+    await testRuntimeConfigurationContracts();
+    await testFunctionalResourceCleanup();
+    if (process.env.CODEPROBE_BROWSER_SELF_TEST_ONLY === "1") {
+      console.log("[PASS] browser-functional-self-test-only: runtime configuration and owned-resource cleanup contracts passed");
+      return;
+    }
+
+    const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
+    assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
+    for (const name of CORE_NAMES) assert(fs.existsSync(path.join(pyodideDirectory, name)), `missing fixture: ${name}`);
+
+    await withFunctionalResourceScope(async owned => {
+      const working = owned.ownWorking(fs.mkdtempSync(path.join(os.tmpdir(), "codeprobe-functional-")));
+      const fixtureRoot = path.join(working, "kit");
+      const downloads = path.join(working, "downloads");
+      const userData = path.join(working, "chrome-profile");
+      copyFixtureTree(fixtureRoot, pyodideDirectory);
+      const engineDigest = sha256File(path.join(fixtureRoot, "src", "codeprobe_runtime.py"));
+
+      const fixture = createFixtureServer(fixtureRoot);
+      const server = owned.ownServer(fixture.server);
+      const state = fixture.state;
+      const serverPort = await freePort();
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(serverPort, "127.0.0.1", resolve);
+      });
+      const baseUrl = `http://127.0.0.1:${serverPort}`;
+
+      const browser = findBrowser();
+      const debugPort = await freePort();
+      const chrome = owned.ownChrome(childProcess.spawn(browser, [
+        "--headless=new",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-default-apps",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-sync",
+        "--metrics-recording-only",
+        "--mute-audio",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--no-proxy-server",
+        "--no-sandbox",
+        `--remote-debugging-port=${debugPort}`,
+        `--user-data-dir=${userData}`,
+        "about:blank",
+      ], { stdio: ["ignore", "pipe", "pipe"] }));
+      chrome.stdout.on("data", chunk => browserLog.push(String(chunk)));
+      chrome.stderr.on("data", chunk => browserLog.push(String(chunk)));
+
+      const version = await waitForJson(`http://127.0.0.1:${debugPort}/json/version`);
+      assert(version.webSocketDebuggerUrl, "Chrome did not expose a DevTools WebSocket URL.");
+      const cdp = owned.ownCdp(new CdpConnection(version.webSocketDebuggerUrl));
+      await cdp.connect();
+      await testMainAnalysis(cdp, baseUrl, downloads, state, engineDigest);
+      await testProjectAnalysis(cdp, baseUrl, downloads, state, engineDigest);
+      await testTamperedCoreFailsClosedAndReloadRetries(cdp, baseUrl, state);
+      await testRuntimeConfigFailuresFailClosedAndRetry(cdp, baseUrl, state);
+      await testTamperedEngineFailsClosed(cdp, baseUrl, state);
+      await testWorkerResponsiveness(cdp, baseUrl, state, false);
+      await testWorkerResponsiveness(cdp, baseUrl, state, true);
+      await testTamperedWorkerBootstrap(cdp, baseUrl, state);
+      await testInputReportContracts(cdp, baseUrl, downloads, state, false);
+      await testInputReportContracts(cdp, baseUrl, downloads, state, true);
+      await testPrivacyStorageFailures(cdp, baseUrl, state);
+      await testNativeBrowserReplay(cdp, baseUrl, state);
+      const parserFixtures = await testParserReplayBoundary(cdp, baseUrl, state);
+      await testStrictJsonContracts(cdp, baseUrl, state, engineDigest);
+      await testIntakeContracts(cdp, baseUrl, downloads, state, false, engineDigest);
+      await testIntakeContracts(cdp, baseUrl, downloads, state, true, engineDigest);
+      await testPythonStructureContracts(cdp, baseUrl, downloads, state, engineDigest, parserFixtures);
+      await testCLikeStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
+      await testScriptStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
+      await testDocumentLanguageContracts(cdp, baseUrl, downloads, state, engineDigest);
+      await testMetricContracts(cdp, baseUrl, downloads, state, engineDigest);
+      await testReportingContracts(cdp, baseUrl, downloads, state, engineDigest);
+      const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
+      const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
+      console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);
+      console.log("[PASS] browser-functional: file and project JSON/text exports were downloaded and validated");
+      console.log("[PASS] browser-functional: each core artefact reached the origin once; a hostile second response was never consumed");
+      console.log("[PASS] browser-functional: a tampered core artefact failed closed and a clean reload recovered");
+      console.log("[PASS] browser-functional: a tampered Python engine failed before import");
+    });
   } catch (error) {
     console.error(`[FAIL] browser-functional: ${error && error.stack ? error.stack : error}`);
     if (browserLog.length) console.error(`browser log:\n${browserLog.join("").slice(-8_000)}`);
     process.exitCode = 1;
-  } finally {
-    if (cdp) cdp.close();
-    stopProcess(chrome);
-    processes.delete(chrome);
-    await new Promise(resolve => server.close(resolve));
-    try { fs.rmSync(working, { recursive: true, force: true }); } catch (_) { /* best effort */ }
   }
 }
 

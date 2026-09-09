@@ -67,7 +67,11 @@ Change only the deployment mode in `app/runtime-config.json`:
 }
 ```
 
-Production mode rejects missing provenance, disabled integrity and disabled core-set verification.
+Production mode rejects missing provenance, disabled integrity and disabled core-set verification. The browser validates the configuration object before applying defaults: an explicitly unsupported schema, unknown field, non-object section or wrong Boolean/string type is rejected rather than normalised. Fields omitted from the documented partial local-mode form continue to use the packaged defaults.
+
+Configuration acquisition is fail-closed. A failed request, non-success HTTP response or malformed JSON does **not** select the CDN defaults and does not start Pyodide. The browser remains in its explicit initialisation-failed state without exposing response bodies or source fragments. A clean retry uses a fresh worker/configuration request because the failed configuration promise is discarded. An offline installation therefore cannot change to CDN mode merely because `runtime-config.json` is unavailable; CDN use requires a successfully loaded configuration that selects it.
+
+The browser also checks each startup record's `sri_sha256` against the base64 representation of the same `sha256_hex` value, matching the static provenance checker. The hexadecimal digest remains the byte-verification input; the redundant SRI field cannot disagree silently.
 
 ## 4. Refresh tracked integrity and release evidence
 

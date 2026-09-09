@@ -74,17 +74,93 @@
     return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
   }
 
+  const RUNTIME_CONFIG_FIELDS = Object.freeze(new Set(["schema", "production", "pyodide", "privacy"]));
+  const PYODIDE_CONFIG_FIELDS = Object.freeze(new Set([
+    "mode", "version", "loader_url", "index_url", "local_loader_url",
+    "local_index_url", "provenance_url", "expected_loader_sha256",
+    "require_integrity", "verify_core_startup_set"
+  ]));
+  const PYODIDE_STRING_FIELDS = Object.freeze(new Set([
+    "mode", "version", "loader_url", "index_url", "local_loader_url",
+    "local_index_url", "provenance_url", "expected_loader_sha256"
+  ]));
+  const PRIVACY_CONFIG_FIELDS = Object.freeze(new Set([
+    "history_enabled_default", "store_source_in_history", "clear_pyodide_payload_after_run"
+  ]));
+
+  function runtimeConfigError(code, message) {
+    const error = new Error(message);
+    error.name = "RuntimeConfigError";
+    error.code = code;
+    return error;
+  }
+
+  function requireConfigObject(value, label) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw runtimeConfigError("runtime_config_invalid", `${label} must be an object.`);
+    }
+    return value;
+  }
+
+  function rejectUnknownFields(value, allowed, label) {
+    for (const key of Object.keys(value)) {
+      if (!allowed.has(key)) {
+        throw runtimeConfigError("runtime_config_invalid", `${label} contains an unsupported field.`);
+      }
+    }
+  }
+
+  function validateRawRuntimeConfig(raw) {
+    requireConfigObject(raw, "Runtime configuration");
+    rejectUnknownFields(raw, RUNTIME_CONFIG_FIELDS, "Runtime configuration");
+    if (Object.prototype.hasOwnProperty.call(raw, "schema") && raw.schema !== DEFAULT_CONFIG.schema) {
+      throw runtimeConfigError("runtime_config_invalid", "Runtime configuration schema is unsupported.");
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, "production") && typeof raw.production !== "boolean") {
+      throw runtimeConfigError("runtime_config_invalid", "Runtime configuration production must be Boolean.");
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, "pyodide")) {
+      const settings = requireConfigObject(raw.pyodide, "Runtime configuration pyodide");
+      rejectUnknownFields(settings, PYODIDE_CONFIG_FIELDS, "Runtime configuration pyodide");
+      for (const key of PYODIDE_STRING_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(settings, key) && typeof Reflect.get(settings, key) !== "string") {
+          throw runtimeConfigError("runtime_config_invalid", "Runtime configuration text field has the wrong type.");
+        }
+      }
+      for (const key of ["require_integrity", "verify_core_startup_set"]) {
+        if (Object.prototype.hasOwnProperty.call(settings, key) && typeof Reflect.get(settings, key) !== "boolean") {
+          throw runtimeConfigError("runtime_config_invalid", "Runtime configuration integrity field must be Boolean.");
+        }
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, "privacy")) {
+      const privacy = requireConfigObject(raw.privacy, "Runtime configuration privacy");
+      rejectUnknownFields(privacy, PRIVACY_CONFIG_FIELDS, "Runtime configuration privacy");
+      for (const key of PRIVACY_CONFIG_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(privacy, key) && typeof privacy[key] !== "boolean") {
+          throw runtimeConfigError("runtime_config_invalid", `Runtime configuration privacy ${key} must be Boolean.`);
+        }
+      }
+    }
+    return raw;
+  }
+
   function mergeConfig(raw) {
+    validateRawRuntimeConfig(raw);
     const config = cloneDefaultConfig();
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return config;
-    if (Object.prototype.hasOwnProperty.call(raw, "production")) {
-      config.production = Boolean(raw.production);
+    if (Object.prototype.hasOwnProperty.call(raw, "schema")) config.schema = raw.schema;
+    if (Object.prototype.hasOwnProperty.call(raw, "production")) config.production = raw.production;
+    if (Object.prototype.hasOwnProperty.call(raw, "pyodide")) {
+      for (const key of PYODIDE_CONFIG_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(raw.pyodide, key)) {
+          Reflect.set(config.pyodide, key, Reflect.get(raw.pyodide, key));
+        }
+      }
     }
-    if (raw.pyodide && typeof raw.pyodide === "object" && !Array.isArray(raw.pyodide)) {
-      Object.assign(config.pyodide, raw.pyodide);
-    }
-    if (raw.privacy && typeof raw.privacy === "object" && !Array.isArray(raw.privacy)) {
-      Object.assign(config.privacy, raw.privacy);
+    if (Object.prototype.hasOwnProperty.call(raw, "privacy")) {
+      for (const key of PRIVACY_CONFIG_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(raw.privacy, key)) config.privacy[key] = raw.privacy[key];
+      }
     }
     return config;
   }
@@ -95,6 +171,25 @@
       throw new Error("Integrity metadata contains an invalid SHA-256 value.");
     }
     return rendered;
+  }
+
+  function sha256SRI(value) {
+    const digest = normaliseSha256(value);
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const bytes = [];
+    for (let index = 0; index < digest.length; index += 2) bytes.push(parseInt(digest.slice(index, index + 2), 16));
+    let encoded = "";
+    for (let index = 0; index < bytes.length; index += 3) {
+      const a = bytes[index];
+      const b = index + 1 < bytes.length ? bytes[index + 1] : 0;
+      const c = index + 2 < bytes.length ? bytes[index + 2] : 0;
+      const value24 = (a << 16) | (b << 8) | c;
+      encoded += alphabet[(value24 >> 18) & 63];
+      encoded += alphabet[(value24 >> 12) & 63];
+      encoded += index + 1 < bytes.length ? alphabet[(value24 >> 6) & 63] : "=";
+      encoded += index + 2 < bytes.length ? alphabet[value24 & 63] : "=";
+    }
+    return `sha256-${encoded}`;
   }
 
   function positiveInteger(value, label) {
@@ -135,19 +230,26 @@
   async function loadRuntimeConfig() {
     if (configPromise) return configPromise;
     configPromise = (async () => {
-      let raw = null;
+      let raw;
       try {
         const response = await fetch(absoluteURL("runtime-config.json"), {
           cache: "no-store",
           credentials: "same-origin"
         });
-        if (!response.ok) throw new Error(`runtime-config.json returned ${response.status}`);
+        if (!response.ok) throw new Error("runtime-config.json HTTP failure");
         raw = await response.json();
-      } catch (error) {
-        raw = cloneDefaultConfig();
-        raw.runtime_config_warning = String(error && error.message ? error.message : error);
+      } catch (_) {
+        throw runtimeConfigError(
+          "runtime_config_acquisition",
+          "runtime-config.json could not be loaded and parsed; runtime startup was stopped."
+        );
       }
-      activeConfig = validateRuntimeConfig(mergeConfig(raw));
+      try {
+        activeConfig = validateRuntimeConfig(mergeConfig(raw));
+      } catch (error) {
+        if (error && error.name === "RuntimeConfigError") throw error;
+        throw runtimeConfigError("runtime_config_invalid", "runtime-config.json is invalid; runtime startup was stopped.");
+      }
       const pyodide = activeConfig.pyodide;
       const mode = String(pyodide.mode).toLowerCase();
       activeLoaderURL = mode === "local"
@@ -207,8 +309,9 @@
       }
       const digest = normaliseSha256(record.sha256_hex);
       positiveInteger(record.size_bytes, `${name} size_bytes`);
-      if (!String(record.sri_sha256 || "").startsWith("sha256-")) {
-        throw new Error(`${name} requires an SRI SHA-256 value.`);
+      const expectedSRI = sha256SRI(digest);
+      if (record.sri_sha256 !== expectedSRI) {
+        throw new Error(`${name} SRI SHA-256 does not match sha256_hex.`);
       }
       byName.set(name, Object.freeze({ ...record, sha256_hex: digest }));
     }

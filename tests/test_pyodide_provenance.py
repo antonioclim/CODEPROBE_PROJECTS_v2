@@ -58,6 +58,16 @@ class PyodideProvenanceTests(unittest.TestCase):
             errors = provenance.audit_pyodide_provenance(root)
         self.assertTrue(any("configured loader digest differs" in error for error in errors))
 
+    def test_startup_sri_must_match_record_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.fixture(Path(tmp))
+            path = root / "app" / "pyodide-provenance.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["startup_artifacts"][0]["sri_sha256"] = "sha256-not-a-base64-digest"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            errors = provenance.audit_pyodide_provenance(root)
+        self.assertTrue(any("SRI does not match SHA-256" in error for error in errors))
+
     def test_duplicate_startup_record_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = self.fixture(Path(tmp))
