@@ -641,7 +641,7 @@ class BoundedProjectControlTests(unittest.TestCase):
                     read.assert_not_called()
             self.assertEqual(path.read_bytes(), b"{}")
 
-    def test_valid_shipped_profile_and_config_preserve_effective_report(self):
+    def test_generated_operational_profile_and_config_preserve_effective_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "project"
@@ -651,14 +651,44 @@ class BoundedProjectControlTests(unittest.TestCase):
             override = {"line_length_uniformity": {"weight": 0.17}}
             config = root / "config.json"
             config.write_text(json.dumps(override), encoding="utf-8")
-            profile_path = ROOT / "calibration/03-example-calibration-profile.json"
+            effective_config = engine.merged_metric_config("default", override)
+            profile = {
+                "schema_version": engine.CALIBRATION_PROFILE_SCHEMA,
+                "profile_id": "owned-project-fixture",
+                "label": "Owned project fixture",
+                "operational": True,
+                "operational_reason": "owned-test-fixture",
+                "scope": {
+                    "report_kinds": ["project"],
+                    "languages": ["project"],
+                    "mixed_domains_permitted": False,
+                },
+                "calibrated_policy_kind": "project",
+                "metric_overrides": {},
+                "scoring_contract": engine.scoring_contract("default", effective_config),
+            }
+            profile_path = root / "operational-profile.json"
+            profile_path.write_text(json.dumps(profile), encoding="utf-8")
             args = self._args(root, config=str(config), calibration_profile=str(profile_path))
             actual = engine.analyse_project_payload(analyze_project.build_payload(args))
             expected_payload = project_io.project_payload_from_path(project, max_file_bytes=1000, max_total_bytes=10000, max_entries=20, max_files=10, max_archive_bytes=10000, max_ignore_bytes=1000, max_ignore_rules=100)
-            expected_payload.update(project_name="owned fixture", config_override=override, calibration_profile=json.loads(profile_path.read_text(encoding="utf-8")))
+            expected_payload.update(project_name="owned fixture", config_override=override, calibration_profile=profile)
             expected = engine.analyse_project_payload(expected_payload)
             for key in ("decision_score", "metric_config_digest", "calibration_profile", "included_file_count", "excluded_files"):
                 self.assertEqual(actual[key], expected[key], key)
+
+    def test_shipped_example_profile_is_a_refused_nonoperational_illustration(self):
+        profile_path = ROOT / "calibration/03-example-calibration-profile.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        self.assertIs(profile.get("operational"), False)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project"
+            project.mkdir()
+            (project / "main.py").write_text("def add(left, right):\n    return left + right\n", encoding="utf-8")
+            args = self._args(root, calibration_profile=str(profile_path))
+            with self.assertRaisesRegex(ValueError, "non-operational"):
+                engine.analyse_project_payload(analyze_project.build_payload(args))
 
 class CoherentProjectIntakeTests(unittest.TestCase):
     def test_duplicate_root_controls_are_inert_in_both_containers_and_orders(self):
