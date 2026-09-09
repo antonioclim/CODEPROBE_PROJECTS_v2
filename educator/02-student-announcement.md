@@ -1,15 +1,15 @@
 # AI Fingerprint Self-Check for Project Code
 
-Before submitting project work, please use the CodeProbe Project Kit to review the AI-style concern profile of the source code you personally authored for the assignment.
+Before submitting project work, use the CodeProbe Project Kit to review the source code you personally authored for the assignment. Follow the local-server instructions for your operating system and inspect the report rather than treating the score as a judgement.
 
-The kit runs locally in your browser and includes step-by-step instructions for Windows, Linux and macOS.
+The bundled 60% review trigger is provisional. An applicable score at or above the active trigger prompts inspection and explanation; it does not prove AI use or misconduct. A compatible course-local calibration profile can replace both the trigger and the display bands. Read the active policy in the report. Under the bundled policy, 50% has the elevated reading without reaching the trigger, while exactly 60% reaches it.
 
-For this course, the bundled **60% trigger is provisional**. If your instructor provides a course-local calibration profile, the active review trigger displayed in the CodeProbe report replaces the bundled trigger. A result above the active trigger means that the code should normally be revised, simplified where appropriate, documented through a brief disclosure where required, and checked again before submission. It does not automatically prove excessive AI use or academic misconduct.
+The aim is not to minimise a number. Review the relevant code, tests and context, then revise only where you identify a defensible issue. Do not alter working code or exclude assessed files merely to obtain a lower score. Provide an AI-use disclosure when the course policy requires it, independently of the numerical result.
 
-Do not assume that the lowest possible score is the best outcome. Very low scores may also occur in fragmented, inconsistent or weakly structured code. The aim is to produce code that is coherent, purposeful, readable and genuinely explainable by you.
+Analyse only the assessed source files you authored. Exclude starter code, third-party libraries, generated files, minified assets and build output. Documentation is not part of the code aggregate. In project mode, check the included and excluded inventories before interpreting the aggregate. A non-applicable result means that a numeric interpretation is unavailable, not that independent authorship has been established.
 
-When using the tool, analyse only the assessed source files that you authored. Exclude starter code, third-party libraries, generated files, minified assets, build output and documentation. In project mode, check the included-file and excluded-file lists before relying on the aggregate result.
+Use only the generated file or project calibration profile supplied for the relevant task. The shipped example and profile template are non-operational illustrations. A technically replayable profile is not, by itself, approval for use in a course.
 
-The tool is a formative self-check. You must still be able to explain and justify your code confidently, including the design decisions, edge cases, tests and any AI assistance used during development.
+This is a formative self-check. You must still explain your design decisions, edge cases, tests and any AI assistance. Keep normal development evidence and discuss uncertainties with your instructor; no score replaces that explanation.
 
-You may also use this kit to review short code snippets included in a bachelor thesis, where appropriate.
+The kit may also support discussion of a code snippet in a bachelor thesis, subject to its applicability and parser limits. A short or incomplete snippet does not gain a reliable numerical interpretation merely because the tool can display it.

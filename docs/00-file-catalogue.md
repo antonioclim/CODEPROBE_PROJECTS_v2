@@ -5,6 +5,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 ## Summary
 
 - `added_I04`: 1
+- `added_I13`: 3
 - `added_audit_phase4`: 7
 - `added_audit_phase4b`: 1
 - `added_audit_phase4c`: 7
@@ -52,6 +53,8 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `app/vendor/pyodide/README.md` | `—` | `app` | browser app asset | `keep` | current | `high` |
 | `calibration/01-corpus-manifest-template.csv` | `calibration/manifest_template.csv` | `calibration` | calibration template or placeholder | `completed_migration` | current | `medium` |
 | `calibration/01-corpus-manifest-template.json` | `calibration/manifest_template.json` | `calibration` | calibration template or placeholder | `completed_migration` | current | `medium` |
+| `calibration/01-project-corpus-manifest-template.csv` | `—` | `calibration` | project-only calibration manifest template | `added_I13` | I13 | `medium` |
+| `calibration/01-project-corpus-manifest-template.json` | `—` | `calibration` | project-only calibration manifest template | `added_I13` | I13 | `medium` |
 | `calibration/02-calibration-profile-template.json` | `calibration/profile_template.json` | `calibration` | calibration template or placeholder | `completed_migration` | current | `medium` |
 | `calibration/03-example-calibration-profile.json` | `calibration/example_profile.json` | `calibration` | calibration template or placeholder | `completed_migration` | current | `medium` |
 | `calibration/04-validation-summary-template.md` | `calibration/validation_summary_template.md` | `calibration` | calibration template or placeholder | `completed_migration` | current | `medium` |
@@ -125,6 +128,7 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tests/test_app_runtime_tools_paths.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_browser_security.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_calibration_profiles.py` | `—` | `tests` | regression test | `keep` | current | `high` |
+| `tests/test_calibration_workflow.py` | `—` | `tests` | calibration workflow and document contract regressions | `added_I13` | I13 | `medium` |
 | `tests/test_contract_repairs.py` | `—` | `tests` | native replay, provenance and publication regressions | `added_audit_phase4h` | audit-4h | `high` |
 | `tests/test_coverage_policy.py` | `—` | `tests` | regression test | `added_audit_phase4d` | audit-4d | `high` |
 | `tests/test_dependency_boundary.py` | `—` | `tests` | regression test | `added_audit_phase4` | audit-4 | `high` |

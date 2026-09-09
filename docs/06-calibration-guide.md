@@ -17,82 +17,33 @@ A calibration profile does **not** transform CodeProbe into an authorship detect
 
 ## Manifest format
 
-Use `tools/calibrate_profile.py` with either a JSON manifest or a CSV manifest.
+Use one report kind per profile. The [file-only JSON](../calibration/01-corpus-manifest-template.json) and [CSV](../calibration/01-corpus-manifest-template.csv) templates contain four explicit placeholder observations, one known-human and one positive observation in each of `fit` and `evaluation`. Their declared groups are distinct. The separate [project-only JSON](../calibration/01-project-corpus-manifest-template.json) and [CSV](../calibration/01-project-corpus-manifest-template.csv) templates use whole folders or source ZIPs as observations.
 
-JSON example:
+Four observations illustrate the software contract, not a recommended study size. Replacing only the paths can exercise a template; actual labels, grouping and sampling need independent justification. Neither an invented group name nor `operational: true` establishes an independent author or a statistically adequate corpus. CSV/JSON counterpart sample fields are semantically identical; JSON can additionally carry study-level metadata.
 
-```json
-{
-  "profile_id": "intro-python-2026-v1",
-  "label": "Intro Python 2026 project profile",
-  "course": "Introductory Programming",
-  "samples": [
-    {"path": "samples/human/student_001.py", "label": "human", "language_hint": "python"},
-    {"path": "samples/ai/llm_001.py", "label": "ai_generated", "language_hint": "python"},
-    {"path": "samples/hybrid/project_001", "label": "hybrid", "kind": "project"}
-  ]
-}
-```
+A file profile is restricted to one detected language. A project profile uses the scope marker `project`, regardless of the supported languages inside its member files. It calibrates the project aggregate, not each child file. File and project observations cannot be mixed. Project folders and ZIPs may share a project-only manifest where the sampling design justifies that choice.
 
-CSV example:
+`path`, `label`, `kind`, `language_hint`, `group_id` and `split` are the illustrated sample fields. The accepted group aliases are `group`, `student_id` and `submission_id`; use one unambiguous grouping field. Every explicit split must be present. A group cannot cross partitions or mix known-human and positive strata. Both partitions require applicable human and positive observations. With no explicit splits, deterministic stratified group holdout requires at least two groups per stratum. The labelled-folder wrapper does not derive groups from nested author/submission directories: use a manifest for related files.
 
-```csv
-path,label,language_hint,kind,notes
-samples/student_001.py,human,python,file,strong process evidence
-samples/llm_001.py,ai_generated,python,file,generated from same brief
-samples/hybrid_project,hybrid,python,project,declared assisted project folder
-```
+Paths are relative to the manifest directory unless `--root` supplies the common corpus root; they must remain inside that root. Symlinks, special files, duplicate physical source aliases, invalid samples and destinations overlapping inputs are refused. The wrapper's generated manifest still contains relative source paths and is private. Random observation tokens do not anonymise the input manifest.
 
-Paths are resolved relative to the manifest location unless `--root` is supplied.
-Manifest and corpus traversal rejects symbolic links, reparse points and special filesystem entries. Output paths must be distinct from the manifest and all samples; an output is also rejected when it is redirected through a link or placed inside a project sample.
-Generated profiles replace internal sample and group identifiers with fresh per-export tokens, as described below. An explicit manifest identifier is not exported unchanged. Ordinary analysis reports retain aggregate calibration design and evaluation metadata but do not embed sample-level observations or the full sensitivity grid.
+## Commands and outputs
 
-## Generate a profile
+Use the [single-line, cross-platform command examples](../calibration/README.md#prepare-a-private-workspace). They specify the kit working directory, a private sibling workspace, separate file/project manifests and outputs outside the source projects. Keep `-I -S -B`; omitting isolation or site suppression is a startup error. The project report directory must already exist, while calibration creates its output directories.
 
-Directory-output form:
+The manifest CLI writes a profile, validation summary, observations CSV and fit-sensitivity CSV. The folder wrapper additionally writes a generated manifest. Output validation and encoding precede publication, but individual atomic replacements do not constitute a transaction across all outputs; examine partial-publication errors.
 
-```bash
-python3 -I -S -B tools/calibrate_profile.py \
-  --manifest calibration/01-corpus-manifest-template.json \
-  --out-dir calibration/profiles/intro-python-2026 \
-  --target-fpr 10
-```
+`--target-fpr` specifies a fit-partition target, not an achieved population error probability. The default is 0.10; 0.05 and 5 both request 0.05 under the retained fraction/percentage convention. Study identifiers, explicit output paths and configuration overrides remain documented by `--help`.
 
-Explicit-output form:
-
-```bash
-python3 -I -S -B tools/calibrate_profile.py \
-  --manifest calibration/01-corpus-manifest-template.csv \
-  --profile-id intro-python-2026-v1 \
-  --label "Intro Python 2026 project profile" \
-  --target-fpr 10 \
-  --profile-out calibration/profiles/intro-python-2026-profile.json \
-  --summary-out calibration/reports/intro-python-2026-validation.md \
-  --csv-out calibration/reports/intro-python-2026-observations.csv \
-  --sensitivity-out calibration/reports/intro-python-2026-sensitivity.csv
-```
-
-`--target-fpr` accepts either fractions (`0.10`) or percentages (`10`). The value represents the intended maximum review rate for labelled human samples, subject to the size and quality of the corpus.
+The ignored `--min-per-class-for-language` argument has been removed. Delete it from scripts; it is now rejected before input reading or output publication. This does not introduce an arbitrary sample-size minimum or change the score/threshold-selection formula. The existing partition balance, small-partition warnings and technical operational tests remain in force.
 
 ## Using a generated profile
 
-Paste the generated JSON into the browser field **Calibration profile (optional JSON)**, or use it through the CLI:
+A generated **file** profile belongs in file analysis of the same language. A generated **project** profile belongs in browser project mode or `tools/analyze_project.py`; do not apply a file profile with that command. The [calibration workflow](../calibration/README.md#inspect-then-apply) includes a complete project generation/application sequence.
 
-```bash
-python3 -I -S -B tools/analyze_project.py \
-  --folder path/to/submission \
-  --calibration-profile calibration/profiles/intro-python-2026-profile.json \
-  --json-out report.json \
-  --text-out report.txt
-```
+Inspect `operational`, `operational_reason` and `scope`, not just exit status. Successfully written diagnostics can describe an unmet fit target and a non-operational profile. The distributed profile template and example explicitly set `operational: false` and cannot be applied. Generate profiles from the curated corpus; do not activate an illustration or substitute guessed digest fields.
 
-The report records:
-
-- `calibration_profile_id`;
-- active `review_policy`;
-- `review_trigger` and `review_trigger_percent`;
-- whether the active trigger was reached;
-- whether the trigger came from the bundled default or the local profile.
+Reports expose the active policy, trigger, trigger status, profile identity and compact aggregate validation. Individual observations and the full sensitivity grid do not appear in compact report validation. Omitted scoring mode selects the bound mode; an incompatible mode, configuration, engine or report scope is refused. Native and Pyodide consumers must each meet their actual parser requirements.
 
 ## Reading the sensitivity grid
 
@@ -111,11 +62,11 @@ Do not approve a profile unless:
 
 ## Non-negotiable caveat
 
-A calibrated trigger is still a **review trigger**, not proof. A score above the trigger should lead to revision, explanation and evidence review, not an automatic academic-integrity conclusion. A low score means that the selected signals were not detected; it does not certify independent authorship.
+A calibrated trigger is still a **review trigger**, not proof. A score at or above the active trigger should prompt code inspection, explanation and evidence review, not an automatic academic-integrity conclusion. Revise only for identified issues, not to force a lower score. A low score is not evidence of independent authorship.
 
 ## Group-exclusive evaluation and profile scope
 
-A generated profile must use group-exclusive fit and evaluation partitions. The review trigger is selected only on the fit partition. The untouched evaluation partition reports its own descriptive review rates. The additional pooled all-partition row is not an independent performance estimate. A profile is scoped to one report kind and one language; mixed file/project or mixed-language corpora must be split into separate profiles. Sample paths are corpus-relative or pseudonymised and failed sample reads abort generation before any profile is written.
+A generated profile must use group-exclusive fit and evaluation partitions. The review trigger is selected only on the fit partition. The untouched evaluation partition reports its own descriptive review rates. The additional pooled all-partition row is not an independent performance estimate. A file profile is scoped to one report kind and one detected language. A project profile uses the `project` scope marker and may contain supported mixed-language members. Separate file/project corpora; do not infer per-language validity from a project profile. Input manifests retain paths, whereas sample-level observation exports replace identifiers. Failed sample reads abort generation before any profile is written.
 
 ## Duplicate-evidence boundary
 

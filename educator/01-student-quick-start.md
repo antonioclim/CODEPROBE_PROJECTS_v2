@@ -24,7 +24,7 @@ For a single file, use **Open file**, paste the code, or drag the source file an
 
 ## 4. Read the report correctly
 
-The score is a review signal, not a judgement. A score above the active trigger means that you should revise, simplify or document the relevant parts and re-run the tool. It does not automatically mean misconduct.
+The score is a review signal, not a judgement. An applicable score at or above the active trigger prompts code inspection and explanation, not a requirement to lower the number. Revise only for identified code or documentation issues and follow the course disclosure policy independently of the score. Under the bundled policy, 50% is elevated but below the trigger; exactly 60% reaches it. A compatible local profile can replace both bands and trigger, so read the active report policy. Non-applicable means no numeric interpretation, not proof of independent authorship.
 
 Focus first on the explanations attached to individual metrics and on the **Manual review** tab. Quality and context metrics are improvement advice; they are not proof of AI use. The manual-review guidance tells you which evidence an instructor may reasonably ask for if a score needs discussion.
 

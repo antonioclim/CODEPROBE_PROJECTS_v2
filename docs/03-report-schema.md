@@ -1,200 +1,174 @@
 # Report schema notes
 
-## Scope
-
-This document describes the stable report fields that matter for course audit and release comparison. It is not a formal JSON Schema file, but it records the expected structure of CodeProbe `2.2.0` reports.
-
-## Evidence coverage and configured contributions
-
-`evidence_coverage` is the displayed category. The legacy `confidence` key retains
-exactly the same value for compatibility; it is not statistical confidence.
-`evidence_coverage_basis` records the method, category, interpretation, actual
-classification factors, ordered rules and warning timing. It is available on
-file reports, project reports and included project members. Older reports may
-lack the new fields; the interface labels their missing basis rather than
-inventing one.
-
-For a code file, fewer than five non-blank lines, fewer than four applicable
-positive-weight contributors or a zero metric denominator gives **Limited** and
-an inapplicable code aggregate. Otherwise, **High** requires at least 80
-non-blank lines, an applicable-contributor fraction of at least 0.75 and at most
-two warnings at classification. **Moderate** requires at least 25 non-blank
-lines and a fraction of at least 0.55. Remaining code files are Limited.
-Markdown uses **N/A**. The fraction's denominator is the positive-weight
-contributor set returned for the file, not the number of metric declarations
-in the source catalogue.
-
-For a project, no contributing file gives Limited. Otherwise, High requires at
-least 250 non-blank lines, five contributing files and at most four warnings at
-classification. Moderate requires at least 80 non-blank lines and two included
-files; other projects are Limited. These are the retained heuristic rules, not
-newly fitted cut-offs. Classification uses the warnings present at that point;
-later intake, exclusion or review notices remain visible without retroactively
-changing the category. Read `warning_count_at_classification` separately from
-the length of the final warning list.
-
-A descriptive `group` and `contributes_to_overall` answer different questions.
-The default policy has seven positive-weight stylometric contributors with a
-nominal total weight of **0.31**. Valid overrides may enable a Boolean
-contribution in any of the four recognised groups. For example, enabling
-`docstring_coverage` with weight 0.5 raises the nominal denominator to **0.81**;
-this is a configured choice, not evidence that docstrings identify an author.
-Disabled, zero-weight and explicitly non-contributing metrics are absent from
-the nominal sum. The browser and native engine accept Boolean contributions;
-non-Boolean flags, non-finite weights and unknown groups remain invalid. The
-existing range policy is unchanged: native finite weights are clamped to [0, 1],
-whereas the browser refuses out-of-range values before dispatch.
-
-`metric_role_summary.contributing_weight` now covers all descriptive groups.
-`configured_contributors`, `configured_contributor_count` and
-`custom_contribution_policy` identify the actual policy. The compatibility key
-`authorship_signal_metrics` still counts only positive-weight contributors in
-the stylometry group; its name does not establish authorship validity.
-
-For each file, `aggregation.nominal_weight` is the configured sum and
-`effective_weight` is the denominator over applicable positive-weight metric
-results. `contributors` lists that eligible metric set. The separate
-`aggregate_applied_weight` is zero when `overall_applicable` is false. This
-matters for sparse code and documentation: a calculable metric denominator does
-not make an inapplicable code aggregate meaningful. Markdown remains excluded
-from the code aggregate even under custom documentation weights. Project
-`aggregation.effective_weight_sloc` sums the retained capped per-file SLOC
-weights, not metric weights. Do not interchange these denominators.
-
-## References and source-level proxies
-
-Metric `references` remain compatible bibliographic strings. The additive
-`reference_usage` list associates each string with a `role` (definition,
-motivation or context) and its `scope`. File JSON/text, project members and the
-main metric-detail panel carry the qualification. Definitions and contextual
-papers do not validate CodeProbe's configured weights, thresholds or attribution
-claims. The Rahman reference identifies arXiv:2409.01382v1 explicitly; the title
-is not silently attached to a later revision. Bash quoting cites the GNU Bash
-5.3 manual, not Python's PEP 8. CommonMark 0.31.2 supplies syntax, not quality
-scores. Unverified C/C++/C# specification editions are not asserted.
-
-The three memory-related metrics retain their calculations and normalisation:
-
-| Metric | Method | Unit | What the result does not establish |
-|---|---|---|---|
-| `register_pressure` | `source_name_occurrence_span_peak` | `peak_scalar_names_per_13` | Semantic liveness, allocated registers or emitted spill code |
-| `stack_frame_depth` | `recognised_declaration_size_sum_max` | `estimated_bytes` | ABI layout, padding, optimisation or the emitted stack frame |
-| `redundant_memory_access` | `lexical_memory_cue_density_mean` | `cues_per_20_function_lines` | Memory traffic, alias safety or safe hoisting/`const`/`restrict` transformations |
-
-Their domain is `recognised_functions`, subject to the existing finite-parser
-availability rules. The register budget of 13 is a fixed heuristic, not a
-hardware measurement. Legacy detail labels such as `peak_live`, `loop_invariants`
-and `missing_const_or_restrict` are qualified source cues. Review the code and
-compiler evidence separately before making optimisation claims. Unavailable
-measurements do not acquire a method label merely from a bibliography entry.
+CodeProbe v2.2.0 serialises reports as JSON and human-readable text. The JSON report is intended for traceable formative review, not automated disciplinary decisions.
 
 ## File report
 
-A file analysis report has schema version `2.2.0` and includes at least:
+The canonical file report uses schema `2.2.0`. Important fields include:
 
-```json
-{
-  "schema_version": "2.2.0",
-  "app_version": "2.2.0",
-  "filename": "main.py",
-  "language": "python",
-  "input_lines": 120,
-  "input_sloc": 92,
-  "overall_score": 0.31,
-  "verdict": "Moderate AI-style concern — mixed or weak signals",
-  "verdict_class": "moderate",
-  "reading": "Moderate AI-style concern — mixed or weak signals",
-  "reading_class": "moderate",
-  "review_trigger": 0.6,
-  "review_triggered": false,
-  "metrics": [],
-  "recommendations": [],
-  "generated_at_utc": "2026-05-28T00:00:00Z",
-  "engine_fingerprint": "sha256:...",
-  "metric_config_digest": "sha256:...",
-  "metric_role_summary": {},
-  "tool_metadata": {}
-}
-```
+- `filename`, `language`, `loc` and `sloc`: source identity and retained line counts. `loc` counts LF-split segments after newline normalisation (empty input gives zero; a final newline adds an empty segment), while `sloc` counts non-blank segments including comments, not executable statements;
+- `metrics`: an array of metric records, each with applicability, value, interpretation, weight and role;
+- `overall_score`, `overall_percent`, `overall_applicable`, `decision_score`: rounded presentation, applicability and the unrounded review-comparison value;
+- `reading` and `reading_class`: preferred interpretation fields;
+- `verdict` and `verdict_class`: compatibility aliases, not disciplinary verdicts;
+- `review_policy`, `review_trigger`, `review_triggered`: the active policy and inclusive applicable-score comparison;
+- `warnings`, `notes`: limitations and explanatory metadata;
+- `manual_review_guidance`, `risk_zones`, `manual_review_recommendations`: structured contextual review guidance and an array of recommendation strings;
+- `engine_fingerprint`: an object, not a digest string; inspect its availability and provenance;
+- `metric_config_digest`: a 64-character lower-case hexadecimal SHA-256 without a `sha256:` prefix, identifying the effective metric configuration;
+- `tool_metadata` and `engine_metadata`: tool identity, execution metadata and compatibility alias.
 
-Important interpretation rule: `overall_score` is an AI-style concern score, not a probability. `review_triggered` means that the score crossed the active course review trigger; it does not mean misconduct.
+The previous illustrative names `detected_language`, `input_lines`, `input_sloc` and `recommendations` are not the emitted canonical keys. Do not manufacture those fields from a schema example or rename the runtime output to match obsolete documentation. `loc` and `sloc` are integer observations with the conventions above, not necessarily physical-line or executed-statement counts. Read parser qualifications and applicability separately.
 
 ## Project report
 
-A project analysis report has schema version `2.2.0-project` and includes:
+The canonical project report uses schema `2.2.0-project`. In addition to common score, policy and provenance fields, it includes:
 
+- `project_name`, `language: "project"`: the latter is a report-unit marker, not a programming language;
+- `included_file_count`, `excluded_file_count`, `contributing_file_count`, `total_sloc`;
+- `included_files`, `excluded_files`: per-member reports or exclusion records;
+- `input_packaging`: source-container normalisation, effective limits and intake details;
+- `calibration_profile` and `calibration_scope`: active project calibration when supplied;
+- project-level manual-review guidance and member-qualified warnings.
+
+The Python API returns a `report`/`text` envelope; the project API additionally retains `project_report` as an alias. The native project CLI writes the project report object directly to its JSON destination. An analysis JSON report is not a calibration profile. Names, timestamps, scores and hashes are input/runtime dependent; consumers should not hard-code an example's incidental values.
+
+### Measured example projections
+
+These are **stable-field projections of reports generated from a synthetic Python fixture**, not complete reports, an empirical corpus or fabricated engine hashes. The file fixture has 23 physical `splitlines()` records including blank lines and a final newline: the retained `loc` convention yields 24 LF-split segments, while `sloc` is 17 non-blank segments. Four ordinary functions make the file aggregate applicable in the tested runtimes. The project contains that one source as `main.py`.
+
+<!-- report-example:file -->
 ```json
 {
-  "schema_version": "2.2.0-project",
-  "app_version": "2.2.0",
-  "project_name": "assignment-1",
-  "candidate_file_count": 24,
-  "included_file_count": 8,
-  "excluded_file_count": 16,
-  "contributing_file_count": 6,
-  "overall_score": 0.27,
-  "verdict": "Low AI-style concern",
-  "verdict_class": "low",
-  "reading": "Low AI-style concern",
-  "reading_class": "low",
-  "review_trigger": 0.6,
-  "review_triggered": false,
-  "language_counts": {"python": 6},
-  "included_files": [],
-  "excluded_files": [],
-  "top_concern_files": [],
-  "aggregation": {},
-  "input_packaging": {
-    "source": "zip|file-list",
-    "common_root_detected": "repository-main",
-    "common_root_stripped": true,
-    "common_root_reason": "single common non-source top-level directory; treated as hosted/export ZIP wrapper"
-  },
-  "generated_at_utc": "2026-05-28T00:00:00Z",
-  "engine_fingerprint": "sha256:...",
-  "metric_config_digest": "sha256:...",
-  "metric_role_summary": {},
-  "tool_metadata": {}
+  "filename": "example.py",
+  "language": "python",
+  "loc": 24,
+  "sloc": 17,
+  "schema_version": "2.2.0",
+  "overall_applicable": true
 }
 ```
 
-The project aggregate is only as meaningful as its inclusion/exclusion record. Instructors should inspect `included_files`, `excluded_files` and `input_packaging` before interpreting the score. `input_packaging.common_root_stripped` records whether a GitHub/hosted-export wrapper such as `repo-main/` was removed before `.codeprobeignore` evaluation.
+<!-- report-example:project -->
+```json
+{
+  "project_name": "example-project",
+  "language": "project",
+  "schema_version": "2.2.0-project",
+  "included_file_count": 1,
+  "excluded_file_count": 0,
+  "contributing_file_count": 1,
+  "total_sloc": 17
+}
+```
 
-## Metadata fields
+The maintained workflow regression generates these reports and verifies their keys, types and values against the projections. It also checks the recommendation-array, fingerprint-object and configuration-digest contracts on the actual reports. It does not create a new wire field or certify every parser input.
 
-| Field | Meaning | Authorship evidence? |
-|---|---|---:|
-| `generated_at_utc` | report generation time in UTC | No |
-| `engine_fingerprint` | fingerprint of the loaded `codeprobe_runtime.py` where available | No |
-| `metric_config_digest` | digest of the active metric configuration | No |
-| `metric_role_summary` | count of configured metrics by group/role | No |
-| `tool_metadata` | version, schema and methodological labels | No |
-| `engine_metadata` | compatibility alias for tool/engine metadata | No |
+## Evidence coverage, roles and contributions
+
+`evidence_coverage` is the canonical name for the existing heuristic category.
+`confidence` remains an equal compatibility alias. Neither field is a statistical
+confidence interval, probability of authorship, calibration reliability estimate
+or guarantee that the observations are correct. The browser labels the category
+**Evidence coverage**; JSON, text and both project interfaces retain its basis.
+
+`evidence_coverage_basis` identifies the rule, inputs and decision factors. File
+rules retain the existing thresholds: low below 20 SLOC, 120 tokens or three
+applicable stylometry-role metrics; high at least 80 SLOC, 500 tokens and six
+such metrics; otherwise medium. These role counts are not the configured
+contribution count. The file rule does not test every parser warning and can
+remain high in a report whose concern aggregate is inapplicable; its basis states
+that separation rather than implying universal reliability.
+
+Project coverage is high at 200 total SLOC, at least three contributing files and
+no warning present when the category is selected; medium at 80 SLOC and at least
+two contributors; otherwise low. `warning_count_at_category_selection` is recorded
+before the separate final filtering warning. `report_warning_count` includes the
+complete final warnings. Thus a late filtering warning can coexist with the
+previously selected high category; the reason is explicit. No confidence rule or
+threshold has been silently retuned by the label change.
+
+`metric_role_summary` retains inventory counts by role. A role describes the
+metric's intended interpretation, not an absolute contribution ban. The default
+effective configuration enables seven concern contributors. A validated custom
+positive-weight `contributes_to_ai: true` can include a quality, context or
+documentation-role metric; this is a policy override, not validation of that
+metric as authorship evidence. `enabled`, `contributes_to_ai` and role are distinct
+from whether the metric was actually applicable to the supplied file.
+
+| Metadata layer | Meaning |
+|---|---|
+| `metric_role_summary.ai_contribution_count` and `.ai_weight_sum` | Nominal enabled contributors with `contributes_to_ai: true` and positive weight, across all roles in the effective configuration. |
+| `configured_ai_contributing_metrics`, `configured_ai_contributing_metric_ids`, `configured_ai_weight_sum` | Explicit nominal file/project metadata using that same configuration predicate. |
+| File `ai_contributing_metrics`, `ai_contributing_metric_ids`, `effective_ai_weight_sum` | Actual applicable positive-weight contributors admitted into that file's denominator. |
+| `overall_applicable` | Whether the separate report eligibility requirements permit an aggregate; it is not implied merely by a non-zero denominator. |
+
+Disabled metrics, zero weights and false contribution flags do not enter the
+nominal sum. Native weights retain finite clamping to the existing range; invalid
+Boolean flags, non-finite values and unknown roles remain refused. Project JSON
+carries its nominal configuration while included child reports carry their
+actual file denominators. Project text retains that distinction for each child.
+Markdown remains outside the overall code aggregate, and ordinary project
+admission still excludes documentation. Enabling an inapplicable metric does not
+invent a measured value.
+
+## References and source-level proxies
+
+Metric `detail.references` records descriptive attribution entries with `text`,
+`doi`, `url`, `relationship` and `scope`. The relationship is one of `definition`,
+`motivation` or `context`: a source can define a family of measures without
+validating CodeProbe's particular vocabulary, normalisation, thresholds or
+weights. `detail.reference_scope` states that distinction, which text exports
+retain. A verified DOI or URL is not evidence that the cited work validates a
+review trigger, a hardware claim or authorship detection. The revised reference
+metadata does not alter the effective metric configuration digest; the changed
+engine file still changes the engine identity and requires refitting bound
+profiles.
+
+Applicable memory-related observations additionally carry optional
+`measurement_method`, `measurement_unit` and `measurement_domain` metadata.
+Their raw proxy values remain visible; the display, explanation and browser
+quality panel identify them as **source-level memory proxies**.
+
+| Metric | Declared method and unit | Actual scope |
+|---|---|---|
+| `register_pressure` | `source_scalar_live_range_proxy` / `estimated_live_scalars/fixed_register_budget` | Maximum estimated per-function peak from admitted scalar declarations, divided by the fixed heuristic budget 13. It is not allocated registers or measured spills. |
+| `stack_frame_depth` | `source_stack_layout_proxy` / `weighted_source_stack_proxy` | Existing mixture of assumed local sizes, parameter counts, nesting and a direct-recursion cue. It is not emitted stack-frame bytes or measured call-stack depth. |
+| `redundant_memory_access` | `source_index_expression_repeat_proxy` / `repeated_index_expressions/weighted_memory_patterns` | Repeated source index expressions and existing weighted patterns, not dynamic loads/stores, alias analysis or proven redundant instructions. |
+
+The fixed type widths, frame overhead, recursion multiplier and register budget
+are assumptions. They are not derived from a target architecture, compiler, ABI,
+optimisation level, alias/escape analysis or hardware counters. Dependent parser
+features must still be available; an unavailable metric omits measurement
+metadata rather than claiming a method produced a zero result. These metrics
+keep their existing default quality role. Better source extraction or labels
+do not validate their normalisation as an objective quality judgement.
 
 ## Metric values and measurement scope
 
-A metric's `value` is its raw observation; `score` is the existing normalised
-policy value, rounded in JSON. Read both with `applicable`, `group`,
-`contributes_to_overall`, `detail` and `explanation`. A quality score has the
-direction declared by that metric and is not an authorship probability.
-Unavailable observations retain `applicable: false` and their reason; they are
-not measured zeros.
+### Cyclomatic observations
 
-Applicable `cyclomatic_complexity` results add three string fields:
+The public `cyclomatic_complexity` metric retains three existing calculations,
+now explicitly distinguished by optional string fields on an applicable metric
+record:
 
-| `method` | `unit` | `domain` |
+| `measurement_method` | `measurement_unit` | `measurement_domain` |
 |---|---|---|
-| `python_ast_function_mean` | `decisions_per_function` | `recognised_functions` |
-| `lexical_function_mean` | `decisions_per_function` | `recognised_functions` |
-| `lexical_branch_density` | `branches_per_20_code_lines` | `cleaned_file_code` |
+| `python_ast_mean_function_decisions` | `decisions/function` | Python AST-inventoried function bodies under CodeProbe's declared node-count rules. |
+| `lexical_mean_function_decisions` | `decisions/function` | Extracted non-Python function intervals under the finite lexical branch-cue rules. |
+| `lexical_branch_density` | `branches/20 code lines` | Whole-source lexical branch cues without an available function inventory. This is a density proxy, not a graph cyclomatic number. |
 
-The first route is the mean of the scoped Python AST counts described below.
-The second is the mean of the finite lexical counts for extracted functions in
-other code families. Each underlying function count starts at one. The third
-is a fallback for non-Python code without extracted functions: counted branch
-cues divided by code-line count, multiplied by 20. It is a density, not a
-per-function McCabe complexity. The fallback uses at least one line as its
-denominator. Python without parsable functions remains unavailable.
+The Python AST calculation is a mean of this implementation's decision counts,
+not a claim of equivalence to every McCabe control-flow graph definition. The
+non-Python mean also has finite extraction scope; nested callable bodies can
+remain in an enclosing lexical count. Without extracted functions, supported
+non-Python code retains the existing `branches * 20 / code_line_count` fallback.
+The generic branch cues are distinct `if`, `for`, `while`, `case`, `catch`,
+`except` and `elif` words plus `&&`, `||` and `?`, outside the masked literal and
+comment text. `code_line_count` follows the existing physical line categories:
+blank lines and any line identified as a comment line are excluded. A code line
+with an inline comment can therefore also be excluded from that retained
+ denominator. Python without parsable functions remains unavailable.
 
 For example, function counts 1 and 3 have mean 2 decisions/function; two branch
 cues in ten code lines have density 4 branches/20 code lines. These examples do
@@ -916,3 +890,30 @@ the resulting profile and evaluation. Synthetic regression fixtures establish
 software behaviour only; they are not a replacement empirical corpus. No
 profile migration, new labelled corpus or authorship-validity claim follows
 from these structural corrections.
+
+## Consumer type and provenance checks
+
+| Selector | JSON type | Interpretation |
+|---|---|---|
+| File `language` | string | Detected language, not a success guarantee |
+| File `loc`, `sloc` | integer | Normalised LF-split segments and non-blank segments, with the terminal-empty-segment convention described above |
+| `manual_review_recommendations` | array of strings | Contextual review steps, not a decision |
+| `engine_fingerprint` | object | Availability and provenance must be inspected |
+| `engine_fingerprint.available` | Boolean | False means no measured value is available; do not invent one |
+| Available `engine_fingerprint.value` | string | SHA-256 digest in hexadecimal, with source qualification |
+| `metric_config_digest` | string | 64 lower-case hexadecimal characters without a prefix |
+| `calibration_profile.validation` | object | Compact aggregate validation, not individual observations |
+
+Canonical configuration JSON uses sorted keys, comma/colon separators, UTF-8
+and unescaped non-ASCII text before SHA-256 hashing. A caller-provided fingerprint
+is not automatically a measurement. Contradictory claimed provenance is marked
+`caller-unverified`, with `matches_loaded_source` and an independently measured
+value when available. No source measurement is represented by `available: false`
+and an empty value/reason, not by a fabricated digest.
+
+Compact calibration validation excludes `sample_results`, the full `sensitivity`
+grid and identifier mappings. It can retain descriptive reviewed/eligible counts,
+separate group counts and the recorded fit/evaluation design. Statistical
+independence is not established and uncertainty is not estimated merely because
+these fields have valid types. See [the calibration workflow](../calibration/README.md)
+for generation, profile scope and refitting rather than hash substitution.

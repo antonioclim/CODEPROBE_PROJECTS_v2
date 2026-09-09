@@ -193,6 +193,11 @@ jobs:
           python -I -S -B -m unittest discover -s tests -p test_worker_contract.py -v
           python -I -S -B -m unittest discover -s tests -p test_dynamic_ui_review.py -v
 
+      - name: Check calibration workflows and educational contracts
+        timeout-minutes: 3
+        shell: bash
+        run: python -I -S -B -m unittest discover -s tests -p test_calibration_workflow.py -v
+
       - name: Run the canonical read-only gate
         shell: bash
         run: python -I -S -B tools/check_release.py --require-node

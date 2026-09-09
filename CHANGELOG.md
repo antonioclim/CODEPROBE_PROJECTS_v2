@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — I13 calibration and documentation contracts
+
+- Remove the accepted-but-ignored `--min-per-class-for-language` argument. Existing scripts must remove it; no statistical minimum or scoring change replaces it.
+- Separate file/project manifest templates in JSON/CSV with explicit fit/evaluation strata and declared groups. Mark both profile illustrations non-operational; do not activate them or edit replay hashes.
+- Make current calibration commands explicit about isolation, working directories, private outputs and compatible profile scope. Document fresh UUID4 exports and the wrapper's lack of inferred author/submission groups.
+- Correct report field/type examples using generated file/project projections without changing wire fields. Separate reading classes, inclusive review triggers and teaching actions; synchronise the student announcement and factual Word metadata.
+- Declare the standard-library XML parser used by the shipped-announcement test, retaining shadowing and third-party refusals. Add a focused read-only CI cohort without changing acceptance thresholds or permissions.
+- Add bounded synthetic workflow, consumer and educational regressions. Their labels and metric doubles are software fixtures, not empirical detection evidence. Global release-audit and manifest reconciliation remain later gates.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on *Keep a Changelog* and this repository uses semantic-style version tags when releases are made.

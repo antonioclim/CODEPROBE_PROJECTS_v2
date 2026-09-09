@@ -135,6 +135,7 @@ APPROVED_STDLIB_IMPORTS = {
     "uuid",
     "urllib",
     "webbrowser",
+    "xml",
     "zipfile",
     "zlib",
 }

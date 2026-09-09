@@ -1,0 +1,5 @@
+path,label,language_hint,kind,group_id,split
+samples/project-human-fit,human,auto,project,human-fit-group,fit
+samples/project-ai_generated-fit,ai_generated,auto,project,ai_generated-fit-group,fit
+samples/project-human-evaluation,human,auto,project,human-evaluation-group,evaluation
+samples/project-ai_generated-evaluation,ai_generated,auto,project,ai_generated-evaluation-group,evaluation

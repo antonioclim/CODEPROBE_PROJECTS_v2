@@ -401,11 +401,11 @@ The current generic bands use the following thresholds for an applicable score:
 | 68% or higher | High AI-style concern |
 | Not applicable | Documentation-only or insufficient applicable evidence; not a zero-risk certificate |
 
-The **60% provisional review trigger is separate from these display bands**. A local profile can change both; read the policy serialised with the actual report rather than applying a hard-coded band externally. The `confidence` label is an internal evidence-coverage heuristic, not a statistical confidence interval or a calibrated probability. Use independent code inspection, tests, development history and an explanation of the work; do not turn these bands into pass/fail marks or penalties.
+The **60% provisional review trigger is separate from these display bands** and uses an inclusive comparison: an applicable unrounded score of exactly 60% triggers review; 50% is elevated without reaching that trigger. A rounded display alone is not the comparison value. A local profile can change both; read the policy serialised with the actual report rather than applying a hard-coded band externally. The `confidence` label is an internal evidence-coverage heuristic, not a statistical confidence interval or a calibrated probability. Use independent code inspection, tests, development history and an explanation of the work; do not turn these bands into pass/fail marks or penalties.
 
 ## Course-local calibration
 
-Calibration requires a real, appropriately authorised and labelled source corpus; the distributed templates do **not** contain an empirical validation dataset. CSV/JSON manifests point to source files, folders or ZIP samples and specify labels, groups and fit/evaluation partitions or a supported group-exclusive split. Generic spreadsheet or database contents cannot be substituted for source samples.
+Calibration requires a real, appropriately authorised and labelled source corpus; the distributed templates do **not** contain an empirical validation dataset. CSV/JSON manifests specify labels, groups and fit/evaluation partitions or a supported group-exclusive split. Use the separate file-only and project-only templates: file profiles accept one detected language, while project profiles use the `project` scope marker and may contain supported mixed-language members. Do not mix file and project observations in one profile. Generic spreadsheet or database contents cannot be substituted for source samples.
 
 After curating a manifest and the referenced files, an example command is:
 
@@ -418,7 +418,7 @@ python3 -I -S -B tools/calibrate_profile.py \
   --out-dir work/calibration-output
 ```
 
-The paths above are illustrative. Start from [the manifest templates](calibration/README.md), replace their sample paths and labels with justified corpus records and keep outputs separate from the manifest and samples. `--target-fpr 0.10` requests a fit-partition target; it is not a claim that the software achieves a 10% real-world error rate.
+The paths above are illustrative. Start from [the manifest templates and executable workflow](calibration/README.md), replace their sample paths and labels with justified corpus records and keep outputs separate from the manifest and samples. Each JSON/CSV pair illustrates four explicitly partitioned observations with distinct declared groups, not a statistically adequate corpus. The folder wrapper does not infer authors or submission groups from nested directories. Use a generated project profile for the native project command above, not a file profile. `--target-fpr 0.10` requests a fit-partition target; it is not a claim that the software achieves a 10% real-world error rate.
 
 Scoring mode, effective metric configuration and engine identity are bound before fitting/evaluation and checked on application. Selection uses the fit partition; the holdout is not used to tune the threshold. An unmet fit target produces a **non-operational diagnostic profile**, refused on application. Successful writing of diagnostics can return exit 0; inspect `operational` and `operational_reason` instead of inferring feasibility from the exit code.
 
@@ -439,7 +439,11 @@ note alone does not cause refusal. Engine/configuration identity changes require
 re-fitting from the original curated corpus; editing profile hashes is not a
 migration. Unbound diagnostic reports can retain qualified partial results.
 
-Fresh opaque sample/group identifiers are assigned for export after partitioning and fitting. They do not anonymise scores, labels, row ordering or group sizes. See [calibration guide](docs/06-calibration-guide.md) and [contract reconciliation](docs/22-contract-reconciliation.md).
+Fresh UUID4 sample/group tokens are assigned for export after partitioning and fitting, including when the manifest supplies explicit identifiers. JSON/CSV observations share tokens within one export; no mapping is emitted. Repeated analytical values can agree while tokens and file digests vary. This is not anonymisation: scores, labels, row order, group sizes and free-text metadata can still permit linkage. Input manifests and the wrapper's generated manifest remain private. Source/release reproducibility is distinct from random calibration identifiers.
+
+**CLI migration:** `--min-per-class-for-language` was accepted but ignored and has now been removed. Existing scripts must remove it. It is refused before manifest reads or output publication; no arbitrary statistical minimum replaces it. Both shipped profile illustrations explicitly set `operational: false` and are refused on application. These tool/template corrections do not change the engine bytes or scoring formula.
+
+The student announcement is maintained in [Markdown](educator/02-student-announcement.md) and a semantically matching [Word document](educator/02-student-announcement.docx). The Word document names Antonio Clim as creator and uses British English proofing. Unverified legacy creation/modification dates and editor identity are omitted; file metadata are not a reconstructed authorship history. See [calibration guide](docs/06-calibration-guide.md) and [contract reconciliation](docs/22-contract-reconciliation.md).
 
 ## Input limits and exclusions
 
