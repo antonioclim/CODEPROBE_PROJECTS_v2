@@ -2231,7 +2231,8 @@ async function testDocumentLanguageContracts(cdp, baseUrl, downloads, fixtureSta
     "expected": {
       "fences": 0,
       "headings": [],
-      "links": 0
+      "links": 0,
+      "prose_words": 0
     },
     "oracle_basis": "CommonMark 0.31.2 selected block/inline rules",
     "source_sha256": "f422635604ebb492f2f4477ff3eeeb2b2cfa196ddc3b518a44bc06f0a7248613"
@@ -2334,7 +2335,15 @@ async function testDocumentLanguageContracts(cdp, baseUrl, downloads, fixtureSta
       const fence = report.metrics.find(metric => metric.name === "markdown_code_fence_density");
       const link = report.metrics.find(metric => metric.name === "markdown_link_density");
       assert(fence.detail.includes(`code_fence_blocks=${item.expected.fences},`), "Markdown report lost exact fence count");
-      assert(link.detail.startsWith(`links=${item.expected.links},`), "Markdown report lost exact link count");
+      if (item.expected.prose_words === 0) {
+        // I12: the exact raw link count is checked by the retained context oracle.
+        // A code-only span has no prose denominator; zero density is not measured.
+        assert(link.applicable === false && link.value === null && link.value_display === "N/A", "Markdown without prose fabricated a link density");
+        assert(link.explanation === "No recognised prose-token denominator is available for link density.", "Markdown lost its missing-denominator explanation");
+      } else {
+        assert(link.applicable === true, "Markdown with prose lost an applicable link density");
+        assert(link.detail.startsWith(`links=${item.expected.links},`), "Markdown report lost exact link count");
+      }
       assert(report.metrics.filter(metric => metric.name.startsWith("markdown_")).every(metric => metric.contributes_to_overall === false), "Markdown feature entered code aggregate");
     }
     assert(report.warnings.includes(uncertainty) === (language === "unknown"), "Language uncertainty was lost or fabricated");
@@ -3149,6 +3158,218 @@ async function testMetricContracts(cdp, baseUrl, downloads, fixtureState, engine
     qualification:"Three fixed groups cover 41 source-bound metric rows; one group checks six file/project inactive-configuration observations. Six main File/DOM cases and both project UIs transport actual source through the public worker and download exact JSON/text. Native observations are separately qualified. The compact UI exposes notes through its visible text report and has no config override control. Finite structural/lexical proxies and arithmetic do not establish empirical authorship validity."}));
 }
 
+async function testReportingContracts(cdp, baseUrl, downloads, fixtureState, engineDigest) {
+  const deadline = Date.now() + 300000;
+  const observations = [];
+  // Fixed source/count oracles, not expectations derived from candidate output.
+  const pythonSource = Array.from({length:8}, (_, i) => `def scale_${i}(value):\n    """Return a scaled value."""\n    result = value * ${i + 2}\n    return result\n`).join("\n");
+  const cSource = "int sum(int *items, int n) {\n  int total = 0;\n  int scratch[10];\n  for (int i=0; i<n; i++) { total += items[i] + items[i]; }\n  return total;\n}\n";
+  const custom = {docstring_coverage:{weight:0.5, contributes_to_overall:true}};
+  const cases = [
+    {id:"python-default", filename:"reporting.py", source:pythonSource, nominal:0.31, count:7},
+    {id:"python-custom", filename:"reporting.py", source:pythonSource, override:custom, nominal:0.81, count:8},
+    {id:"python-disabled-custom", filename:"reporting.py", source:pythonSource, override:{docstring_coverage:{weight:0.5, contributes_to_overall:false}}, nominal:0.31, count:7},
+    {id:"markdown-siblings", filename:"siblings.md", source:"# Top\n## One\n## Two\n## Three\n", nominal:0.31, count:7, metric:"markdown_heading_structure", value:1, applicable:true},
+    {id:"markdown-jump", filename:"jump.md", source:"# Top\n### Detail\n", nominal:0.31, count:7, metric:"markdown_heading_structure", value:0.5, applicable:true},
+    {id:"markdown-code-only", filename:"inline.md", source:"`[not a link](https://example.invalid)`\n", nominal:0.31, count:7, metric:"markdown_link_density", value:null, applicable:false},
+    {id:"markdown-link-free-prose", filename:"prose.md", source:"This guide uses prose without links or code.\n", nominal:0.31, count:7, metric:"markdown_link_density", value:0, applicable:true},
+    {id:"c-source-proxies", filename:"sample.c", source:cSource, nominal:0.31, count:7, proxies:true},
+    {id:"c-unavailable-proxies", filename:"empty.c", source:"int value;\n", nominal:0.31, count:7, proxies:false}
+  ];
+  const proxyExpectations = {
+    register_pressure:[2/13,"peak_scalar_names_per_13"],
+    stack_frame_depth:[48,"estimated_bytes"],
+    redundant_memory_access:[20/3,"cues_per_20_function_lines"]
+  };
+  function near(actual, expected, label, tolerance = 1e-10) {
+    assert(typeof actual === "number" && Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance, label);
+  }
+  function checkCoverage(report, text, project = false) {
+    const basis = report.evidence_coverage_basis;
+    assert(basis && report.evidence_coverage === report.confidence && basis.category === report.confidence, "I12 coverage aliases disagree");
+    assert(basis.interpretation.includes("not a probability") && basis.warning_timing.includes("later"), "I12 coverage claims statistical confidence or loses warning timing");
+    assert(text.includes(`Evidence coverage: ${report.confidence}`) && !text.includes("Confidence:"), "I12 text label differs from heuristic coverage");
+    assert(basis.factors.sloc === report.sloc, "I12 coverage source quantity differs");
+    if (project) {
+      assert(basis.factors.included_files === report.included_file_count, "I12 project coverage loses its file denominator");
+      near(report.aggregation.effective_weight_sloc, report.aggregation.contributors.reduce((sum, item) => sum + item.weight, 0), "I12 project weighting does not reconcile");
+    } else {
+      const contributors = report.metrics.filter(item => item.applicable && item.contributes_to_overall && item.weight > 0);
+      assert(basis.factors.applicable_contributors === contributors.length, "I12 applicable contributor count differs");
+      near(report.aggregation.effective_weight, contributors.reduce((sum, item) => sum + item.weight, 0), "I12 effective metric denominator differs");
+      near(report.aggregation.aggregate_applied_weight, report.overall_applicable ? report.aggregation.effective_weight : 0, "I12 ineligible aggregate applies a weight");
+      assert(JSON.stringify(report.aggregation.contributors) === JSON.stringify(contributors.map(item => item.name)), "I12 contributor identities differ");
+    }
+  }
+  function checkReportingFile(report, text, item) {
+    checkCoverage(report, text);
+    const roles = report.metric_role_summary;
+    assert(roles && roles.configured_contributor_count === item.count, "I12 nominal contributor count differs");
+    near(roles.contributing_weight, item.nominal, "I12 nominal weight differs");
+    near(report.aggregation.nominal_weight, item.nominal, "I12 aggregation mislabels nominal weight");
+    assert(text.includes(`Nominal configured weight: ${item.nominal}`), "I12 text loses the nominal weight");
+    if (item.id.startsWith("python-")) {
+      assert(report.overall_applicable, "I12 positive Python control has no aggregate");
+      const doc = report.metrics.find(metric => metric.name === "docstring_coverage");
+      assert(doc && doc.applicable && doc.contributes_to_overall === (item.count === 8), "I12 Boolean contribution override differs from its native contract");
+    }
+    if (item.metric) {
+      const metric = report.metrics.find(value => value.name === item.metric);
+      assert(metric && metric.applicable === item.applicable && metric.value === item.value, "I12 Markdown result differs from fixed editorial/denominator oracle");
+      assert(report.overall_applicable === false && report.evidence_coverage === "N/A" && metric.contributes_to_overall === false, "I12 Markdown acquired a code aggregate");
+      if (!item.applicable) assert(metric.explanation.includes("prose-token denominator"), "I12 absent denominator lacks its explanation");
+      if (item.id === "markdown-jump") assert(metric.explanation.includes("not a CommonMark error"), "I12 editorial preference became a syntax claim");
+    }
+    if (item.proxies !== undefined) {
+      for (const [name, [value, unit]] of Object.entries(proxyExpectations)) {
+        const metric = report.metrics.find(item => item.name === name);
+        assert(metric && metric.applicable === item.proxies, "I12 proxy availability differs");
+        if (item.proxies) {
+          // Public metric values are rounded to four decimal places.
+          near(metric.value, value, "I12 source proxy value changed", 0.000051);
+          assert(metric.unit === unit && metric.domain === "recognised_functions" && metric.method, "I12 source proxy metadata differs");
+          assert(metric.explanation.toLowerCase().includes("source") && metric.explanation.toLowerCase().includes("not"), "I12 proxy is presented as hardware evidence");
+          assert(text.includes(metric.explanation), "I12 text loses source-proxy scope");
+          assert(metric.reference_usage.length === metric.references.length && metric.reference_usage.length > 0, "I12 reference scopes are absent");
+          metric.reference_usage.forEach((ref, index) => assert(ref.citation === metric.references[index] && ["definition","motivation","context"].includes(ref.role) && ref.scope, "I12 reference identity or role differs"));
+          if (name === "register_pressure") assert(metric.references.some(ref => ref.includes("Chaitin, G. J. (1982)") && ref.includes("10.1145/872726.806984")), "I12 register-allocation reference metadata differs");
+        } else assert(metric.value === null && !metric.method, "I12 unavailable proxy claims a measurement");
+      }
+    }
+    return {case:item.id, source_sha256:crypto.createHash("sha256").update(item.source).digest("hex"), coverage:report.evidence_coverage, aggregation:report.aggregation, configured_count:roles.configured_contributor_count};
+  }
+  // Native-checkable contract helpers end; subsequent code uses genuine CDP/UI.
+  async function record(name, operation) {
+    const remaining = Math.min(60000, deadline - Date.now());
+    assert(remaining > 0, "I12 reporting group exceeded its budget");
+    let timer;
+    try {
+      const result = await Promise.race([operation(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`I12 reporting case timed out: ${name}`)), remaining);
+      })]);
+      observations.push({case:name, result:"PASS", observed:result});
+      console.log("[PASS] browser-reporting-i12-case: " + JSON.stringify(observations.at(-1)));
+    } finally { clearTimeout(timer); }
+  }
+  function checkProvenance(report) {
+    assert(report.engine_fingerprint.value === engineDigest && report.engine_fingerprint.source === "packaged-verified", "I12 report lost verified source identity");
+    assert(report.tool_metadata.python_runtime.platform === "emscripten" && report.tool_metadata.python_runtime.version === "3.11.3", "I12 browser fixture is not the pinned interpreter");
+    assertSingleVerifiedRequests(fixtureState);
+  }
+  async function download(id, name, result) {
+    fs.rmSync(downloads, {recursive:true, force:true}); fs.mkdirSync(downloads, {recursive:true});
+    await cdp.send("Browser.setDownloadBehavior", {behavior:"allow", downloadPath:downloads});
+    await evaluate(cdp, id, "document.getElementById('exportJsonBtn').click(); document.getElementById('exportTextBtn').click()");
+    const jsonPath = path.join(downloads, `${name}.json`), textPath = path.join(downloads, `${name}.txt`);
+    await Promise.all([waitForFile(jsonPath, 60000), waitForFile(textPath, 60000)]);
+    assert(JSON.stringify(JSON.parse(fs.readFileSync(jsonPath, "utf8"))) === JSON.stringify(result.report), "I12 downloaded JSON differs");
+    assert(fs.readFileSync(textPath, "utf8") === result.text, "I12 downloaded text differs");
+  }
+  fixtureState.reset();
+  let page = null;
+  try {
+    await record("main-runtime-ready", async () => {
+      page = await createSession(cdp, `${baseUrl}/app/index.html?reporting-i12=1`);
+      await waitForExpression(cdp, page.sessionId, "appState.workerSession?.isReady()", 60000);
+      assertSingleVerifiedRequests(fixtureState);
+      return {page_target_id:page.targetId};
+    });
+    const id = page.sessionId;
+    for (const item of cases) await record(`main-file-${item.id}`, async () => {
+      await evaluate(cdp, id, `(() => {
+        const config = document.getElementById('configOverride'); config.value = ${JSON.stringify(item.override ? JSON.stringify(item.override) : "")};
+        config.dispatchEvent(new Event('change', {bubbles:true}));
+        const transfer = new DataTransfer(); transfer.items.add(new File([${JSON.stringify(item.source)}], ${JSON.stringify(item.filename)}, {type:'text/plain'}));
+        const input = document.getElementById('fileInput'); input.files = transfer.files; input.dispatchEvent(new Event('change', {bubbles:true}));
+      })()`);
+      await waitForExpression(cdp, id, "appState.loadingInput === false && !document.getElementById('analyzeBtn').disabled", 60000);
+      assert(await evaluate(cdp, id, `document.getElementById('editor').value === ${JSON.stringify(item.source)}`), "I12 File source changed before analysis");
+      await evaluate(cdp, id, "document.getElementById('analyzeBtn').click()");
+      await waitForExpression(cdp, id, "document.getElementById('statusText').textContent === 'Analysis completed.'", 60000);
+      await evaluate(cdp, id, "document.getElementById('result-tab-summary').click()");
+      const result = await evaluate(cdp, id, "({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value, label:document.getElementById('confidenceValue').textContent, basis:document.getElementById('evidenceCoverageBasis').textContent, basisVisible:document.getElementById('evidenceCoverageBasis').getClientRects().length > 0})");
+      checkProvenance(result.report);
+      const checked = checkReportingFile(result.report, result.text, item);
+      assert(result.label === result.report.evidence_coverage && result.basisVisible && result.basis.includes(JSON.stringify(result.report.evidence_coverage_basis.factors)), "I12 visible coverage factors differ from the accepted report");
+      if (item.proxies) {
+        const index = result.report.metrics.findIndex(metric => metric.name === "register_pressure");
+        await evaluate(cdp, id, `document.getElementById('result-tab-metrics').click(); document.querySelector('[data-metric-index="${index}"]').click()`);
+        const detail = await evaluate(cdp, id, "({text:document.getElementById('metricDetail').textContent, visible:document.getElementById('metricDetail').getClientRects().length > 0})");
+        const metric = result.report.metrics[index];
+        assert(detail.visible && detail.text.includes(metric.explanation) && metric.reference_usage.every(ref => detail.text.includes(ref.scope)), "I12 visible metric detail loses reference or proxy scope");
+      }
+      await download(id, item.filename.replace(/\.[^.]+$/, ""), result);
+      return checked;
+    });
+    await record("main-invalid-Boolean-override", async () => {
+      await evaluate(cdp, id, `(() => {
+        const config = document.getElementById('configOverride');
+        config.value = '{"docstring_coverage":{"contributes_to_overall":"true"}}';
+        config.dispatchEvent(new Event('change', {bubbles:true}));
+        document.getElementById('analyzeBtn').click();
+      })()`);
+      await waitForExpression(cdp, id, "document.getElementById('statusText').textContent.startsWith('Invalid configuration override:')", 60000);
+      assert(await evaluate(cdp, id, "document.getElementById('statusText').textContent.includes('contributes_to_overall for docstring_coverage must be true or false.') && document.getElementById('exportJsonBtn').disabled && appState.currentReport === null"), "I12 invalid Boolean override was accepted or left a stale report");
+      return {invalid_type:"string", refused:true, exports_disabled:true};
+    });
+    await record("public-worker-empty-markdown", async () => {
+      const result = await evaluate(cdp, id, "appState.workerSession.analyse('file', {code:'', filename:'empty.md'})");
+      checkProvenance(result.report); checkCoverage(result.report, result.text);
+      for (const name of ["markdown_code_fence_density", "markdown_link_density"]) {
+        const metric = result.report.metrics.find(item => item.name === name);
+        assert(metric && metric.applicable === false && metric.value === null, "I12 empty Markdown fabricated a denominator");
+      }
+      return {coverage:result.report.evidence_coverage, qualification:"Public worker transport, not an empty-editor UI analysis or download."};
+    });
+    await record("main-reset-coverage", async () => {
+      await evaluate(cdp, id, "document.getElementById('clearBtn').click()");
+      assert(await evaluate(cdp, id, "document.getElementById('confidenceValue').textContent === '—' && document.getElementById('evidenceCoverageBasis').textContent === 'Heuristic source and metric coverage; not statistical confidence.' && document.getElementById('exportJsonBtn').disabled"), "I12 reset retains a stale coverage result");
+      return {stale_basis_removed:true};
+    });
+  } finally { if (page) await closeSession(cdp, page); }
+  for (const mode of ["main-default", "main-custom", "compact-default"]) {
+    fixtureState.reset();
+    const compact = mode.startsWith("compact"), override = mode === "main-custom" ? custom : null;
+    const active = compact ? "state" : "appState", button = compact ? "analyseBtn" : "analyzeBtn", status = compact ? "status" : "statusText";
+    let projectPage = null;
+    try {
+      await record(`${mode}-project`, async () => {
+        projectPage = await createSession(cdp, `${baseUrl}/app/${compact ? "project" : "index"}.html?reporting-i12-project=1`);
+        const id = projectPage.sessionId;
+        if (!compact) await waitForExpression(cdp, id, "appState.workerSession?.isReady()", 60000);
+        const selected = [cases[0], {...cases[0], filename:"second.py"}, cases[7], {filename:"README.md", source:"# Notes\n"}];
+        await evaluate(cdp, id, `(() => {
+          const config = document.getElementById('configOverride');
+          if (config) { config.value = ${JSON.stringify(override ? JSON.stringify(override) : "")}; config.dispatchEvent(new Event('change', {bubbles:true})); }
+          const transfer = new DataTransfer();
+          for (const item of ${JSON.stringify(selected)}) {
+            const file = new File([item.source], item.filename, {type:'text/plain'});
+            Object.defineProperty(file, '_codeprobeRelativePath', {value:'reporting/' + item.filename}); transfer.items.add(file);
+          }
+          const input = document.getElementById('folderInput'); input.files = transfer.files; input.dispatchEvent(new Event('change', {bubbles:true}));
+        })()`);
+        await waitForExpression(cdp, id, `${active}.loadingInput === false && !document.getElementById('${button}').disabled`, 60000);
+        await evaluate(cdp, id, `document.getElementById('${button}').click()`);
+        await waitForExpression(cdp, id, `document.getElementById('${status}').textContent === 'Project analysis completed.'`, 60000);
+        if (!compact) await evaluate(cdp, id, "document.getElementById('result-tab-summary').click()");
+        const result = await evaluate(cdp, id, `({report:JSON.parse(document.getElementById('jsonReport').value), text:document.getElementById('textReport').value, visible:document.getElementById('${compact ? "reviewPanel" : "evidenceCoverageBasis"}').getClientRects().length > 0, dom:document.getElementById('${compact ? "reviewPanel" : "evidenceCoverageBasis"}').textContent})`);
+        checkProvenance(result.report); checkCoverage(result.report, result.text, true);
+        assert(result.report.included_file_count === 3 && result.report.excluded_file_count === 1 && result.report.excluded_files.some(item => item.path.endsWith("README.md")), "I12 project inventory or default documentation exclusion differs");
+        assert(result.visible && result.dom.includes(JSON.stringify(result.report.evidence_coverage_basis.factors)), "I12 project coverage factors are not visible");
+        for (const item of selected.slice(0, 3)) {
+          const child = result.report.files.find(value => value.path.endsWith(item.filename));
+          assert(child, "I12 project child missing");
+          checkReportingFile(child, result.text, {...item, nominal:override ? 0.81 : 0.31, count:override ? 8 : 7});
+        }
+        await download(id, compact ? "reporting" : "selected-files", result);
+        return {included:3, excluded:1, coverage:result.report.evidence_coverage, nominal:result.report.metric_role_summary.contributing_weight};
+      });
+    } finally { if (projectPage) await closeSession(cdp, projectPage); }
+  }
+  console.log("[PASS] browser-reporting-i12: " + JSON.stringify({engine_sha256:engineDigest, observations,
+    qualification:"Nine real File cases, three real project UI cases and exact JSON/text downloads qualify finite reporting contracts. Empty Markdown is checked through the public worker, not the empty-editor UI. Native calibration counts have separate evidence; no empirical authorship or hardware validity is implied."}));
+}
+
 async function main() {
   const pyodideDirectory = path.resolve(String(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR || ""));
   assert(process.env.CODEPROBE_PYODIDE_FIXTURE_DIR, "CODEPROBE_PYODIDE_FIXTURE_DIR is required.");
@@ -3220,6 +3441,7 @@ async function main() {
     await testScriptStructureContracts(cdp, baseUrl, downloads, state, engineDigest);
     await testDocumentLanguageContracts(cdp, baseUrl, downloads, state, engineDigest);
     await testMetricContracts(cdp, baseUrl, downloads, state, engineDigest);
+    await testReportingContracts(cdp, baseUrl, downloads, state, engineDigest);
     const browserVersion = childProcess.spawnSync(browser, ["--version"], { encoding: "utf8" });
     const renderedVersion = String(browserVersion.stdout || browserVersion.stderr || browser).trim();
     console.log(`[PASS] browser-functional: verified Pyodide and engine bytes drove real analyses (${renderedVersion})`);
