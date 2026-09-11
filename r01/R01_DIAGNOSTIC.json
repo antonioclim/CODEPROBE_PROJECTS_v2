@@ -1,0 +1,8 @@
+{
+  "controller_commit": "ab63720336c580890c32dd1fb68ae66214530b9a",
+  "error": "IndentationError('unexpected indent', ('<r01-controller-v3-corrected>', 1, 10, '          from __future__ import annotations\\n', 1, -1))",
+  "finished_at_utc": "2026-09-11T17:12:48.385479+00:00",
+  "schema": "codeprobe-r01-controller-diagnostic/v4-bootstrap",
+  "status": "FAIL",
+  "traceback": "Traceback (most recent call last):\n  File \"<stdin>\", line 160, in <module>\n  File \"<r01-controller-v3-corrected>\", line 1\n    from __future__ import annotations\nIndentationError: unexpected indent\n"
+}
