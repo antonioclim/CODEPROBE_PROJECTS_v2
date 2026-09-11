@@ -1,0 +1,362 @@
+name: R01 independent acceptance supervisor
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-r01-supervisor-20260911
+    paths:
+      - .github/workflows/r01-supervisor.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: codeprobe-r01-independent-acceptance-supervisor
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify the exact candidate, PR and candidate-specific CI
+    if: github.actor == 'antonioclim'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      REPOSITORY: antonioclim/CODEPROBE_PROJECTS_v2
+      BASE_COMMIT: d5e1aa9e86e855f05ea570de22110aefc972b400
+      EXPECTED_TREE: 6c24e2c7882848746f8d9aa5e9389b958fbacb20
+      AUDIT_BRANCH: audit/codeprobe-i14-runtime-config-20260909
+      SUPERVISOR_BRANCH: audit/codeprobe-r01-supervisor-20260911
+      EVIDENCE_BRANCH: audit/codeprobe-r01-evidence-20260911
+      DIAGNOSTIC_BRANCH: audit/codeprobe-r01-diagnostic-20260911
+      PR_NUMBER: '6'
+    steps:
+      - name: Independently verify and record the R01 acceptance state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import json
+          import os
+          import time
+          import traceback
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+
+          repo = os.environ['REPOSITORY']
+          base = os.environ['BASE_COMMIT']
+          expected_tree = os.environ['EXPECTED_TREE']
+          audit_branch = os.environ['AUDIT_BRANCH']
+          supervisor_branch = os.environ['SUPERVISOR_BRANCH']
+          evidence_branch = os.environ['EVIDENCE_BRANCH']
+          diagnostic_branch = os.environ['DIAGNOSTIC_BRANCH']
+          pr_number = int(os.environ['PR_NUMBER'])
+          token = os.environ['GH_TOKEN']
+
+          def api(method: str, path: str, body=None, query=None, *, allow_404: bool = False):
+              url = 'https://api.github.com' + path
+              if query:
+                  url += '?' + urllib.parse.urlencode(query)
+              data = None if body is None else json.dumps(body, separators=(',', ':')).encode('utf-8')
+              request = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'User-Agent': 'codeprobe-r01-independent-supervisor',
+                      'Content-Type': 'application/json',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=120) as response:
+                      raw = response.read()
+                  return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode(errors='replace')
+                  if allow_404 and exc.code == 404:
+                      return None
+                  raise RuntimeError(f'{method} {path}: HTTP {exc.code}: {detail[:1800]}') from exc
+
+          def put_branch_file(branch: str, path: str, payload: bytes, message: str) -> str:
+              base_commit = api('GET', f'/repos/{repo}/git/commits/{base}')
+              blob = api(
+                  'POST',
+                  f'/repos/{repo}/git/blobs',
+                  {'content': base64.b64encode(payload).decode('ascii'), 'encoding': 'base64'},
+              )
+              tree = api(
+                  'POST',
+                  f'/repos/{repo}/git/trees',
+                  {
+                      'base_tree': base_commit['tree']['sha'],
+                      'tree': [{'path': path, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']}],
+                  },
+              )
+              commit = api(
+                  'POST',
+                  f'/repos/{repo}/git/commits',
+                  {'message': message, 'tree': tree['sha'], 'parents': [base]},
+              )
+              ref = api('GET', f'/repos/{repo}/git/ref/heads/{branch}', allow_404=True)
+              if ref is None:
+                  api('POST', f'/repos/{repo}/git/refs', {'ref': 'refs/heads/' + branch, 'sha': commit['sha']})
+              else:
+                  api('PATCH', f'/repos/{repo}/git/refs/heads/{branch}', {'sha': commit['sha'], 'force': True})
+              read_back = api('GET', f'/repos/{repo}/git/ref/heads/{branch}')
+              if read_back['object']['sha'] != commit['sha']:
+                  raise RuntimeError(f'branch file read-back failed for {branch}')
+              return commit['sha']
+
+          evidence = {
+              'schema': 'codeprobe-r01-acceptance-evidence/v1',
+              'repository': repo,
+              'base_commit': base,
+              'expected_tree': expected_tree,
+              'audit_branch': audit_branch,
+              'pr_number': pr_number,
+              'observed_at_utc': datetime.now(timezone.utc).isoformat(),
+              'status': 'RUNNING',
+          }
+
+          try:
+              supervisor_ref = api('GET', f'/repos/{repo}/git/ref/heads/{supervisor_branch}')
+              if supervisor_ref['object']['sha'] != os.environ['GITHUB_SHA']:
+                  raise RuntimeError('supervisor ref drifted before execution')
+
+              candidate_sha = None
+              candidate_commit = None
+              # Controller v4 may still be completing its bounded scan or CI observation.
+              for _ in range(45):
+                  main_ref = api('GET', f'/repos/{repo}/git/ref/heads/main')
+                  if main_ref['object']['sha'] != base:
+                      raise RuntimeError('main moved during R01')
+                  audit_ref = api('GET', f'/repos/{repo}/git/ref/heads/{audit_branch}')
+                  candidate_sha = audit_ref['object']['sha']
+                  candidate_commit = api('GET', f'/repos/{repo}/git/commits/{candidate_sha}')
+                  if (
+                      candidate_commit['tree']['sha'] == expected_tree
+                      and [parent['sha'] for parent in candidate_commit['parents']] == [base]
+                  ):
+                      break
+                  time.sleep(10)
+              else:
+                  diagnostic_ref = api('GET', f'/repos/{repo}/git/ref/heads/{diagnostic_branch}', allow_404=True)
+                  diagnostic_payload = None
+                  if diagnostic_ref is not None:
+                      diagnostic_file = api(
+                          'GET',
+                          f'/repos/{repo}/contents/r01/R01_DIAGNOSTIC.json',
+                          query={'ref': diagnostic_branch},
+                          allow_404=True,
+                      )
+                      if diagnostic_file is not None and diagnostic_file.get('encoding') == 'base64':
+                          diagnostic_payload = json.loads(base64.b64decode(diagnostic_file['content']))
+                  evidence['controller_diagnostic'] = diagnostic_payload
+                  raise RuntimeError(
+                      f'audit branch did not become the exact direct-child candidate; current head={candidate_sha}'
+                  )
+
+              comparison = api('GET', f'/repos/{repo}/compare/{base}...{candidate_sha}')
+              changed_paths = sorted(item['filename'] for item in comparison.get('files', []))
+              if comparison['ahead_by'] != 1 or comparison['behind_by'] != 0:
+                  raise RuntimeError('candidate ancestry comparison is not exactly one commit ahead')
+              if len(changed_paths) != 42 or '.github/workflows/v01-cas-persist.yml' in changed_paths:
+                  raise RuntimeError(
+                      f'candidate comparison is not exactly the authorised 42-file set; count={len(changed_paths)}'
+                  )
+
+              pr = api('GET', f'/repos/{repo}/pulls/{pr_number}')
+              if pr.get('merged_at') is not None or pr['head']['ref'] != audit_branch or pr['base']['ref'] != 'main':
+                  raise RuntimeError('PR #6 identity or merge state is invalid')
+              if pr['state'] != 'open' or pr['head']['sha'] != candidate_sha or pr['base']['sha'] != base:
+                  pending_body = f'''## Scope
+
+This pull request presents the cumulative I14–I19 remediation candidate as exactly 42 replacement files over baseline `{base}`. Candidate `{candidate_sha}` has that baseline as its sole direct parent and tree `{expected_tree}`.
+
+## Verified remote structure
+
+- GitHub read-back confirms the exact tree, direct-child commit, audit ref and 42 changed paths.
+- Candidate-specific CI for this exact commit is pending independent observation; transport and staging runs are excluded.
+
+## Evidence boundary
+
+- `A01-F003` remains P1 `OPEN/PARTIALLY_IMPLEMENTED`; universal containment, including detached sessions, is not claimed.
+- `APP_VERSION`, the MIT licence, repository visibility, release v2.2.0 and Zenodo state remain unchanged.
+- CodeProbe remains a formative heuristic review kit, not a validated authorship or misconduct detector.
+
+No merge or release action is requested.'''
+                  api(
+                      'PATCH',
+                      f'/repos/{repo}/pulls/{pr_number}',
+                      {
+                          'state': 'open',
+                          'title': 'Integrate the byte-exact I14–I19 audit remediation candidate',
+                          'body': pending_body,
+                          'maintainer_can_modify': False,
+                      },
+                  )
+                  pr = api('GET', f'/repos/{repo}/pulls/{pr_number}')
+                  if pr['state'] != 'open' or pr['head']['sha'] != candidate_sha:
+                      raise RuntimeError('PR #6 could not be normalised to the candidate')
+
+              def candidate_ci_runs():
+                  listing = api('GET', f'/repos/{repo}/actions/runs', query={'head_sha': candidate_sha, 'per_page': 100})
+                  return [
+                      run for run in listing.get('workflow_runs', [])
+                      if run.get('name') == 'CI' and run.get('event') in {'pull_request', 'workflow_dispatch'}
+                  ]
+
+              runs = candidate_ci_runs()
+              successful = [run for run in runs if run.get('status') == 'completed' and run.get('conclusion') == 'success']
+              failed = [run for run in runs if run.get('status') == 'completed' and run.get('conclusion') not in {None, 'success'}]
+              active = [run for run in runs if run.get('status') != 'completed']
+              if successful:
+                  ci_run = max(successful, key=lambda run: run['id'])
+              elif failed and not active:
+                  raise RuntimeError('candidate-specific CI has already failed; supervisor refuses a rerun')
+              else:
+                  if active:
+                      ci_run = max(active, key=lambda run: run['id'])
+                  else:
+                      # A GITHUB_TOKEN-driven PR reopen does not necessarily emit a recursive workflow event.
+                      # Exactly one workflow_dispatch is justified when no candidate run exists.
+                      api('POST', f'/repos/{repo}/actions/workflows/ci.yml/dispatches', {'ref': audit_branch})
+                      ci_run = None
+                      for _ in range(40):
+                          time.sleep(3)
+                          dispatched = [run for run in candidate_ci_runs() if run.get('event') == 'workflow_dispatch']
+                          if dispatched:
+                              ci_run = max(dispatched, key=lambda run: run['id'])
+                              break
+                      if ci_run is None:
+                          raise RuntimeError('the single justified candidate CI dispatch was not observable')
+
+                  for _ in range(125):
+                      current = api('GET', f'/repos/{repo}/actions/runs/{ci_run["id"]}')
+                      if current['head_sha'] != candidate_sha or current['name'] != 'CI':
+                          raise RuntimeError('candidate CI identity changed during observation')
+                      if current['status'] == 'completed':
+                          ci_run = current
+                          break
+                      time.sleep(10)
+                  else:
+                      raise RuntimeError('candidate CI exceeded the bounded observation interval')
+                  if ci_run.get('conclusion') != 'success':
+                      raise RuntimeError(f'candidate CI {ci_run["id"]} concluded {ci_run.get("conclusion")}')
+
+              jobs = api('GET', f'/repos/{repo}/actions/runs/{ci_run["id"]}/jobs', query={'per_page': 100})
+              bad_jobs = [
+                  {'name': job.get('name'), 'status': job.get('status'), 'conclusion': job.get('conclusion')}
+                  for job in jobs.get('jobs', [])
+                  if job.get('status') != 'completed' or job.get('conclusion') not in {'success', 'skipped'}
+              ]
+              if bad_jobs:
+                  raise RuntimeError(f'candidate CI matrix contains non-green jobs: {bad_jobs}')
+
+              final_body = f'''## Scope
+
+This pull request presents the cumulative I14–I19 remediation candidate as exactly 42 replacement files over baseline `{base}`. Candidate `{candidate_sha}` has that baseline as its sole direct parent and tree `{expected_tree}`.
+
+## Verified acceptance evidence
+
+- GitHub read-back confirmed the exact tree, direct-child commit, audit ref and exactly 42 changed paths.
+- Candidate-specific CI run `{ci_run["id"]}` (CI #{ci_run["run_number"]}, event `{ci_run["event"]}`) completed successfully for this exact commit.
+- All transport and staging runs are expressly excluded from acceptance evidence.
+
+## Adjudication boundary
+
+- The 30 I14–I19 findings may now be adjudicated individually against this integrated remote evidence.
+- `A01-F003` remains P1 `OPEN/PARTIALLY_IMPLEMENTED`; universal containment, including detached sessions, is not claimed.
+- `APP_VERSION`, the MIT licence, repository visibility, release v2.2.0 and Zenodo state remain unchanged.
+- CodeProbe remains a formative heuristic code/project review kit. No empirical AI-authorship, misconduct-detection or authorship-probability validity is claimed.
+
+No merge or release action is requested.'''
+              api('PATCH', f'/repos/{repo}/pulls/{pr_number}', {'state': 'open', 'body': final_body})
+              final_pr = api('GET', f'/repos/{repo}/pulls/{pr_number}')
+              final_main = api('GET', f'/repos/{repo}/git/ref/heads/main')
+              if final_pr['state'] != 'open' or final_pr['head']['sha'] != candidate_sha:
+                  raise RuntimeError('final PR read-back failed')
+              if str(ci_run['id']) not in final_pr.get('body', ''):
+                  raise RuntimeError('final PR does not contain the accepted CI identity')
+              if final_main['object']['sha'] != base:
+                  raise RuntimeError('main changed during supervisor acceptance')
+
+              evidence.update({
+                  'status': 'PASS',
+                  'candidate_commit': candidate_sha,
+                  'candidate_tree': expected_tree,
+                  'direct_parent': base,
+                  'ahead_by': comparison['ahead_by'],
+                  'behind_by': comparison['behind_by'],
+                  'changed_path_count': len(changed_paths),
+                  'changed_paths': changed_paths,
+                  'pr_state': final_pr['state'],
+                  'pr_head_sha': final_pr['head']['sha'],
+                  'pr_base_sha': final_pr['base']['sha'],
+                  'ci_run_id': ci_run['id'],
+                  'ci_run_number': ci_run['run_number'],
+                  'ci_event': ci_run['event'],
+                  'ci_status': ci_run['status'],
+                  'ci_conclusion': ci_run['conclusion'],
+                  'ci_jobs': [
+                      {
+                          'name': job.get('name'),
+                          'status': job.get('status'),
+                          'conclusion': job.get('conclusion'),
+                      }
+                      for job in jobs.get('jobs', [])
+                  ],
+                  'main_unchanged': True,
+                  'formal_ledger_after_r01': {
+                      'universe': 111,
+                      'closed': 110,
+                      'open': 1,
+                      'remaining': ['A01-F003'],
+                  },
+                  'finished_at_utc': datetime.now(timezone.utc).isoformat(),
+              })
+              evidence_commit = put_branch_file(
+                  evidence_branch,
+                  'r01/R01_ACCEPTANCE_EVIDENCE.json',
+                  (json.dumps(evidence, indent=2, sort_keys=True) + '\n').encode('utf-8'),
+                  'Record independently verified R01 acceptance evidence',
+              )
+              evidence['evidence_commit'] = evidence_commit
+
+              for branch in (
+                  'audit/codeprobe-r01-controller-20260911',
+                  'audit/codeprobe-r01-controller2-20260911',
+                  'audit/codeprobe-r01-controller3-20260911',
+                  'audit/codeprobe-r01-controller4-20260911',
+                  diagnostic_branch,
+                  supervisor_branch,
+              ):
+                  ref = api('GET', f'/repos/{repo}/git/ref/heads/{branch}', allow_404=True)
+                  if ref is not None:
+                      api('DELETE', f'/repos/{repo}/git/refs/heads/{branch}')
+          except Exception as exc:
+              evidence.update({
+                  'status': 'FAIL',
+                  'error': repr(exc),
+                  'traceback': traceback.format_exc(),
+                  'finished_at_utc': datetime.now(timezone.utc).isoformat(),
+              })
+              put_branch_file(
+                  diagnostic_branch,
+                  'r01/R01_SUPERVISOR_DIAGNOSTIC.json',
+                  (json.dumps(evidence, indent=2, sort_keys=True) + '\n').encode('utf-8'),
+                  'Record independent R01 supervisor diagnostic',
+              )
+              raise
+          PY
