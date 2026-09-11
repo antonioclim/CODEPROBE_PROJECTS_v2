@@ -1,0 +1,547 @@
+name: R01 exact candidate controller
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-r01-controller-20260911
+    paths:
+      - .github/workflows/r01-controller.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: codeprobe-r01-exact-candidate-controller
+  cancel-in-progress: false
+
+jobs:
+  r01:
+    name: Persist, verify and test the exact R01 candidate
+    if: github.actor == 'antonioclim'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      REPOSITORY: antonioclim/CODEPROBE_PROJECTS_v2
+      BASE_COMMIT: d5e1aa9e86e855f05ea570de22110aefc972b400
+      BASE_TREE: dbffa8876ed833ceb9da6188255f215dc2dbf4ff
+      EXPECTED_TREE: 6c24e2c7882848746f8d9aa5e9389b958fbacb20
+      KNOWN_STAGING_ROOT: a539d4243c985ce73bde92c72439d9cca68a3618
+      AUDIT_BRANCH: audit/codeprobe-i14-runtime-config-20260909
+      CONTROLLER_BRANCH: audit/codeprobe-r01-controller-20260911
+      PR_NUMBER: '6'
+      CARRIERS: |
+        43bd413ee78a0ee0223d39b74cfc9335d633ae99
+        5515a223c53acc20fa6b0a1de000b84cc9d33154
+        8f4d1fca272bcac614fb4bafbcb9ecf0cf66c88f
+        b1cd53ca44d9339c611988bb0b0d967b4329354d
+        6dd21d8692b90b2fcc7e0f99c7833007c0ba692f
+        5768052b20694c143156cc2091b7275153756135
+        2336eded2324562feaeec84bd75f96459e333f67
+        7de52411edd6b84b0d9efc8422771ff428c356ba
+        2e77ae2a924e512a757d877fa614d44a7b274c25
+        8b2eef3036509bb8cf4fca3403fea28207f993aa
+        9903aa044e9b9d76600d7dc17ed555ff3705486a
+        79f942f983d8b17bfef54bbbab5ca63e43fd533a
+      TARGETS: |
+        README.md 1d8fe4710e5cbed0e1579f813ce9fc1c5a20f1c0
+        app/codeprobe-ui.js 995ce9bbbe12def1ebd1db4964d5f4702af9754a
+        app/codeprobe.css ac2db0ced202df21212cbd0511e2f14b246d4999
+        app/index.html 833f895fd0af547d95568fdf8c66e3837e5262df
+        app/project-ui.js 705ed151c94a7ce57027e8897607564e02a379c6
+        app/project.css ba920a84a59771206e778e1cca3d3092b288b3b6
+        app/project.html e265181e8c7aafad1b95c19b47842aa90be04aec
+        app/pyodide-loader.js e178061c2e023e57f739c7defb629f317f080910
+        app/resource-integrity.json eb3b2bea421fc7cc853660c1b0e735fdaf2886a0
+        app/vendor/pyodide/README.md 4c3103ff7d565839f87a6e792163ab20513481f6
+        docs/04-browser-security.md 49a10c59f8e3b9b66d2435f44aa232ce55d520c0
+        docs/05-offline-deployment.md 2d341777fbf8735b2a0f748323599ba3e3af87ec
+        docs/07-ui-extension-guide.md c901580a43dbf0e44355f96b175af3f8f81f030a
+        docs/09-release-integrity.md af779a13347df9160c9c7ab25fce550c78abd86a
+        docs/16-ci-and-repository-controls.md 0d589d724899892453d10c3cefdc7560679d5fdd
+        docs/assets/interface-preview.png 8c27ba73c23cd7673877771dca4e763b0e754ac4
+        docs/history/07-institutional-packaging.md 778fc5681bf48628dbb66775d7379158d23196bd
+        educator/08-deployment-one-page.md dd0dae6a4b6a0ff7ae731f3a03de5772c639ce42
+        tests/test_app_runtime_tools_paths.py d93b33917e8ae0621aa1fdab0928bf25e8240797
+        tests/test_coverage_policy.py e433b1eb6b501cc782e97291d68c0081b3055194
+        tests/test_dependency_boundary.py 2862a6c8eb2eea63863c06e72f1a83a9501fff55
+        tests/test_documentation_resources.py 68c2f443fc0ba0eb02c300524cb561ea25132bab
+        tests/test_dynamic_ui_review.py e1398a0443236d2137c760069412480492125960
+        tests/test_final_package_audit.py 77efb046d762e82c9d1b77eb8859c52f58acd0fd
+        tests/test_project_mode.py fdfefca0e2f44cb629f9c8eb1b1ecb2d8e3eca85
+        tests/test_pyodide_provenance.py 65ae7cb1c5c4b243f301393d6eb52630637446dc
+        tests/test_reference_integrity.py 8cab7199fdf4b658513a9b302b35f2480d53386b
+        tests/test_release_integrity.py 4dfdf7292bf52602ea06b71970c0499041088aef
+        tests/test_release_reproducibility.py 60ef93637c800c4e3a54dd0724d08b32fcc06c79
+        tests/test_runtime_smoke.py 28a35780a8b531a8e82324813ac2c631e5e037d7
+        tests/test_worker_contract.py 8c145d070e13e125752354c9e220efa391929d3a
+        tools/build_release.py fa6fface6d478975d4226567b2ff0be30818da31
+        tools/check_browser_accessibility.js 421fc2a8d319db4194bae7d44e319ddced8b6d1d
+        tools/check_browser_functional.js 7c6c5309c989220b068a7e46f3923455963fd6bd
+        tools/check_coverage.py 9eaec95b19921b18f029d3c33fd576ab1fc3f7b2
+        tools/check_dependency_boundary.py 6ce9dcd6a105356cc21fed55cfe34862cd6041a2
+        tools/check_file_references.py d3ffe280673e826937a903917c4c78da73a02a39
+        tools/check_input_contracts.js 247f708d5174c881d71e546e6fd388e52b36309b
+        tools/check_release.py dbb77e1b2931dd32bbce03c235213a0f00c29932
+        tools/check_release_reproducibility.py fa1f76b0935fff1b9eacea2e765c66f3f2c98f64
+        tools/compare_releases.py c4e2f7b4632f364c3c854c60291025ed36106ff7
+        tools/coverage-policy.json 1d3be23da6cfc32a7dda53feeefae5c7103e3769
+    steps:
+      - name: Recover target bytes, attach candidate and observe one exact CI cycle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import binascii
+          import bz2
+          import gzip
+          import hashlib
+          import io
+          import json
+          import lzma
+          import os
+          import pathlib
+          import tarfile
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          import zipfile
+          import zlib
+          from datetime import datetime, timezone
+
+          repo = os.environ['REPOSITORY']
+          base = os.environ['BASE_COMMIT']
+          base_tree = os.environ['BASE_TREE']
+          expected_tree = os.environ['EXPECTED_TREE']
+          staging_root = os.environ['KNOWN_STAGING_ROOT']
+          audit_branch = os.environ['AUDIT_BRANCH']
+          controller_branch = os.environ['CONTROLLER_BRANCH']
+          controller_commit = os.environ['GITHUB_SHA']
+          pr_number = int(os.environ['PR_NUMBER'])
+          token = os.environ['GH_TOKEN']
+          carriers = [line.strip() for line in os.environ['CARRIERS'].splitlines() if line.strip()]
+          targets = dict(line.split() for line in os.environ['TARGETS'].splitlines() if line.strip())
+          reverse_targets = {sha: path for path, sha in targets.items()}
+          workflow_path = '.github/workflows/v01-cas-persist.yml'
+          if len(carriers) != 12 or len(set(carriers)) != 12:
+              raise RuntimeError('carrier inventory must contain twelve unique objects')
+          if len(targets) != 42 or len(reverse_targets) != 42:
+              raise RuntimeError('target inventory must contain forty-two unique blobs')
+
+          def api(method: str, path: str, body=None, query=None, *, allow_404: bool = False):
+              url = 'https://api.github.com' + path
+              if query:
+                  url += '?' + urllib.parse.urlencode(query)
+              data = None if body is None else json.dumps(body, separators=(',', ':')).encode('utf-8')
+              request = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'User-Agent': 'codeprobe-r01-controller',
+                      'Content-Type': 'application/json',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=90) as response:
+                      raw = response.read()
+                  return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as error:
+                  detail = error.read().decode(errors='replace')
+                  if allow_404 and error.code == 404:
+                      return None
+                  raise RuntimeError(f'{method} {path}: HTTP {error.code}: {detail[:1600]}') from error
+
+          def blob_sha(data: bytes) -> str:
+              return hashlib.sha1(f'blob {len(data)}\0'.encode('ascii') + data).hexdigest()
+
+          def add(queue: list[bytes], seen: set[bytes], value: bytes | None) -> None:
+              if value is None or len(value) > 32_000_000 or value in seen:
+                  return
+              seen.add(value)
+              queue.append(value)
+
+          def variants(seed: bytes):
+              queue: list[bytes] = []
+              seen: set[bytes] = set()
+              add(queue, seen, seed)
+              position = 0
+              while position < len(queue) and position < 96:
+                  value = queue[position]
+                  position += 1
+                  yield value
+                  stripped = value.strip()
+                  add(queue, seen, stripped)
+                  try:
+                      add(queue, seen, base64.b64decode(stripped, validate=True))
+                  except (binascii.Error, ValueError):
+                      pass
+                  try:
+                      add(queue, seen, bytes.fromhex(stripped.decode('ascii')))
+                  except (ValueError, UnicodeDecodeError):
+                      pass
+                  try:
+                      decoded = json.loads(value.decode('utf-8'))
+                      if isinstance(decoded, str):
+                          add(queue, seen, decoded.encode('utf-8'))
+                  except (ValueError, UnicodeDecodeError):
+                      pass
+                  for decoder in (gzip.decompress, bz2.decompress, lzma.decompress, zlib.decompress):
+                      try:
+                          add(queue, seen, decoder(value))
+                      except Exception:
+                          pass
+
+          recovered: dict[str, bytes] = {}
+
+          def register(data: bytes, origin: str) -> None:
+              sha = blob_sha(data)
+              path = reverse_targets.get(sha)
+              if path is None:
+                  return
+              old = recovered.get(path)
+              if old is not None and old != data:
+                  raise RuntimeError(f'non-unique exact recovery for {path}')
+              recovered[path] = data
+              print(f'RECOVERED {path} {sha} FROM {origin}')
+
+          def inspect_archive(data: bytes, origin: str) -> None:
+              try:
+                  with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                      for info in archive.infolist():
+                          path = pathlib.PurePosixPath(info.filename)
+                          if info.is_dir():
+                              continue
+                          if path.is_absolute() or '..' in path.parts or info.file_size > 16_000_000:
+                              raise RuntimeError(f'unsafe ZIP carrier member: {origin}:{info.filename}')
+                          register(archive.read(info), f'{origin}:zip:{info.filename}')
+              except zipfile.BadZipFile:
+                  pass
+              try:
+                  with tarfile.open(fileobj=io.BytesIO(data), mode='r:*') as archive:
+                      for member in archive.getmembers():
+                          path = pathlib.PurePosixPath(member.name)
+                          if member.isdir():
+                              continue
+                          if not member.isfile() or member.issym() or member.islnk() or path.is_absolute() or '..' in path.parts or member.size > 16_000_000:
+                              raise RuntimeError(f'unsafe TAR carrier member: {origin}:{member.name}')
+                          stream = archive.extractfile(member)
+                          if stream is None:
+                              raise RuntimeError(f'unreadable TAR carrier member: {origin}:{member.name}')
+                          register(stream.read(), f'{origin}:tar:{member.name}')
+              except tarfile.TarError:
+                  pass
+
+          main_ref = api('GET', f'/repos/{repo}/git/ref/heads/main')
+          controller_ref = api('GET', f'/repos/{repo}/git/ref/heads/{controller_branch}')
+          audit_ref = api('GET', f'/repos/{repo}/git/ref/heads/{audit_branch}')
+          if main_ref['object']['sha'] != base:
+              raise RuntimeError('main moved after the R01 authorisation boundary')
+          if controller_ref['object']['sha'] != controller_commit:
+              raise RuntimeError('controller branch does not point to this execution')
+
+          audit_head = audit_ref['object']['sha']
+          audit_commit = api('GET', f'/repos/{repo}/git/commits/{audit_head}')
+          audit_is_candidate = (
+              audit_commit['tree']['sha'] == expected_tree
+              and [parent['sha'] for parent in audit_commit['parents']] == [base]
+          )
+          if not audit_is_candidate:
+              staging_compare = api('GET', f'/repos/{repo}/compare/{staging_root}...{audit_head}')
+              staging_paths = {item['filename'] for item in staging_compare.get('files', [])}
+              if staging_compare['behind_by'] != 0 or not staging_paths <= {workflow_path}:
+                  raise RuntimeError(
+                      f'audit branch is neither the exact candidate nor an authorised workflow-only staging descendant: '
+                      f'head={audit_head}, behind={staging_compare["behind_by"]}, paths={sorted(staging_paths)}'
+                  )
+
+          raw_carriers: list[bytes] = []
+          decoded_carriers: list[bytes] = []
+          for carrier_sha in carriers:
+              response = api('GET', f'/repos/{repo}/git/blobs/{carrier_sha}')
+              if response.get('sha') != carrier_sha or response.get('encoding') != 'base64':
+                  raise RuntimeError(f'carrier read-back contract failed for {carrier_sha}')
+              raw = base64.b64decode(response['content'])
+              raw_carriers.append(raw)
+              try:
+                  decoded_carriers.append(base64.b64decode(raw.strip(), validate=True))
+              except (binascii.Error, ValueError):
+                  decoded_carriers.append(b'')
+              for index, candidate_bytes in enumerate(variants(raw)):
+                  register(candidate_bytes, f'{carrier_sha}:variant:{index}')
+                  inspect_archive(candidate_bytes, f'{carrier_sha}:variant:{index}')
+
+          aggregates = [
+              b''.join(raw_carriers),
+              b'\n'.join(raw_carriers),
+              b''.join(value for value in decoded_carriers if value),
+              b'\n'.join(value for value in decoded_carriers if value),
+          ]
+          for aggregate_index, aggregate in enumerate(aggregates):
+              for variant_index, candidate_bytes in enumerate(variants(aggregate)):
+                  register(candidate_bytes, f'aggregate:{aggregate_index}:variant:{variant_index}')
+                  inspect_archive(candidate_bytes, f'aggregate:{aggregate_index}:variant:{variant_index}')
+
+          absent: list[str] = []
+          for path, sha in targets.items():
+              response = api('GET', f'/repos/{repo}/git/blobs/{sha}', allow_404=True)
+              if response is None:
+                  absent.append(path)
+              elif response.get('sha') != sha:
+                  raise RuntimeError(f'target read-back mismatch for {path}')
+          unresolved = sorted(path for path in absent if path not in recovered)
+          if unresolved:
+              raise RuntimeError('exact carrier recovery is incomplete: ' + ', '.join(unresolved))
+
+          for path in sorted(absent):
+              data = recovered[path]
+              expected_sha = targets[path]
+              created = api(
+                  'POST',
+                  f'/repos/{repo}/git/blobs',
+                  {'content': base64.b64encode(data).decode('ascii'), 'encoding': 'base64'},
+              )
+              if created['sha'] != expected_sha:
+                  raise RuntimeError(f'{path}: created blob {created["sha"]} != {expected_sha}')
+              read_back = api('GET', f'/repos/{repo}/git/blobs/{expected_sha}')
+              if read_back.get('sha') != expected_sha:
+                  raise RuntimeError(f'{path}: created blob read-back failed')
+
+          for path, sha in targets.items():
+              response = api('GET', f'/repos/{repo}/git/blobs/{sha}', allow_404=True)
+              if response is None or response.get('sha') != sha:
+                  raise RuntimeError(f'complete target CAS verification failed for {path}')
+
+          tree = api(
+              'POST',
+              f'/repos/{repo}/git/trees',
+              {
+                  'base_tree': base_tree,
+                  'tree': [
+                      {'path': path, 'mode': '100644', 'type': 'blob', 'sha': sha}
+                      for path, sha in sorted(targets.items())
+                  ],
+              },
+          )
+          if tree['sha'] != expected_tree:
+              raise RuntimeError(f'candidate tree {tree["sha"]} != {expected_tree}')
+          tree_read_back = api('GET', f'/repos/{repo}/git/trees/{expected_tree}', query={'recursive': '1'})
+          remote_blobs = {entry['path']: entry['sha'] for entry in tree_read_back['tree'] if entry.get('type') == 'blob'}
+          mismatch = {path: (remote_blobs.get(path), sha) for path, sha in targets.items() if remote_blobs.get(path) != sha}
+          if mismatch:
+              raise RuntimeError(f'candidate tree read-back mismatch: {mismatch}')
+
+          if audit_is_candidate:
+              candidate_sha = audit_head
+          else:
+              stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+              identity = {
+                  'name': 'Antonio Clim',
+                  'email': '48681843+antonioclim@users.noreply.github.com',
+                  'date': stamp,
+              }
+              candidate = api(
+                  'POST',
+                  f'/repos/{repo}/git/commits',
+                  {
+                      'message': (
+                          'Complete the byte-exact I14-I19 audit remediation candidate\n\n'
+                          'Persist the verified 42-file cumulative candidate directly over the authorised main baseline. '
+                          'This commit is submitted for candidate-specific CI and finding adjudication. It does not close '
+                          'A01-F003, change APP_VERSION or alter release state.'
+                      ),
+                      'tree': expected_tree,
+                      'parents': [base],
+                      'author': identity,
+                      'committer': identity,
+                  },
+              )
+              candidate_sha = candidate['sha']
+              if candidate['tree']['sha'] != expected_tree or [parent['sha'] for parent in candidate['parents']] != [base]:
+                  raise RuntimeError('candidate commit structure mismatch')
+
+          comparison = api('GET', f'/repos/{repo}/compare/{base}...{candidate_sha}')
+          changed = {item['filename'] for item in comparison.get('files', [])}
+          if comparison['ahead_by'] != 1 or comparison['behind_by'] != 0 or changed != set(targets):
+              raise RuntimeError('candidate is not exactly one direct commit with the forty-two authorised paths')
+          if workflow_path in changed:
+              raise RuntimeError('temporary staging workflow leaked into the candidate')
+
+          if audit_head != candidate_sha:
+              updated = api(
+                  'PATCH',
+                  f'/repos/{repo}/git/refs/heads/{audit_branch}',
+                  {'sha': candidate_sha, 'force': True},
+              )
+              if updated['object']['sha'] != candidate_sha:
+                  raise RuntimeError('audit ref update response mismatch')
+          audit_read_back = api('GET', f'/repos/{repo}/git/ref/heads/{audit_branch}')
+          commit_read_back = api('GET', f'/repos/{repo}/git/commits/{candidate_sha}')
+          if audit_read_back['object']['sha'] != candidate_sha:
+              raise RuntimeError('audit ref read-back mismatch')
+          if commit_read_back['tree']['sha'] != expected_tree or [parent['sha'] for parent in commit_read_back['parents']] != [base]:
+              raise RuntimeError('candidate commit read-back mismatch')
+
+          pr = api('GET', f'/repos/{repo}/pulls/{pr_number}')
+          if pr.get('merged_at') is not None or pr['head']['ref'] != audit_branch or pr['base']['ref'] != 'main':
+              raise RuntimeError('PR #6 identity or merge state is incompatible with R01')
+          pending_body = f'''## Scope
+
+This pull request presents the cumulative I14–I19 remediation candidate as exactly 42 replacement files over baseline `{base}`. The candidate commit `{candidate_sha}` has that baseline as its sole direct parent and its Git tree is `{expected_tree}`.
+
+## Verified evidence
+
+- The authoritative local checkpoint was verified before remote persistence.
+- All 42 exact Git blobs, the complete tree, the direct-child commit, the audit ref and the 42-path comparison were read back from GitHub.
+- Candidate-specific CI for this exact commit is being observed; no prior staging CI is accepted as candidate evidence.
+
+## Evidence boundary
+
+- `A01-F003` remains P1 `OPEN/PARTIALLY_IMPLEMENTED`; universal containment, including detached sessions, is not claimed.
+- This candidate does not alter `APP_VERSION`, the MIT licence, repository visibility, the public v2.2.0 release or any Zenodo state.
+- CodeProbe remains a formative heuristic code/project review kit. No empirical AI-authorship, misconduct-detection or authorship-probability validity is claimed.
+
+No merge or release action is requested in this pull request.'''
+          api(
+              'PATCH',
+              f'/repos/{repo}/pulls/{pr_number}',
+              {
+                  'state': 'open',
+                  'title': 'Integrate the byte-exact I14–I19 audit remediation candidate',
+                  'body': pending_body,
+                  'maintainer_can_modify': False,
+              },
+          )
+          pr_read_back = api('GET', f'/repos/{repo}/pulls/{pr_number}')
+          if pr_read_back['state'] != 'open' or pr_read_back['head']['sha'] != candidate_sha or pr_read_back['base']['sha'] != base:
+              raise RuntimeError('PR #6 read-back failed after reopening')
+
+          def candidate_ci_runs():
+              response = api(
+                  'GET',
+                  f'/repos/{repo}/actions/runs',
+                  query={'head_sha': candidate_sha, 'per_page': 100},
+              )
+              return [
+                  run for run in response.get('workflow_runs', [])
+                  if run.get('name') == 'CI' and run.get('event') in {'pull_request', 'workflow_dispatch'}
+              ]
+
+          runs = candidate_ci_runs()
+          successful = [run for run in runs if run.get('status') == 'completed' and run.get('conclusion') == 'success']
+          failed = [run for run in runs if run.get('status') == 'completed' and run.get('conclusion') not in {None, 'success'}]
+          active = [run for run in runs if run.get('status') != 'completed']
+          if successful:
+              ci_run = sorted(successful, key=lambda run: run['id'])[-1]
+              print(f'REUSE_GREEN_CANDIDATE_CI {ci_run["id"]}')
+          elif failed and not active:
+              raise RuntimeError('a completed candidate-specific CI already failed; R01 refuses an automatic rerun')
+          else:
+              if active:
+                  ci_run = sorted(active, key=lambda run: run['id'])[-1]
+                  print(f'OBSERVE_ACTIVE_CANDIDATE_CI {ci_run["id"]}')
+              else:
+                  api(
+                      'POST',
+                      f'/repos/{repo}/actions/workflows/ci.yml/dispatches',
+                      {'ref': audit_branch},
+                  )
+                  ci_run = None
+                  for _ in range(40):
+                      time.sleep(3)
+                      fresh = candidate_ci_runs()
+                      active_or_done = [run for run in fresh if run.get('event') == 'workflow_dispatch']
+                      if active_or_done:
+                          ci_run = sorted(active_or_done, key=lambda run: run['id'])[-1]
+                          break
+                  if ci_run is None:
+                      raise RuntimeError('candidate CI dispatch returned no observable run')
+                  print(f'DISPATCHED_ONE_CANDIDATE_CI {ci_run["id"]}')
+
+              run_id = ci_run['id']
+              for _ in range(100):
+                  current = api('GET', f'/repos/{repo}/actions/runs/{run_id}')
+                  if current['head_sha'] != candidate_sha or current['name'] != 'CI':
+                      raise RuntimeError('observed CI run identity changed')
+                  if current['status'] == 'completed':
+                      ci_run = current
+                      break
+                  time.sleep(10)
+              else:
+                  raise RuntimeError('candidate CI did not complete within the bounded observation window')
+              if ci_run.get('conclusion') != 'success':
+                  raise RuntimeError(f'candidate CI {ci_run["id"]} concluded {ci_run.get("conclusion")}')
+
+          jobs = api('GET', f'/repos/{repo}/actions/runs/{ci_run["id"]}/jobs', query={'per_page': 100})
+          incomplete_or_failed = [
+              {'name': job.get('name'), 'status': job.get('status'), 'conclusion': job.get('conclusion')}
+              for job in jobs.get('jobs', [])
+              if job.get('status') != 'completed' or job.get('conclusion') not in {'success', 'skipped'}
+          ]
+          if incomplete_or_failed:
+              raise RuntimeError(f'candidate CI job matrix is not green: {incomplete_or_failed}')
+
+          final_body = f'''## Scope
+
+This pull request presents the cumulative I14–I19 remediation candidate as exactly 42 replacement files over baseline `{base}`. The candidate commit `{candidate_sha}` has that baseline as its sole direct parent and its Git tree is `{expected_tree}`.
+
+## Verified evidence
+
+- The authoritative local checkpoint passed byte-level verification before persistence.
+- GitHub read-back confirmed all 42 target blobs, the exact tree, the direct-child commit, the audit ref and exactly 42 changed paths.
+- Candidate-specific CI run `{ci_run["id"]}` (CI #{ci_run["run_number"]}, event `{ci_run["event"]}`) completed successfully for this exact commit.
+- Earlier transport and staging runs are expressly excluded from the acceptance evidence.
+
+## Adjudication boundary
+
+- The 30 I14–I19 findings may now be adjudicated individually against this integrated remote evidence.
+- `A01-F003` remains P1 `OPEN/PARTIALLY_IMPLEMENTED`; universal containment, including detached sessions, is not claimed.
+- This candidate does not alter `APP_VERSION`, the MIT licence, repository visibility, the public v2.2.0 release or any Zenodo state.
+- CodeProbe remains a formative heuristic code/project review kit. No empirical AI-authorship, misconduct-detection or authorship-probability validity is claimed.
+
+No merge or release action is requested in this pull request.'''
+          api(
+              'PATCH',
+              f'/repos/{repo}/pulls/{pr_number}',
+              {'state': 'open', 'body': final_body},
+          )
+          final_pr = api('GET', f'/repos/{repo}/pulls/{pr_number}')
+          if final_pr['state'] != 'open' or final_pr['head']['sha'] != candidate_sha or str(ci_run['id']) not in final_pr.get('body', ''):
+              raise RuntimeError('final PR evidence read-back failed')
+
+          final_main = api('GET', f'/repos/{repo}/git/ref/heads/main')
+          if final_main['object']['sha'] != base:
+              raise RuntimeError('main changed during R01')
+
+          print(json.dumps({
+              'status': 'PASS',
+              'candidate_commit': candidate_sha,
+              'candidate_tree': expected_tree,
+              'direct_parent': base,
+              'replacement_paths': len(targets),
+              'target_blobs': len(targets),
+              'created_target_blobs': len(absent),
+              'pr_number': pr_number,
+              'pr_state': final_pr['state'],
+              'ci_run_id': ci_run['id'],
+              'ci_run_number': ci_run['run_number'],
+              'ci_event': ci_run['event'],
+              'ci_conclusion': ci_run['conclusion'],
+              'main_unchanged': True,
+          }, indent=2, sort_keys=True))
+
+          current_controller = api('GET', f'/repos/{repo}/git/ref/heads/{controller_branch}')
+          if current_controller['object']['sha'] != controller_commit:
+              raise RuntimeError('controller ref changed before cleanup')
+          api('DELETE', f'/repos/{repo}/git/refs/heads/{controller_branch}')
+          PY
