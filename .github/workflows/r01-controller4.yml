@@ -1,0 +1,231 @@
+name: R01 exact candidate controller v4
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-r01-controller4-20260911
+    paths:
+      - .github/workflows/r01-controller4.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: codeprobe-r01-exact-candidate-controller-v4
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: Compile and execute the corrected exact-candidate controller
+    if: github.actor == 'antonioclim'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      REPOSITORY: antonioclim/CODEPROBE_PROJECTS_v2
+      SOURCE_BRANCH: audit/codeprobe-r01-controller3-20260911
+      CONTROLLER_BRANCH: audit/codeprobe-r01-controller4-20260911
+      SOURCE_PATH: .github/workflows/r01-controller3.yml
+    steps:
+      - name: Recover controller source, correct the scoped syntax defect and execute
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import json
+          import os
+          import re
+          import textwrap
+          import traceback
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          repo = os.environ['REPOSITORY']
+          source_branch = os.environ['SOURCE_BRANCH']
+          controller_branch = os.environ['CONTROLLER_BRANCH']
+          source_path = os.environ['SOURCE_PATH']
+          token = os.environ['GH_TOKEN']
+          outcome_path = Path('/tmp/r01-controller3-outcome.json')
+
+          def api(method: str, path: str, body=None, query=None, *, allow_404: bool = False):
+              url = 'https://api.github.com' + path
+              if query:
+                  url += '?' + urllib.parse.urlencode(query)
+              data = None if body is None else json.dumps(body, separators=(',', ':')).encode('utf-8')
+              request = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'User-Agent': 'codeprobe-r01-controller-v4-bootstrap',
+                      'Content-Type': 'application/json',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=120) as response:
+                      raw = response.read()
+                  return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode(errors='replace')
+                  if allow_404 and exc.code == 404:
+                      return None
+                  raise RuntimeError(f'{method} {path}: HTTP {exc.code}: {detail[:1800]}') from exc
+
+          def publish_failure(payload: bytes, *, base: str, base_tree: str, diagnostic_branch: str) -> None:
+              blob = api(
+                  'POST',
+                  f'/repos/{repo}/git/blobs',
+                  {'content': base64.b64encode(payload).decode('ascii'), 'encoding': 'base64'},
+              )
+              tree = api(
+                  'POST',
+                  f'/repos/{repo}/git/trees',
+                  {
+                      'base_tree': base_tree,
+                      'tree': [
+                          {
+                              'path': 'r01/R01_DIAGNOSTIC.json',
+                              'mode': '100644',
+                              'type': 'blob',
+                              'sha': blob['sha'],
+                          }
+                      ],
+                  },
+              )
+              commit = api(
+                  'POST',
+                  f'/repos/{repo}/git/commits',
+                  {
+                      'message': 'Record bounded R01 controller v4 diagnostic',
+                      'tree': tree['sha'],
+                      'parents': [base],
+                  },
+              )
+              current = api('GET', f'/repos/{repo}/git/ref/heads/{diagnostic_branch}', allow_404=True)
+              if current is None:
+                  api(
+                      'POST',
+                      f'/repos/{repo}/git/refs',
+                      {'ref': 'refs/heads/' + diagnostic_branch, 'sha': commit['sha']},
+                  )
+              else:
+                  api(
+                      'PATCH',
+                      f'/repos/{repo}/git/refs/heads/{diagnostic_branch}',
+                      {'sha': commit['sha'], 'force': True},
+                  )
+
+          response = api(
+              'GET',
+              f'/repos/{repo}/contents/{source_path}',
+              query={'ref': source_branch},
+          )
+          if response.get('encoding') != 'base64':
+              raise RuntimeError('controller v3 source was not returned as base64 content')
+          workflow_text = base64.b64decode(response['content']).decode('utf-8')
+          lines = workflow_text.splitlines()
+
+          scalar_keys = (
+              'REPOSITORY',
+              'BASE_COMMIT',
+              'BASE_TREE',
+              'EXPECTED_TREE',
+              'STAGING_ROOT',
+              'AUDIT_BRANCH',
+              'DIAGNOSTIC_BRANCH',
+              'PR_NUMBER',
+          )
+          extracted: dict[str, str] = {}
+          for key in scalar_keys:
+              pattern = re.compile(r'^      ' + re.escape(key) + r':\s*(.+?)\s*$')
+              matches = [pattern.match(line) for line in lines]
+              values = [match.group(1) for match in matches if match]
+              if len(values) != 1:
+                  raise RuntimeError(f'cannot extract unique scalar environment value for {key}')
+              extracted[key] = values[0].strip().strip("'\"")
+
+          for key in ('CARRIERS', 'TARGETS'):
+              marker = f'      {key}: |'
+              try:
+                  start = lines.index(marker) + 1
+              except ValueError as exc:
+                  raise RuntimeError(f'missing multiline environment block {key}') from exc
+              values: list[str] = []
+              position = start
+              while position < len(lines) and lines[position].startswith('        '):
+                  values.append(lines[position][8:])
+                  position += 1
+              if not values:
+                  raise RuntimeError(f'empty multiline environment block {key}')
+              extracted[key] = '\n'.join(values) + '\n'
+
+          extracted['CONTROLLER_BRANCH'] = controller_branch
+          for key, value in extracted.items():
+              os.environ[key] = value
+
+          start_marker = "          python - <<'PY'"
+          try:
+              start = lines.index(start_marker) + 1
+          except ValueError as exc:
+              raise RuntimeError('controller v3 Python heredoc start was not found') from exc
+          end = None
+          for position in range(start, len(lines)):
+              if lines[position] == '          PY':
+                  end = position
+                  break
+          if end is None:
+              raise RuntimeError('controller v3 Python heredoc terminator was not found')
+          source = textwrap.dedent('\n'.join(lines[start:end])) + '\n'
+          defect = 'nonlocal total_enqueued_bytes'
+          if source.count(defect) != 1:
+              raise RuntimeError('the scoped syntax defect was not found exactly once')
+          corrected = source.replace(defect, 'global total_enqueued_bytes')
+
+          try:
+              compiled = compile(corrected, '<r01-controller-v3-corrected>', 'exec')
+              namespace = {'__name__': '__main__'}
+              exec(compiled, namespace, namespace)
+              # The corrected source removes controller v1, v2, v4 and any diagnostic ref on success.
+              # Remove the superseded controller v3 ref as the remaining bounded cleanup operation.
+              old_controller = api('GET', f'/repos/{repo}/git/ref/heads/{source_branch}', allow_404=True)
+              if old_controller is not None:
+                  api('DELETE', f'/repos/{repo}/git/refs/heads/{source_branch}')
+          except Exception as exc:
+              if outcome_path.exists():
+                  payload = outcome_path.read_bytes()
+              else:
+                  payload = (
+                      json.dumps(
+                          {
+                              'schema': 'codeprobe-r01-controller-diagnostic/v4-bootstrap',
+                              'status': 'FAIL',
+                              'controller_commit': os.environ.get('GITHUB_SHA'),
+                              'error': repr(exc),
+                              'traceback': traceback.format_exc(),
+                              'finished_at_utc': datetime.now(timezone.utc).isoformat(),
+                          },
+                          indent=2,
+                          sort_keys=True,
+                      )
+                      + '\n'
+                  ).encode('utf-8')
+              publish_failure(
+                  payload,
+                  base=extracted['BASE_COMMIT'],
+                  base_tree=extracted['BASE_TREE'],
+                  diagnostic_branch=extracted['DIAGNOSTIC_BRANCH'],
+              )
+              raise
+          PY
