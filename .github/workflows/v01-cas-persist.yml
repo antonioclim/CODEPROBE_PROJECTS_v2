@@ -1,4 +1,4 @@
-name: V01 baseline export for byte-exact recovery
+name: V01 exact CAS finaliser
 
 on:
   push:
@@ -8,52 +8,181 @@ on:
       - .github/workflows/v01-cas-persist.yml
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: codeprobe-v01-baseline-export
+  group: codeprobe-v01-cas-finaliser
   cancel-in-progress: false
 
 jobs:
-  export:
-    name: Export authorised baseline files
+  finalise:
+    name: Construct and attach the exact V01 candidate
     if: github.actor == 'antonioclim'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      REPOSITORY: antonioclim/CODEPROBE_PROJECTS_v2
+      BASE_COMMIT: d5e1aa9e86e855f05ea570de22110aefc972b400
+      BASE_TREE: dbffa8876ed833ceb9da6188255f215dc2dbf4ff
+      EXPECTED_TREE: 6c24e2c7882848746f8d9aa5e9389b958fbacb20
+      AUDIT_BRANCH: audit/codeprobe-i14-runtime-config-20260909
+      TARGETS: |
+        README.md 1d8fe4710e5cbed0e1579f813ce9fc1c5a20f1c0
+        app/codeprobe-ui.js 995ce9bbbe12def1ebd1db4964d5f4702af9754a
+        app/codeprobe.css ac2db0ced202df21212cbd0511e2f14b246d4999
+        app/index.html 833f895fd0af547d95568fdf8c66e3837e5262df
+        app/project-ui.js 705ed151c94a7ce57027e8897607564e02a379c6
+        app/project.css ba920a84a59771206e778e1cca3d3092b288b3b6
+        app/project.html e265181e8c7aafad1b95c19b47842aa90be04aec
+        app/pyodide-loader.js e178061c2e023e57f739c7defb629f317f080910
+        app/resource-integrity.json eb3b2bea421fc7cc853660c1b0e735fdaf2886a0
+        app/vendor/pyodide/README.md 4c3103ff7d565839f87a6e792163ab20513481f6
+        docs/04-browser-security.md 49a10c59f8e3b9b66d2435f44aa232ce55d520c0
+        docs/05-offline-deployment.md 2d341777fbf8735b2a0f748323599ba3e3af87ec
+        docs/07-ui-extension-guide.md c901580a43dbf0e44355f96b175af3f8f81f030a
+        docs/09-release-integrity.md af779a13347df9160c9c7ab25fce550c78abd86a
+        docs/16-ci-and-repository-controls.md 0d589d724899892453d10c3cefdc7560679d5fdd
+        docs/assets/interface-preview.png 8c27ba73c23cd7673877771dca4e763b0e754ac4
+        docs/history/07-institutional-packaging.md 778fc5681bf48628dbb66775d7379158d23196bd
+        educator/08-deployment-one-page.md dd0dae6a4b6a0ff7ae731f3a03de5772c639ce42
+        tests/test_app_runtime_tools_paths.py d93b33917e8ae0621aa1fdab0928bf25e8240797
+        tests/test_coverage_policy.py e433b1eb6b501cc782e97291d68c0081b3055194
+        tests/test_dependency_boundary.py 2862a6c8eb2eea63863c06e72f1a83a9501fff55
+        tests/test_documentation_resources.py 68c2f443fc0ba0eb02c300524cb561ea25132bab
+        tests/test_dynamic_ui_review.py e1398a0443236d2137c760069412480492125960
+        tests/test_final_package_audit.py 77efb046d762e82c9d1b77eb8859c52f58acd0fd
+        tests/test_project_mode.py fdfefca0e2f44cb629f9c8eb1b1ecb2d8e3eca85
+        tests/test_pyodide_provenance.py 65ae7cb1c5c4b243f301393d6eb52630637446dc
+        tests/test_reference_integrity.py 8cab7199fdf4b658513a9b302b35f2480d53386b
+        tests/test_release_integrity.py 4dfdf7292bf52602ea06b71970c0499041088aef
+        tests/test_release_reproducibility.py 60ef93637c800c4e3a54dd0724d08b32fcc06c79
+        tests/test_runtime_smoke.py 28a35780a8b531a8e82324813ac2c631e5e037d7
+        tests/test_worker_contract.py 8c145d070e13e125752354c9e220efa391929d3a
+        tools/build_release.py fa6fface6d478975d4226567b2ff0be30818da31
+        tools/check_browser_accessibility.js 421fc2a8d319db4194bae7d44e319ddced8b6d1d
+        tools/check_browser_functional.js 7c6c5309c989220b068a7e46f3923455963fd6bd
+        tools/check_coverage.py 9eaec95b19921b18f029d3c33fd576ab1fc3f7b2
+        tools/check_dependency_boundary.py 6ce9dcd6a105356cc21fed55cfe34862cd6041a2
+        tools/check_file_references.py d3ffe280673e826937a903917c4c78da73a02a39
+        tools/check_input_contracts.js 247f708d5174c881d71e546e6fd388e52b36309b
+        tools/check_release.py dbb77e1b2931dd32bbce03c235213a0f00c29932
+        tools/check_release_reproducibility.py fa1f76b0935fff1b9eacea2e765c66f3f2c98f64
+        tools/compare_releases.py c4e2f7b4632f364c3c854c60291025ed36106ff7
+        tools/coverage-policy.json 1d3be23da6cfc32a7dda53feeefae5c7103e3769
     steps:
-      - name: Check out the authorised baseline
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: d5e1aa9e86e855f05ea570de22110aefc972b400
-          persist-credentials: false
-
-      - name: Verify and archive the exact baseline
+      - name: Verify CAS, construct commit and move only the audit ref
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "d5e1aa9e86e855f05ea570de22110aefc972b400"
-          git diff --quiet
-          git diff --cached --quiet
-          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
-            -czf baseline-d5e1aa9.tar.gz \
-            README.md \
-            app/codeprobe-ui.js \
-            docs/assets/interface-preview.png \
-            tests/test_dependency_boundary.py \
-            tests/test_final_package_audit.py \
-            tests/test_project_mode.py \
-            tests/test_runtime_smoke.py \
-            tools/build_release.py \
-            tools/check_browser_functional.js \
-            tools/check_dependency_boundary.py \
-            tools/check_release_reproducibility.py
-          sha256sum baseline-d5e1aa9.tar.gz
+          python - <<'PY'
+          from __future__ import annotations
+          import json, os, urllib.error, urllib.parse, urllib.request
+          from datetime import datetime, timezone
 
-      - name: Upload baseline archive
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: codeprobe-v01-baseline-d5e1aa9
-          path: baseline-d5e1aa9.tar.gz
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 1
+          repo = os.environ['REPOSITORY']
+          base = os.environ['BASE_COMMIT']
+          base_tree = os.environ['BASE_TREE']
+          expected_tree = os.environ['EXPECTED_TREE']
+          branch = os.environ['AUDIT_BRANCH']
+          transport = os.environ['GITHUB_SHA']
+          token = os.environ['GH_TOKEN']
+          targets = dict(line.split() for line in os.environ['TARGETS'].splitlines() if line.strip())
+          if len(targets) != 42:
+              raise RuntimeError(f'target count {len(targets)} != 42')
+
+          def api(method, path, body=None, query=None):
+              url = 'https://api.github.com' + path
+              if query:
+                  url += '?' + urllib.parse.urlencode(query)
+              data = None if body is None else json.dumps(body, separators=(',', ':')).encode()
+              request = urllib.request.Request(url, data=data, method=method, headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'codeprobe-v01-cas-finaliser',
+                  'Content-Type': 'application/json',
+              })
+              try:
+                  with urllib.request.urlopen(request, timeout=90) as response:
+                      raw = response.read()
+                  return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as error:
+                  detail = error.read().decode(errors='replace')
+                  raise RuntimeError(f'{method} {path}: HTTP {error.code}: {detail[:1000]}') from error
+
+          main_ref = api('GET', f'/repos/{repo}/git/ref/heads/main')
+          audit_ref = api('GET', f'/repos/{repo}/git/ref/heads/{branch}')
+          if main_ref['object']['sha'] != base:
+              raise RuntimeError('main moved after V01 preflight')
+          if audit_ref['object']['sha'] != transport:
+              raise RuntimeError('audit branch no longer points to finaliser transport')
+
+          absent = []
+          for path, sha in targets.items():
+              try:
+                  blob = api('GET', f'/repos/{repo}/git/blobs/{sha}')
+                  if blob.get('sha') != sha:
+                      absent.append(path)
+              except RuntimeError as error:
+                  if 'HTTP 404' in str(error):
+                      absent.append(path)
+                  else:
+                      raise
+          if absent:
+              raise RuntimeError('target CAS objects absent: ' + ', '.join(absent))
+
+          tree = api('POST', f'/repos/{repo}/git/trees', {
+              'base_tree': base_tree,
+              'tree': [{'path': path, 'mode': '100644', 'type': 'blob', 'sha': sha}
+                       for path, sha in sorted(targets.items())],
+          })
+          if tree['sha'] != expected_tree:
+              raise RuntimeError(f'candidate tree {tree["sha"]} != {expected_tree}')
+          read_tree = api('GET', f'/repos/{repo}/git/trees/{expected_tree}', query={'recursive': '1'})
+          remote = {entry['path']: entry['sha'] for entry in read_tree['tree'] if entry.get('type') == 'blob'}
+          mismatches = {path: (remote.get(path), sha) for path, sha in targets.items()
+                        if remote.get(path) != sha}
+          if mismatches:
+              raise RuntimeError(f'candidate tree read-back mismatch: {mismatches}')
+
+          stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          identity = {'name': 'Antonio Clim',
+                      'email': '48681843+antonioclim@users.noreply.github.com',
+                      'date': stamp}
+          candidate = api('POST', f'/repos/{repo}/git/commits', {
+              'message': ('Complete integrated I14-I19 audit remediation candidate\n\n'
+                          'Persist the byte-exact 42-file cumulative remediation candidate over the verified main baseline. '
+                          'This commit is intended for candidate-specific CI and audit adjudication. It does not close A01-F003, '
+                          'change the application version or alter release state.'),
+              'tree': expected_tree,
+              'parents': [base],
+              'author': identity,
+              'committer': identity,
+          })
+          candidate_sha = candidate['sha']
+          if candidate['tree']['sha'] != expected_tree or [p['sha'] for p in candidate['parents']] != [base]:
+              raise RuntimeError('candidate commit structure mismatch')
+
+          comparison = api('GET', f'/repos/{repo}/compare/{base}...{candidate_sha}')
+          changed = {item['filename'] for item in comparison['files']}
+          if changed != set(targets) or comparison['ahead_by'] != 1 or comparison['behind_by'] != 0:
+              raise RuntimeError('candidate comparison or ancestry mismatch')
+
+          updated = api('PATCH', f'/repos/{repo}/git/refs/heads/{branch}',
+                        {'sha': candidate_sha, 'force': True})
+          if updated['object']['sha'] != candidate_sha:
+              raise RuntimeError('audit ref update mismatch')
+          read_ref = api('GET', f'/repos/{repo}/git/ref/heads/{branch}')
+          read_commit = api('GET', f'/repos/{repo}/git/commits/{candidate_sha}')
+          if read_ref['object']['sha'] != candidate_sha:
+              raise RuntimeError('audit ref read-back mismatch')
+          if read_commit['tree']['sha'] != expected_tree or [p['sha'] for p in read_commit['parents']] != [base]:
+              raise RuntimeError('candidate commit read-back mismatch')
+          print(json.dumps({'candidate_commit': candidate_sha,
+                            'candidate_tree': expected_tree,
+                            'direct_parent': base,
+                            'replacement_paths': len(targets),
+                            'branch_readback': 'PASS'}, indent=2))
+          PY
