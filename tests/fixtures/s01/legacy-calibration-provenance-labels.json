@@ -1,0 +1,14 @@
+{
+  "labels": [
+    "human",
+    "ai_generated",
+    "hybrid"
+  ],
+  "profile_id": "legacy-origin-profile",
+  "review_policy": {
+    "file": {
+      "review_trigger": 0.6
+    }
+  },
+  "schema": "codeprobe-calibration-profile/v1"
+}

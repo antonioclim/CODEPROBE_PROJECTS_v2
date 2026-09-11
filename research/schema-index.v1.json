@@ -1,0 +1,37 @@
+{
+  "index_version": "1.1.0",
+  "resolution_rule": "Relative references resolve within the schemas directory; every indexed path and identifier must be unique.",
+  "schema": "codeprobe-schema-index/v1",
+  "schemas": [
+    {
+      "id": "https://codeprobe.org/schemas/codeprobe-feedback-action-v1.schema.json",
+      "path": "schemas/codeprobe-feedback-action-v1.schema.json",
+      "status": "S01_prototype_core"
+    },
+    {
+      "id": "https://codeprobe.org/schemas/codeprobe-feedback-response-v1.schema.json",
+      "path": "schemas/codeprobe-feedback-response-v1.schema.json",
+      "status": "S01_prototype_interaction_state_separate"
+    },
+    {
+      "id": "https://codeprobe.org/schemas/codeprobe-legacy-migration-envelope-v1.schema.json",
+      "path": "schemas/codeprobe-legacy-migration-envelope-v1.schema.json",
+      "status": "S01_legacy_read_only"
+    },
+    {
+      "id": "https://codeprobe.org/schemas/codeprobe-policy-evaluation-profile-v1.schema.json",
+      "path": "schemas/codeprobe-policy-evaluation-profile-v1.schema.json",
+      "status": "S01_prototype_pending_M02_E02"
+    },
+    {
+      "id": "https://codeprobe.org/schemas/codeprobe-process-evidence-v1.schema.json",
+      "path": "schemas/codeprobe-process-evidence-v1.schema.json",
+      "status": "S01_prototype_external_context_only"
+    },
+    {
+      "id": "https://codeprobe.org/schemas/review-report-v3.schema.json",
+      "path": "schemas/codeprobe-review-report-v3.schema.json",
+      "status": "S01_prototype_core"
+    }
+  ]
+}

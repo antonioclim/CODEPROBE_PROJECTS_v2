@@ -1,0 +1,86 @@
+{
+  "$id": "https://codeprobe.org/schemas/codeprobe-feedback-action-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "An immutable generated review action. Learner or reviewer responses are recorded separately so they cannot alter the evidence-report digest.",
+  "properties": {
+    "action_id": {
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+      "type": "string"
+    },
+    "applicability": {
+      "enum": [
+        "supported",
+        "qualified",
+        "insufficient"
+      ]
+    },
+    "dimension_id": {
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+      "type": "string"
+    },
+    "expected_benefit": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "observation_refs": {
+      "items": {
+        "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "policy_rule_id": {
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+      "type": "string"
+    },
+    "rationale": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reversible": {
+      "const": true
+    },
+    "review_question": {
+      "minLength": 2,
+      "type": "string"
+    },
+    "source_evidence_refs": {
+      "items": {
+        "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "suggested_change": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "trade_offs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "action_id",
+    "dimension_id",
+    "observation_refs",
+    "policy_rule_id",
+    "review_question",
+    "suggested_change",
+    "rationale",
+    "expected_benefit",
+    "trade_offs",
+    "source_evidence_refs",
+    "applicability",
+    "reversible"
+  ],
+  "title": "CodeProbe traceable feedback action",
+  "type": "object"
+}

@@ -1,0 +1,41 @@
+{
+  "checks": [
+    "all machine-readable v3 schema keys exclude forbidden identifiers",
+    "valid review report contains the four required non-inferences",
+    "global scalar, verdict and compulsory review semantics are rejected",
+    "dimension evidence cannot compensate across dimensions because no core aggregation operation exists",
+    "typed unavailable observations cannot be encoded as zero",
+    "feedback actions are traceable and reversible",
+    "legacy migration preserves a source digest and explicitly declares non-equivalence",
+    "legacy provenance-labelled policy profiles are refused",
+    "construct-map entries contain allowed interpretations, permitted actions, prohibited inferences and evidence gates",
+    "phase candidate is a direct child of clean main and contains no historical staging ancestry",
+    "observation applicability is a four-state typed contract rather than a Boolean",
+    "atomic observation values cannot contain nested objects or arrays",
+    "measurement scale is separated from unit and excludes count/proportion category conflation",
+    "feedback observations belong to the referenced dimension and source-evidence references belong to those observations",
+    "feedback policy rules are declared by the report policy catalogue",
+    "mutable feedback responses are separated from the deterministic evidence report",
+    "every local or indexed schema reference resolves to an existing document and fragment"
+  ],
+  "decisions": {
+    "core_scalar": "absent",
+    "default_provenance_labels": "prohibited",
+    "legacy_profiles": "refuse_semantic_reinterpretation",
+    "legacy_scalar": "read_only_non_equivalent_snapshot_only",
+    "optional_future_aggregation": "deferred_to_S04_and_requires_explicit_evidence_gate"
+  },
+  "historic_finding": {
+    "closure_rule": "Do not close until the v3 runtime implements the non-scalar contract and exact candidate CI passes.",
+    "finding_id": "A01-F007",
+    "s01_disposition": "CONTRACT_REWRITTEN_IMPLEMENTATION_PENDING_S04"
+  },
+  "phase": "S01",
+  "schema": "codeprobe-s01-acceptance-contract/v1",
+  "source": {
+    "base_commit": "d5e1aa9e86e855f05ea570de22110aefc972b400",
+    "base_tree": "dbffa8876ed833ceb9da6188255f215dc2dbf4ff",
+    "forbidden_base_branch": "audit/codeprobe-i14-runtime-config-20260909",
+    "repository": "antonioclim/CODEPROBE_PROJECTS_v2"
+  }
+}

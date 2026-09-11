@@ -1,0 +1,101 @@
+name: S01 construct contract
+
+on:
+  push:
+    branches:
+      - research/codeprobe-s01-evidence-contract-20260911
+    paths:
+      - .github/workflows/s01-construct-contract.yml
+      - docs/research/**
+      - research/**
+      - schemas/**
+      - src/codeprobe_review_contract.py
+      - tools/check_s01_construct_contract.py
+      - tools/migrate_v2_report.py
+      - tests/test_s01_construct_contract.py
+      - tests/fixtures/s01/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s01-contract-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: Contract (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10.21", "3.14.7"]
+    steps:
+      - name: Check out S01 candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          python-version: ${{ matrix.python }}
+
+      - name: Compile S01 Python files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -I -S -B -m py_compile \
+            src/codeprobe_review_contract.py \
+            tools/check_s01_construct_contract.py \
+            tools/migrate_v2_report.py \
+            tests/test_s01_construct_contract.py
+
+      - name: Verify the construct contract
+        shell: bash
+        run: python -I -S -B tools/check_s01_construct_contract.py --root .
+
+      - name: Run S01 negative and migration tests
+        shell: bash
+        run: python -I -S -B tests/test_s01_construct_contract.py
+
+      - name: Confirm a clean checkout
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dirty="$(git status --porcelain=v1 --untracked-files=all)"
+          if [[ -n "$dirty" ]]; then
+            printf '%s\n' "$dirty"
+            exit 1
+          fi
+
+  required_s01:
+    name: Required S01
+    if: ${{ always() }}
+    needs: [contract]
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Require every S01 job
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failed = {name: value.get("result") for name, value in needs.items() if value.get("result") != "success"}
+          if failed:
+              print(json.dumps(failed, sort_keys=True), file=sys.stderr)
+              raise SystemExit(1)
+          print("All S01 construct-contract jobs passed.")
+          PY

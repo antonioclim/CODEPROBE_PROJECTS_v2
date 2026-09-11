@@ -1,0 +1,89 @@
+{
+  "claim_tiers": [
+    {
+      "evidence": "deterministic observation specification and source trace",
+      "example": "The supplied function contains four decision nodes under the declared adapter scope.",
+      "name": "observation",
+      "permitted_now": true,
+      "tier": 0
+    },
+    {
+      "evidence": "mapped observations, applicability and limitations",
+      "example": "This function may warrant a complexity review under the named policy.",
+      "name": "bounded_interpretation",
+      "permitted_now": true,
+      "tier": 1
+    },
+    {
+      "evidence": "traceable observation and action rationale",
+      "example": "Consider whether the named branch can be tested or simplified.",
+      "name": "reversible_action",
+      "permitted_now": true,
+      "tier": 2
+    },
+    {
+      "evidence": "authorised E02 study following the locked protocol and analysis plan",
+      "example": "The feedback improves revision quality in the intended population.",
+      "name": "educational_utility",
+      "permitted_now": false,
+      "tier": 3
+    },
+    {
+      "evidence": "outside the declared product purpose",
+      "example": "The report identifies who authored the source or determines misconduct.",
+      "name": "provenance_misconduct_or_sanction",
+      "permitted_ever_in_default_product": false,
+      "permitted_now": false,
+      "tier": 4
+    }
+  ],
+  "forbidden_affirmative_patterns": [
+    "detect|identify|classify|estimate followed by AI-generated, authorship or source-origin object",
+    "probability|likelihood|score followed by an authorship or human-written object",
+    "determine|identify|prove followed by misconduct, cheating or independent-work object",
+    "sanction|disciplinary action followed by recommended, required or triggered"
+  ],
+  "forbidden_affirmative_phrases": [
+    "detects ai-generated code",
+    "probability of ai authorship",
+    "determines misconduct",
+    "identifies cheating",
+    "manual review required",
+    "sanction recommended"
+  ],
+  "forbidden_identifier_patterns": [
+    "provenance_or_authorship_term + classifier_term",
+    "misconduct_or_cheating_term + decision_term",
+    "sanction_or_disciplinary_term + trigger_or_recommendation_term"
+  ],
+  "forbidden_identifiers": [
+    "ai_probability",
+    "authorship_probability",
+    "human_likelihood",
+    "misconduct_verdict",
+    "sanction_trigger",
+    "review_trigger",
+    "overall_score",
+    "ai_generated",
+    "hybrid_label"
+  ],
+  "legacy_discussion_markers": [
+    "legacy",
+    "deprecated",
+    "prohibited",
+    "must not",
+    "does not",
+    "non-inference",
+    "no direct equivalent",
+    "remove",
+    "refuse"
+  ],
+  "policy_version": "1.0.0",
+  "required_non_inferences": [
+    "The report does not estimate or classify source-code authorship.",
+    "The report does not determine misconduct, cheating or independent work.",
+    "The report does not recommend or trigger disciplinary sanctions.",
+    "Code-derived observations do not establish why a code property is present."
+  ],
+  "schema": "codeprobe-claim-policy/v1"
+}

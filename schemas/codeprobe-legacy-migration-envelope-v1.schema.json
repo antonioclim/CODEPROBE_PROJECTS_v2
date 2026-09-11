@@ -1,0 +1,80 @@
+{
+  "$id": "https://codeprobe.org/schemas/codeprobe-legacy-migration-envelope-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "discarded_semantics": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "non_equivalent": {
+      "const": true
+    },
+    "preserved_values": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "interpretation_status": {
+            "const": "archival_unmapped_value"
+          },
+          "legacy_path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "value": {}
+        },
+        "required": [
+          "legacy_path",
+          "value",
+          "interpretation_status"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "codeprobe-legacy-migration-envelope/v1"
+    },
+    "source_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "source_digest_scope": {
+      "const": "canonical_json"
+    },
+    "source_kind": {
+      "enum": [
+        "file",
+        "project",
+        "unknown"
+      ]
+    },
+    "source_schema": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "source_schema",
+    "source_kind",
+    "source_digest",
+    "source_digest_scope",
+    "non_equivalent",
+    "preserved_values",
+    "discarded_semantics",
+    "warnings"
+  ],
+  "title": "CodeProbe v2 read-only migration envelope",
+  "type": "object"
+}

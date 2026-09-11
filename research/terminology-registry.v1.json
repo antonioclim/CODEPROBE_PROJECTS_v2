@@ -1,0 +1,134 @@
+{
+  "default_product_identity": "evidence-bounded formative code review",
+  "legacy_namespace": {
+    "must_declare_non_equivalence": true,
+    "must_preserve_source_digest": true,
+    "prefix": "legacy_",
+    "read_only": true
+  },
+  "registry_version": "1.1.0",
+  "rules": [
+    {
+      "contexts": [
+        "schema",
+        "API",
+        "CLI",
+        "UI",
+        "documentation",
+        "tests"
+      ],
+      "disposition": "no_direct_equivalent",
+      "legacy_term": "overall_score",
+      "rationale": "Heterogeneous review attributes have no established common unit or justified compensatory total order.",
+      "v3_default": "review_evidence.dimensions"
+    },
+    {
+      "contexts": [
+        "schema",
+        "CLI",
+        "UI",
+        "documentation",
+        "tests"
+      ],
+      "disposition": "prohibited_as_default_construct",
+      "legacy_term": "AI-style concern",
+      "rationale": "A style observation does not identify source provenance or cause.",
+      "v3_default": "dimension-specific review evidence"
+    },
+    {
+      "contexts": [
+        "schema",
+        "API",
+        "CLI",
+        "UI",
+        "documentation",
+        "tests"
+      ],
+      "disposition": "remove",
+      "legacy_term": "verdict",
+      "rationale": "The product presents inspectable evidence and reversible review questions, not adjudications.",
+      "v3_default": "bounded interpretation"
+    },
+    {
+      "contexts": [
+        "schema",
+        "API",
+        "CLI",
+        "UI",
+        "documentation",
+        "tests"
+      ],
+      "disposition": "no_silent_migration",
+      "legacy_term": "review_trigger",
+      "rationale": "An action policy requires explicit evidence, utility and burden targets and cannot operate as a suspicion gateway.",
+      "v3_default": "dimension-specific action policy"
+    },
+    {
+      "contexts": [
+        "schema",
+        "CLI",
+        "UI",
+        "documentation",
+        "tests"
+      ],
+      "disposition": "remove_global_bands",
+      "legacy_term": "low/moderate/elevated/high",
+      "rationale": "Global bands imply an unsupported total order across unlike attributes.",
+      "v3_default": "typed applicability plus source-local interpretation"
+    },
+    {
+      "contexts": [
+        "calibration",
+        "schema",
+        "CLI",
+        "UI",
+        "documentation",
+        "tests"
+      ],
+      "disposition": "prohibited_default_policy_labels",
+      "legacy_term": "human|ai_generated|hybrid",
+      "rationale": "The default product is not trained or tuned to infer provenance.",
+      "v3_default": "externally supplied process-evidence declarations, stored separately when authorised"
+    },
+    {
+      "contexts": [
+        "schema",
+        "CLI",
+        "UI",
+        "documentation",
+        "tests"
+      ],
+      "disposition": "legacy_only_without_reinterpretation",
+      "legacy_term": "calibration profile",
+      "rationale": "The new target is the correctness, usefulness and burden of review actions, not source origin.",
+      "v3_default": "policy-evaluation profile"
+    },
+    {
+      "contexts": [
+        "CLI",
+        "UI",
+        "documentation",
+        "tests"
+      ],
+      "disposition": "remove_compulsory_language",
+      "legacy_term": "manual review required",
+      "rationale": "The software cannot compel a consequential decision from bounded static evidence.",
+      "v3_default": "review question available"
+    },
+    {
+      "contexts": [
+        "schema",
+        "API",
+        "CLI",
+        "UI",
+        "documentation",
+        "tests"
+      ],
+      "disposition": "reserved_for_atomic_measurement_only",
+      "legacy_term": "score",
+      "rationale": "Atomic measures may have values; the report has no default global score.",
+      "v3_default": "value, observation or evidence profile"
+    }
+  ],
+  "schema": "codeprobe-terminology-registry/v1"
+}

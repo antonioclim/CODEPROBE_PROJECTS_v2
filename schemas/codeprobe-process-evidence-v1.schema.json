@@ -1,0 +1,59 @@
+{
+  "$id": "https://codeprobe.org/schemas/codeprobe-process-evidence-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority_or_consent": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "content_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "evidence_id": {
+      "pattern": "^[a-z0-9][a-z0-9_.-]+$",
+      "type": "string"
+    },
+    "evidence_type": {
+      "enum": [
+        "version_history",
+        "test_evolution",
+        "design_note",
+        "assistance_declaration",
+        "oral_walkthrough",
+        "other"
+      ]
+    },
+    "externally_supplied": {
+      "const": true
+    },
+    "interpretation_boundary": {
+      "const": "contextual_only_no_automatic_credibility_adjudication"
+    },
+    "schema": {
+      "const": "codeprobe-process-evidence/v1"
+    },
+    "scope": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "source": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "evidence_id",
+    "evidence_type",
+    "externally_supplied",
+    "source",
+    "scope",
+    "content_digest",
+    "authority_or_consent",
+    "interpretation_boundary"
+  ],
+  "title": "CodeProbe externally supplied process-evidence record",
+  "type": "object"
+}

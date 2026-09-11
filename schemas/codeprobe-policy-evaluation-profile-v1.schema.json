@@ -1,0 +1,124 @@
+{
+  "$id": "https://codeprobe.org/schemas/codeprobe-policy-evaluation-profile-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "decision_rule": {
+      "additionalProperties": false,
+      "properties": {
+        "global_threshold_absent": {
+          "const": true
+        },
+        "policy_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "surface_when": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "surface_when",
+        "global_threshold_absent"
+      ],
+      "type": "object"
+    },
+    "estimand": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence_status": {
+      "enum": [
+        "not_yet_established",
+        "pilot_only",
+        "evaluated_for_declared_scope"
+      ]
+    },
+    "limitations": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "profile_id": {
+      "pattern": "^[a-z0-9][a-z0-9_.-]+$",
+      "type": "string"
+    },
+    "schema": {
+      "const": "codeprobe-policy-evaluation-profile/v1"
+    },
+    "scope": {
+      "additionalProperties": false,
+      "properties": {
+        "languages": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "review_dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "task_families": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "review_dimensions",
+        "languages",
+        "task_families"
+      ],
+      "type": "object"
+    },
+    "study_reference": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "target": {
+      "enum": [
+        "action_correctness",
+        "actionability",
+        "revision_quality",
+        "uptake",
+        "burden",
+        "false_prompting",
+        "coverage"
+      ]
+    },
+    "uncertainty_method": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "profile_id",
+    "scope",
+    "target",
+    "decision_rule",
+    "evidence_status",
+    "limitations"
+  ],
+  "title": "CodeProbe formative policy-evaluation profile",
+  "type": "object"
+}

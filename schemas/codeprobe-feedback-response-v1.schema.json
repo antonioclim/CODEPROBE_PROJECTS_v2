@@ -1,0 +1,56 @@
+{
+  "$id": "https://codeprobe.org/schemas/codeprobe-feedback-response-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A mutable response stored outside the deterministic evidence report.",
+  "properties": {
+    "action_id": {
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+      "type": "string"
+    },
+    "actor_role": {
+      "enum": [
+        "learner",
+        "educator",
+        "reviewer",
+        "other"
+      ]
+    },
+    "rationale": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "report_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "response_id": {
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+      "type": "string"
+    },
+    "schema": {
+      "const": "codeprobe-feedback-response/v1"
+    },
+    "state": {
+      "enum": [
+        "accepted",
+        "declined",
+        "not_applicable",
+        "deferred"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "response_id",
+    "report_digest",
+    "action_id",
+    "state",
+    "actor_role",
+    "rationale"
+  ],
+  "title": "CodeProbe feedback response",
+  "type": "object"
+}

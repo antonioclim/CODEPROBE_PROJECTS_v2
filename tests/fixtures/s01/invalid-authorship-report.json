@@ -1,0 +1,110 @@
+{
+  "authorship_probability": 0.91,
+  "deterministic_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "feedback_actions": [
+    {
+      "action_id": "review.function.branching",
+      "applicability": "qualified",
+      "dimension_id": "structural_complexity_dispersion",
+      "expected_benefit": "A reviewer can focus on a source-local structure rather than a global judgement.",
+      "observation_refs": [
+        "python.function.decision_count"
+      ],
+      "policy_rule_id": "review.structural.local_branching",
+      "rationale": "The prototype observation identifies four decision nodes in one function under the declared adapter scope.",
+      "reversible": true,
+      "review_question": "Would decomposing or testing the identified decision structure improve comprehension?",
+      "source_evidence_refs": [
+        "evidence.example.function.lines"
+      ],
+      "suggested_change": "Inspect the named function and consider a reversible decomposition or an additional focused test.",
+      "trade_offs": [
+        "Decomposition may obscure domain flow if applied mechanically."
+      ]
+    }
+  ],
+  "input": {
+    "fingerprint": "6a6e57c6fff6087e2cac547e260c49d313fd40975812f8f9b936c5df06233b15",
+    "kind": "file",
+    "provenance": "test fixture"
+  },
+  "non_inferences": [
+    "The report does not estimate or classify source-code authorship.",
+    "The report does not determine misconduct, cheating or independent work.",
+    "The report does not recommend or trigger disciplinary sanctions.",
+    "Code-derived observations do not establish why a code property is present."
+  ],
+  "observations": [
+    {
+      "applicability": {
+        "reason": "",
+        "status": "observed"
+      },
+      "attribute": "decision-node count under the declared Python adapter scope",
+      "entity": {
+        "identity": "example.py:analyse",
+        "kind": "function"
+      },
+      "fingerprint": "462151f377810223aa6e95cdc67fe5cb3676601c23e7f3409388f392d53dd82d",
+      "instrumentation": {
+        "adapter": "python-prototype",
+        "runtime": "CPython-test"
+      },
+      "measurement_scale": "ratio",
+      "metamorphic_contract": "Formatting-only changes preserve the count when the adapter parses both inputs.",
+      "observation_id": "python.function.decision_count",
+      "scope_qualification": "Prototype observation for S01 contract tests; not a validated metric specification.",
+      "source_evidence": [
+        {
+          "coordinate_system": "physical_line_numbers_inclusive",
+          "end": 42,
+          "evidence_id": "evidence.example.function.lines",
+          "evidence_kind": "line_span",
+          "source_id": "example.py",
+          "start": 10
+        }
+      ],
+      "spec_version": "0.1.0-prototype",
+      "unit": "decision_nodes",
+      "value": 4
+    }
+  ],
+  "policy_catalogue": {
+    "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "rule_ids": [
+      "review.structural.local_branching"
+    ],
+    "schema": "codeprobe-feedback-policy-catalogue/v1",
+    "version": "0.1.0-prototype"
+  },
+  "report_kind": "file",
+  "review_evidence": {
+    "composition_rule": "vector_only_non_compensatory",
+    "dimensions": [
+      {
+        "dimension_id": "structural_complexity_dispersion",
+        "interpretation": "The named function may warrant a source-local complexity review.",
+        "limitations": [
+          "The dimension is a working hypothesis and has not completed content or empirical validation."
+        ],
+        "observation_refs": [
+          "python.function.decision_count"
+        ],
+        "spec_version": "0.1.0-prototype",
+        "status": "evidence_available"
+      }
+    ],
+    "profile_schema": "codeprobe-review-evidence-vector/v1"
+  },
+  "schema": "codeprobe-review-report/v3",
+  "software": {
+    "contract_version": "1.1.0",
+    "name": "CodeProbe",
+    "version": "S01-prototype"
+  },
+  "specification_catalogue": {
+    "digest": "d2504e52b8b07484a2b690e7ffaedeabe91320c09012844d0f7c81c2ec72e882",
+    "schema": "codeprobe-observation-catalogue/v1",
+    "version": "0.1.0-prototype"
+  }
+}

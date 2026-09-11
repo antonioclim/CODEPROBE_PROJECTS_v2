@@ -1,0 +1,29 @@
+{
+  "engine": {
+    "version": "2.2.0"
+  },
+  "language": "python",
+  "metrics": {
+    "comment_ratio": {
+      "applicable": true,
+      "value": 0.12
+    },
+    "cyclomatic_complexity": {
+      "applicable": true,
+      "value": 4
+    },
+    "unsupported_metric": {
+      "applicable": false,
+      "reason": "parser scope",
+      "value": null
+    }
+  },
+  "overall_score": 0.73,
+  "report_kind": "file",
+  "report_schema_version": "2.2.0",
+  "review_trigger": 0.6,
+  "verdict": "High AI-style concern — manual review required",
+  "warnings": [
+    "Example legacy fixture for migration tests"
+  ]
+}

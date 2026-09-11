@@ -1,0 +1,629 @@
+{
+  "$defs": {
+    "catalogue": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema": {
+          "const": "codeprobe-observation-catalogue/v1"
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "version",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "dimension": {
+      "additionalProperties": false,
+      "properties": {
+        "dimension_id": {
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+          "type": "string"
+        },
+        "interpretation": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observation_refs": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "spec_version": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "evidence_available",
+            "insufficient_evidence",
+            "not_applicable",
+            "unavailable"
+          ]
+        }
+      },
+      "required": [
+        "dimension_id",
+        "spec_version",
+        "status",
+        "observation_refs",
+        "interpretation",
+        "limitations"
+      ],
+      "type": "object"
+    },
+    "entity": {
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "function",
+            "project",
+            "resource",
+            "documentation"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "identity"
+      ],
+      "type": "object"
+    },
+    "input": {
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "project"
+          ]
+        },
+        "provenance": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "fingerprint",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "legacyCompatibility": {
+      "additionalProperties": false,
+      "properties": {
+        "discarded_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "non_equivalent": {
+          "const": true
+        },
+        "source_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "source_digest_scope": {
+          "const": "canonical_json"
+        },
+        "source_schema": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_schema",
+        "source_digest",
+        "source_digest_scope",
+        "non_equivalent",
+        "discarded_fields"
+      ],
+      "type": "object"
+    },
+    "observation": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "applicability": {
+                "properties": {
+                  "reason": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "value": {
+                "type": "null"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "applicability": {
+                "properties": {
+                  "status": {
+                    "const": "observed"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            },
+            "required": [
+              "applicability"
+            ]
+          },
+          "then": {
+            "properties": {
+              "applicability": {
+                "properties": {
+                  "reason": {
+                    "const": ""
+                  }
+                }
+              },
+              "value": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "An atomic observation. Cross-field applicability and referential rules are additionally enforced by the semantic validator.",
+      "properties": {
+        "applicability": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "observed",
+                "not_applicable",
+                "insufficient_evidence",
+                "unavailable"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "attribute": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "entity": {
+          "$ref": "#/$defs/entity"
+        },
+        "fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "instrumentation": {
+          "additionalProperties": false,
+          "properties": {
+            "adapter": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "runtime": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "adapter",
+            "runtime"
+          ],
+          "type": "object"
+        },
+        "measurement_scale": {
+          "enum": [
+            "nominal",
+            "ordinal",
+            "interval",
+            "ratio"
+          ]
+        },
+        "metamorphic_contract": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "observation_id": {
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+          "type": "string"
+        },
+        "scope_qualification": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_evidence": {
+          "items": {
+            "$ref": "#/$defs/sourceEvidence"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "spec_version": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "unit": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "observation_id",
+        "spec_version",
+        "entity",
+        "attribute",
+        "value",
+        "unit",
+        "measurement_scale",
+        "applicability",
+        "scope_qualification",
+        "source_evidence",
+        "instrumentation",
+        "metamorphic_contract",
+        "fingerprint"
+      ],
+      "type": "object"
+    },
+    "policyCatalogue": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "rule_ids": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "schema": {
+          "const": "codeprobe-feedback-policy-catalogue/v1"
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "version",
+        "digest",
+        "rule_ids"
+      ],
+      "type": "object"
+    },
+    "software": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_version": {
+          "const": "1.1.0"
+        },
+        "name": {
+          "const": "CodeProbe"
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "contract_version"
+      ],
+      "type": "object"
+    },
+    "sourceEvidence": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evidence_kind": {
+                "const": "byte_span"
+              }
+            },
+            "required": [
+              "evidence_kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coordinate_system": {
+                "const": "utf8_byte_offsets_half_open"
+              },
+              "start": {
+                "minimum": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evidence_kind": {
+                "const": "line_span"
+              }
+            },
+            "required": [
+              "evidence_kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coordinate_system": {
+                "const": "physical_line_numbers_inclusive"
+              },
+              "start": {
+                "minimum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evidence_kind": {
+                "const": "entity"
+              }
+            },
+            "required": [
+              "evidence_kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coordinate_system": {
+                "const": "entity_identifier"
+              },
+              "start": {
+                "minimum": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evidence_kind": {
+                "const": "project_record"
+              }
+            },
+            "required": [
+              "evidence_kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coordinate_system": {
+                "const": "project_record_identifier"
+              },
+              "start": {
+                "minimum": 0
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "coordinate_system": {
+          "enum": [
+            "utf8_byte_offsets_half_open",
+            "physical_line_numbers_inclusive",
+            "entity_identifier",
+            "project_record_identifier"
+          ]
+        },
+        "end": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "evidence_id": {
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+          "type": "string"
+        },
+        "evidence_kind": {
+          "enum": [
+            "byte_span",
+            "line_span",
+            "entity",
+            "project_record"
+          ]
+        },
+        "source_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "source_id",
+        "start",
+        "end",
+        "evidence_kind",
+        "coordinate_system"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://codeprobe.org/schemas/review-report-v3.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The JSON Schema enforces the structural layer. src/codeprobe_review_contract.py additionally enforces cross-reference, digest, typed-applicability and prohibited-claim semantics.",
+  "properties": {
+    "deterministic_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "feedback_actions": {
+      "items": {
+        "$ref": "codeprobe-feedback-action-v1.schema.json"
+      },
+      "type": "array"
+    },
+    "input": {
+      "$ref": "#/$defs/input"
+    },
+    "legacy_compatibility": {
+      "$ref": "#/$defs/legacyCompatibility"
+    },
+    "non_inferences": {
+      "allOf": [
+        {
+          "contains": {
+            "const": "The report does not estimate or classify source-code authorship."
+          }
+        },
+        {
+          "contains": {
+            "const": "The report does not determine misconduct, cheating or independent work."
+          }
+        },
+        {
+          "contains": {
+            "const": "The report does not recommend or trigger disciplinary sanctions."
+          }
+        },
+        {
+          "contains": {
+            "const": "Code-derived observations do not establish why a code property is present."
+          }
+        }
+      ],
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 4,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/observation"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "policy_catalogue": {
+      "$ref": "#/$defs/policyCatalogue"
+    },
+    "report_kind": {
+      "enum": [
+        "file",
+        "project"
+      ]
+    },
+    "review_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "composition_rule": {
+          "const": "vector_only_non_compensatory"
+        },
+        "dimensions": {
+          "items": {
+            "$ref": "#/$defs/dimension"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "profile_schema": {
+          "const": "codeprobe-review-evidence-vector/v1"
+        }
+      },
+      "required": [
+        "profile_schema",
+        "dimensions",
+        "composition_rule"
+      ],
+      "type": "object"
+    },
+    "schema": {
+      "const": "codeprobe-review-report/v3"
+    },
+    "software": {
+      "$ref": "#/$defs/software"
+    },
+    "specification_catalogue": {
+      "$ref": "#/$defs/catalogue"
+    }
+  },
+  "required": [
+    "schema",
+    "report_kind",
+    "software",
+    "input",
+    "specification_catalogue",
+    "policy_catalogue",
+    "observations",
+    "review_evidence",
+    "feedback_actions",
+    "non_inferences",
+    "deterministic_digest"
+  ],
+  "title": "CodeProbe evidence-bounded review report",
+  "type": "object"
+}
