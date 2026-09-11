@@ -1,0 +1,853 @@
+name: R01 exact candidate controller v3
+
+on:
+  push:
+    branches:
+      - audit/codeprobe-r01-controller3-20260911
+    paths:
+      - .github/workflows/r01-controller3.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: codeprobe-r01-exact-candidate-controller-v3
+  cancel-in-progress: false
+
+jobs:
+  recover-and-accept:
+    name: Recover, persist and validate the exact R01 candidate
+    if: github.actor == 'antonioclim'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      REPOSITORY: antonioclim/CODEPROBE_PROJECTS_v2
+      BASE_COMMIT: d5e1aa9e86e855f05ea570de22110aefc972b400
+      BASE_TREE: dbffa8876ed833ceb9da6188255f215dc2dbf4ff
+      EXPECTED_TREE: 6c24e2c7882848746f8d9aa5e9389b958fbacb20
+      STAGING_ROOT: a539d4243c985ce73bde92c72439d9cca68a3618
+      AUDIT_BRANCH: audit/codeprobe-i14-runtime-config-20260909
+      CONTROLLER_BRANCH: audit/codeprobe-r01-controller3-20260911
+      DIAGNOSTIC_BRANCH: audit/codeprobe-r01-diagnostic-20260911
+      PR_NUMBER: '6'
+      CARRIERS: |
+        43bd413ee78a0ee0223d39b74cfc9335d633ae99
+        5515a223c53acc20fa6b0a1de000b84cc9d33154
+        8f4d1fca272bcac614fb4bafbcb9ecf0cf66c88f
+        b1cd53ca44d9339c611988bb0b0d967b4329354d
+        6dd21d8692b90b2fcc7e0f99c7833007c0ba692f
+        5768052b20694c143156cc2091b7275153756135
+        2336eded2324562feaeec84bd75f96459e333f67
+        7de52411edd6b84b0d9efc8422771ff428c356ba
+        2e77ae2a924e512a757d877fa614d44a7b274c25
+        8b2eef3036509bb8cf4fca3403fea28207f993aa
+        9903aa044e9b9d76600d7dc17ed555ff3705486a
+        79f942f983d8b17bfef54bbbab5ca63e43fd533a
+      TARGETS: |
+        README.md 1d8fe4710e5cbed0e1579f813ce9fc1c5a20f1c0 57355
+        app/codeprobe-ui.js 995ce9bbbe12def1ebd1db4964d5f4702af9754a 90375
+        app/codeprobe.css ac2db0ced202df21212cbd0511e2f14b246d4999 22077
+        app/index.html 833f895fd0af547d95568fdf8c66e3837e5262df 19831
+        app/project-ui.js 705ed151c94a7ce57027e8897607564e02a379c6 25983
+        app/project.css ba920a84a59771206e778e1cca3d3092b288b3b6 4385
+        app/project.html e265181e8c7aafad1b95c19b47842aa90be04aec 5412
+        app/pyodide-loader.js e178061c2e023e57f739c7defb629f317f080910 39244
+        app/resource-integrity.json eb3b2bea421fc7cc853660c1b0e735fdaf2886a0 2388
+        app/vendor/pyodide/README.md 4c3103ff7d565839f87a6e792163ab20513481f6 1835
+        docs/04-browser-security.md 49a10c59f8e3b9b66d2435f44aa232ce55d520c0 14540
+        docs/05-offline-deployment.md 2d341777fbf8735b2a0f748323599ba3e3af87ec 12053
+        docs/07-ui-extension-guide.md c901580a43dbf0e44355f96b175af3f8f81f030a 10637
+        docs/09-release-integrity.md af779a13347df9160c9c7ab25fce550c78abd86a 13377
+        docs/16-ci-and-repository-controls.md 0d589d724899892453d10c3cefdc7560679d5fdd 16963
+        docs/assets/interface-preview.png 8c27ba73c23cd7673877771dca4e763b0e754ac4 344045
+        docs/history/07-institutional-packaging.md 778fc5681bf48628dbb66775d7379158d23196bd 15829
+        educator/08-deployment-one-page.md dd0dae6a4b6a0ff7ae731f3a03de5772c639ce42 2639
+        tests/test_app_runtime_tools_paths.py d93b33917e8ae0621aa1fdab0928bf25e8240797 9824
+        tests/test_coverage_policy.py e433b1eb6b501cc782e97291d68c0081b3055194 13832
+        tests/test_dependency_boundary.py 2862a6c8eb2eea63863c06e72f1a83a9501fff55 66021
+        tests/test_documentation_resources.py 68c2f443fc0ba0eb02c300524cb561ea25132bab 12101
+        tests/test_dynamic_ui_review.py e1398a0443236d2137c760069412480492125960 33141
+        tests/test_final_package_audit.py 77efb046d762e82c9d1b77eb8859c52f58acd0fd 45750
+        tests/test_project_mode.py fdfefca0e2f44cb629f9c8eb1b1ecb2d8e3eca85 66193
+        tests/test_pyodide_provenance.py 65ae7cb1c5c4b243f301393d6eb52630637446dc 26017
+        tests/test_reference_integrity.py 8cab7199fdf4b658513a9b302b35f2480d53386b 17352
+        tests/test_release_integrity.py 4dfdf7292bf52602ea06b71970c0499041088aef 31124
+        tests/test_release_reproducibility.py 60ef93637c800c4e3a54dd0724d08b32fcc06c79 21870
+        tests/test_runtime_smoke.py 28a35780a8b531a8e82324813ac2c631e5e037d7 80976
+        tests/test_worker_contract.py 8c145d070e13e125752354c9e220efa391929d3a 15496
+        tools/build_release.py fa6fface6d478975d4226567b2ff0be30818da31 63763
+        tools/check_browser_accessibility.js 421fc2a8d319db4194bae7d44e319ddced8b6d1d 27391
+        tools/check_browser_functional.js 7c6c5309c989220b068a7e46f3923455963fd6bd 312578
+        tools/check_coverage.py 9eaec95b19921b18f029d3c33fd576ab1fc3f7b2 32899
+        tools/check_dependency_boundary.py 6ce9dcd6a105356cc21fed55cfe34862cd6041a2 133561
+        tools/check_file_references.py d3ffe280673e826937a903917c4c78da73a02a39 19262
+        tools/check_input_contracts.js 247f708d5174c881d71e546e6fd388e52b36309b 27843
+        tools/check_release.py dbb77e1b2931dd32bbce03c235213a0f00c29932 54410
+        tools/check_release_reproducibility.py fa1f76b0935fff1b9eacea2e765c66f3f2c98f64 46000
+        tools/compare_releases.py c4e2f7b4632f364c3c854c60291025ed36106ff7 17282
+        tools/coverage-policy.json 1d3be23da6cfc32a7dda53feeefae5c7103e3769 1516
+    steps:
+      - id: run
+        name: Execute exact recovery and acceptance controller
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import ast
+          import base64
+          import binascii
+          import bz2
+          import gzip
+          import hashlib
+          import io
+          import json
+          import lzma
+          import os
+          import pathlib
+          import re
+          import shutil
+          import subprocess
+          import tarfile
+          import tempfile
+          import time
+          import traceback
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          import zipfile
+          import zlib
+          from collections import deque
+          from datetime import datetime, timezone
+
+          OUT = pathlib.Path('/tmp/r01-controller3-outcome.json')
+          repo = os.environ['REPOSITORY']
+          base = os.environ['BASE_COMMIT']
+          base_tree = os.environ['BASE_TREE']
+          expected_tree = os.environ['EXPECTED_TREE']
+          staging_root = os.environ['STAGING_ROOT']
+          audit_branch = os.environ['AUDIT_BRANCH']
+          controller_branch = os.environ['CONTROLLER_BRANCH']
+          diagnostic_branch = os.environ['DIAGNOSTIC_BRANCH']
+          controller_commit = os.environ['GITHUB_SHA']
+          pr_number = int(os.environ['PR_NUMBER'])
+          token = os.environ['GH_TOKEN']
+          carriers = [line.strip() for line in os.environ['CARRIERS'].splitlines() if line.strip()]
+          target_rows = [line.split() for line in os.environ['TARGETS'].splitlines() if line.strip()]
+          targets = {path: sha for path, sha, size in target_rows}
+          sizes = {path: int(size) for path, sha, size in target_rows}
+          reverse = {sha: path for path, sha in targets.items()}
+          workflow_path = '.github/workflows/v01-cas-persist.yml'
+          diagnostic = {
+              'schema': 'codeprobe-r01-controller-diagnostic/v3',
+              'started_at_utc': datetime.now(timezone.utc).isoformat(),
+              'controller_commit': controller_commit,
+              'carrier_metadata': [],
+              'artifacts_examined': [],
+              'recovered': {},
+              'status': 'RUNNING',
+          }
+
+          def save(status: str, error: BaseException | None = None, **extra) -> None:
+              diagnostic.update(extra)
+              diagnostic['status'] = status
+              diagnostic['finished_at_utc'] = datetime.now(timezone.utc).isoformat()
+              if error is not None:
+                  diagnostic['error'] = repr(error)
+                  diagnostic['traceback'] = traceback.format_exc()
+              OUT.write_text(json.dumps(diagnostic, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+
+          def api(method: str, path: str, body=None, query=None, *, allow_404: bool = False):
+              url = 'https://api.github.com' + path
+              if query:
+                  url += '?' + urllib.parse.urlencode(query)
+              data = None if body is None else json.dumps(body, separators=(',', ':')).encode('utf-8')
+              request = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'User-Agent': 'codeprobe-r01-controller-v3',
+                      'Content-Type': 'application/json',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=120) as response:
+                      raw = response.read()
+                  return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode(errors='replace')
+                  if allow_404 and exc.code == 404:
+                      return None
+                  raise RuntimeError(f'{method} {path}: HTTP {exc.code}: {detail[:1800]}') from exc
+
+          def download(url: str, *, maximum: int = 80_000_000) -> bytes:
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'User-Agent': 'codeprobe-r01-controller-v3',
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=180) as response:
+                  data = response.read(maximum + 1)
+              if len(data) > maximum:
+                  raise RuntimeError(f'download exceeds bounded maximum: {url}')
+              return data
+
+          def git_blob_sha(data: bytes) -> str:
+              return hashlib.sha1(f'blob {len(data)}\0'.encode('ascii') + data).hexdigest()
+
+          recovered: dict[str, bytes] = {}
+
+          def register(data: bytes, origin: str) -> bool:
+              sha = git_blob_sha(data)
+              path = reverse.get(sha)
+              if path is None:
+                  return False
+              if len(data) != sizes[path]:
+                  raise RuntimeError(f'exact SHA matched but declared size disagreed for {path}')
+              previous = recovered.get(path)
+              if previous is not None and previous != data:
+                  raise RuntimeError(f'non-unique exact-byte recovery for {path}')
+              recovered[path] = data
+              diagnostic['recovered'].setdefault(path, []).append(origin)
+              print(f'RECOVERED {path} {sha} FROM {origin}')
+              return True
+
+          queue: deque[tuple[bytes, str, int]] = deque()
+          seen: set[bytes] = set()
+          total_enqueued_bytes = 0
+          MAX_ITEMS = 12000
+          MAX_TOTAL_BYTES = 420_000_000
+          MAX_ITEM_BYTES = 80_000_000
+
+          def enqueue(data: bytes | None, origin: str, depth: int = 0) -> None:
+              nonlocal total_enqueued_bytes
+              if data is None or not data or len(data) > MAX_ITEM_BYTES or data in seen:
+                  return
+              if len(seen) >= MAX_ITEMS or total_enqueued_bytes + len(data) > MAX_TOTAL_BYTES:
+                  return
+              seen.add(data)
+              total_enqueued_bytes += len(data)
+              queue.append((data, origin, depth))
+
+          git_repo = pathlib.Path('/tmp/r01-pack-recovery.git')
+          subprocess.run(['git', 'init', '--bare', str(git_repo)], check=True, stdout=subprocess.DEVNULL)
+          pack_attempted: set[str] = set()
+
+          def recover_from_git_objects(origin: str) -> None:
+              for sha, path in reverse.items():
+                  if path in recovered:
+                      continue
+                  result = subprocess.run(
+                      ['git', f'--git-dir={git_repo}', 'cat-file', '-p', sha],
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.DEVNULL,
+                  )
+                  if result.returncode == 0:
+                      register(result.stdout, origin + ':git-object-store')
+
+          def try_git_pack(data: bytes, origin: str) -> None:
+              offsets = [index for index in range(max(0, len(data) - 4)) if data.startswith(b'PACK', index)]
+              if data.startswith(b'PACK') and 0 not in offsets:
+                  offsets.insert(0, 0)
+              for offset in offsets[:12]:
+                  candidate = data[offset:]
+                  key = hashlib.sha256(candidate).hexdigest()
+                  if key in pack_attempted or len(candidate) < 12:
+                      continue
+                  pack_attempted.add(key)
+                  for arguments in (
+                      ['git', f'--git-dir={git_repo}', 'index-pack', '--stdin', '--fix-thin'],
+                      ['git', f'--git-dir={git_repo}', 'index-pack', '--stdin'],
+                  ):
+                      result = subprocess.run(
+                          arguments,
+                          input=candidate,
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE,
+                          timeout=90,
+                      )
+                      if result.returncode == 0:
+                          recover_from_git_objects(origin + f':pack-offset-{offset}')
+                          break
+
+          def extract_archives(data: bytes, origin: str, depth: int) -> None:
+              try:
+                  with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                      infos = archive.infolist()
+                      if len(infos) > 5000:
+                          raise RuntimeError(f'ZIP member bound exceeded in {origin}')
+                      for info in infos:
+                          path = pathlib.PurePosixPath(info.filename)
+                          if info.is_dir():
+                              continue
+                          if path.is_absolute() or '..' in path.parts or info.file_size > 32_000_000:
+                              raise RuntimeError(f'unsafe ZIP member {origin}:{info.filename}')
+                          member = archive.read(info)
+                          register(member, origin + ':zip:' + info.filename)
+                          enqueue(member, origin + ':zip:' + info.filename, depth + 1)
+              except zipfile.BadZipFile:
+                  pass
+              try:
+                  with tarfile.open(fileobj=io.BytesIO(data), mode='r:*') as archive:
+                      members = archive.getmembers()
+                      if len(members) > 5000:
+                          raise RuntimeError(f'TAR member bound exceeded in {origin}')
+                      for member_info in members:
+                          path = pathlib.PurePosixPath(member_info.name)
+                          if member_info.isdir():
+                              continue
+                          if (
+                              not member_info.isfile()
+                              or member_info.issym()
+                              or member_info.islnk()
+                              or path.is_absolute()
+                              or '..' in path.parts
+                              or member_info.size > 32_000_000
+                          ):
+                              raise RuntimeError(f'unsafe TAR member {origin}:{member_info.name}')
+                          stream = archive.extractfile(member_info)
+                          if stream is None:
+                              raise RuntimeError(f'unreadable TAR member {origin}:{member_info.name}')
+                          member = stream.read()
+                          register(member, origin + ':tar:' + member_info.name)
+                          enqueue(member, origin + ':tar:' + member_info.name, depth + 1)
+              except tarfile.TarError:
+                  pass
+
+          def process_queue() -> None:
+              while queue:
+                  data, origin, depth = queue.popleft()
+                  register(data, origin)
+                  try_git_pack(data, origin)
+                  if depth <= 5:
+                      extract_archives(data, origin, depth)
+                  if data.startswith(b'blob '):
+                      separator = data.find(b'\0')
+                      if separator > 5:
+                          try:
+                              declared = int(data[5:separator])
+                          except ValueError:
+                              declared = -1
+                          payload = data[separator + 1:]
+                          if declared == len(payload):
+                              register(payload, origin + ':loose-git-object')
+                              enqueue(payload, origin + ':loose-git-object', depth + 1)
+                  if depth >= 6:
+                      continue
+                  stripped = data.strip()
+                  enqueue(stripped, origin + ':strip', depth + 1)
+                  compact = re.sub(rb'\s+', b'', stripped)
+                  for label, candidate in (('base64', compact), ('urlsafe-base64', compact)):
+                      try:
+                          if label == 'base64':
+                              decoded = base64.b64decode(candidate, validate=True)
+                          else:
+                              decoded = base64.urlsafe_b64decode(candidate + b'=' * ((-len(candidate)) % 4))
+                          enqueue(decoded, origin + ':' + label, depth + 1)
+                      except Exception:
+                          pass
+                  try:
+                      enqueue(bytes.fromhex(compact.decode('ascii')), origin + ':hex', depth + 1)
+                  except Exception:
+                      pass
+                  try:
+                      value = json.loads(data.decode('utf-8'))
+                      stack = [value]
+                      while stack:
+                          item = stack.pop()
+                          if isinstance(item, str):
+                              enqueue(item.encode('utf-8'), origin + ':json-string', depth + 1)
+                          elif isinstance(item, list):
+                              if item and all(isinstance(element, int) and 0 <= element <= 255 for element in item):
+                                  enqueue(bytes(item), origin + ':json-byte-array', depth + 1)
+                              stack.extend(item)
+                          elif isinstance(item, dict):
+                              stack.extend(item.values())
+                  except Exception:
+                      pass
+                  try:
+                      value = ast.literal_eval(data.decode('utf-8'))
+                      if isinstance(value, bytes):
+                          enqueue(value, origin + ':python-bytes', depth + 1)
+                      elif isinstance(value, str):
+                          enqueue(value.encode('utf-8'), origin + ':python-string', depth + 1)
+                  except Exception:
+                      pass
+                  for label, decoder in (
+                      ('gzip', gzip.decompress),
+                      ('bzip2', bz2.decompress),
+                      ('xz', lzma.decompress),
+                      ('zlib', zlib.decompress),
+                  ):
+                      try:
+                          enqueue(decoder(data), origin + ':' + label, depth + 1)
+                      except Exception:
+                          pass
+                  signatures = (b'PK\x03\x04', b'\x1f\x8b', b'BZh', b'\xfd7zXZ\x00', b'PACK')
+                  for signature in signatures:
+                      start = 1
+                      while True:
+                          offset = data.find(signature, start)
+                          if offset < 0:
+                              break
+                          enqueue(data[offset:], origin + f':embedded-{signature.hex()}@{offset}', depth + 1)
+                          start = offset + 1
+
+          try:
+              if len(carriers) != 12 or len(set(carriers)) != 12:
+                  raise RuntimeError('carrier inventory is not exactly twelve unique objects')
+              if len(targets) != 42 or len(reverse) != 42:
+                  raise RuntimeError('target inventory is not exactly forty-two unique blobs')
+
+              main_ref = api('GET', f'/repos/{repo}/git/ref/heads/main')
+              controller_ref = api('GET', f'/repos/{repo}/git/ref/heads/{controller_branch}')
+              audit_ref = api('GET', f'/repos/{repo}/git/ref/heads/{audit_branch}')
+              if main_ref['object']['sha'] != base:
+                  raise RuntimeError('main moved after the R01 authorisation boundary')
+              if controller_ref['object']['sha'] != controller_commit:
+                  raise RuntimeError('controller ref does not point to this execution')
+
+              audit_head = audit_ref['object']['sha']
+              audit_commit = api('GET', f'/repos/{repo}/git/commits/{audit_head}')
+              audit_is_candidate = (
+                  audit_commit['tree']['sha'] == expected_tree
+                  and [parent['sha'] for parent in audit_commit['parents']] == [base]
+              )
+              if not audit_is_candidate:
+                  staging_compare = api('GET', f'/repos/{repo}/compare/{staging_root}...{audit_head}')
+                  staging_paths = {item['filename'] for item in staging_compare.get('files', [])}
+                  if staging_compare['behind_by'] != 0 or not staging_paths <= {workflow_path}:
+                      raise RuntimeError(
+                          f'audit branch is neither the exact candidate nor an authorised workflow-only staging descendant: '
+                          f'head={audit_head}, paths={sorted(staging_paths)}'
+                      )
+
+              # Prefer an already persisted exact local transport object if it has reached this repository.
+              local_transport = api('GET', f'/repos/{repo}/git/commits/bac462c384ff41fccdeba340fccad7f602fae297', allow_404=True)
+              if local_transport is not None:
+                  if (
+                      local_transport['tree']['sha'] == expected_tree
+                      and [parent['sha'] for parent in local_transport['parents']] == [base]
+                  ):
+                      diagnostic['exact_local_transport_found'] = True
+                  else:
+                      raise RuntimeError('the known transport SHA exists remotely with unexpected structure')
+
+              raw_carriers: list[bytes] = []
+              decoded_carriers: list[bytes] = []
+              chunk_records: list[tuple[int, bytes]] = []
+              for position, carrier_sha in enumerate(carriers):
+                  blob = api('GET', f'/repos/{repo}/git/blobs/{carrier_sha}')
+                  if blob.get('sha') != carrier_sha or blob.get('encoding') != 'base64':
+                      raise RuntimeError(f'carrier read-back contract failed for {carrier_sha}')
+                  raw = base64.b64decode(blob['content'])
+                  raw_carriers.append(raw)
+                  diagnostic['carrier_metadata'].append({
+                      'position': position,
+                      'sha': carrier_sha,
+                      'size': len(raw),
+                      'sha256': hashlib.sha256(raw).hexdigest(),
+                      'prefix_hex': raw[:32].hex(),
+                      'prefix_utf8': raw[:160].decode(errors='replace'),
+                  })
+                  enqueue(raw, f'carrier:{position}:{carrier_sha}')
+                  compact = re.sub(rb'\s+', b'', raw.strip())
+                  try:
+                      decoded = base64.b64decode(compact, validate=True)
+                  except Exception:
+                      decoded = b''
+                  decoded_carriers.append(decoded)
+                  try:
+                      value = json.loads(raw.decode('utf-8'))
+                      if isinstance(value, dict):
+                          number = value.get('part', value.get('index', value.get('sequence')))
+                          payload = value.get('data', value.get('content', value.get('chunk')))
+                          if isinstance(number, int) and isinstance(payload, str):
+                              try:
+                                  chunk_records.append((number, base64.b64decode(re.sub(r'\s+', '', payload), validate=True)))
+                              except Exception:
+                                  chunk_records.append((number, payload.encode('utf-8')))
+                  except Exception:
+                      pass
+
+              aggregate_groups = [raw_carriers, decoded_carriers]
+              for group_index, pieces in enumerate(aggregate_groups):
+                  nonempty = [piece for piece in pieces if piece]
+                  if not nonempty:
+                      continue
+                  enqueue(b''.join(nonempty), f'aggregate:{group_index}:forward')
+                  enqueue(b'\n'.join(nonempty), f'aggregate:{group_index}:forward-newlines')
+                  enqueue(b''.join(reversed(nonempty)), f'aggregate:{group_index}:reverse')
+                  enqueue(b'\n'.join(reversed(nonempty)), f'aggregate:{group_index}:reverse-newlines')
+                  for start in range(len(nonempty)):
+                      combined = b''
+                      for end in range(start, len(nonempty)):
+                          combined += nonempty[end]
+                          if len(combined) <= MAX_ITEM_BYTES:
+                              enqueue(combined, f'aggregate:{group_index}:range:{start}-{end}')
+                          else:
+                              break
+              if chunk_records:
+                  ordered = [payload for index, payload in sorted(chunk_records)]
+                  enqueue(b''.join(ordered), 'aggregate:json-indexed-forward')
+                  enqueue(b'\n'.join(ordered), 'aggregate:json-indexed-newlines')
+
+              # Inspect non-expired bounded Actions artifacts that could contain candidate/checkpoint bytes.
+              for page in range(1, 6):
+                  listing = api('GET', f'/repos/{repo}/actions/artifacts', query={'per_page': 100, 'page': page})
+                  artifacts = listing.get('artifacts', [])
+                  if not artifacts:
+                      break
+                  for artifact in artifacts:
+                      name = str(artifact.get('name', ''))
+                      size = int(artifact.get('size_in_bytes') or 0)
+                      relevant = bool(re.search(r'(?i)(codeprobe|v01|i14|i19|candidate|checkpoint|handover|baseline)', name))
+                      if artifact.get('expired') or not relevant or size <= 0 or size > 60_000_000:
+                          continue
+                      record = {'id': artifact['id'], 'name': name, 'size': size}
+                      try:
+                          payload = download(artifact['archive_download_url'], maximum=70_000_000)
+                          record['downloaded_size'] = len(payload)
+                          record['sha256'] = hashlib.sha256(payload).hexdigest()
+                          enqueue(payload, f'actions-artifact:{artifact["id"]}:{name}')
+                      except Exception as exc:
+                          record['error'] = repr(exc)
+                      diagnostic['artifacts_examined'].append(record)
+
+              process_queue()
+              recover_from_git_objects('final-pack-scan')
+
+              absent_paths: list[str] = []
+              for path, sha in targets.items():
+                  blob = api('GET', f'/repos/{repo}/git/blobs/{sha}', allow_404=True)
+                  if blob is None:
+                      absent_paths.append(path)
+                  elif blob.get('sha') != sha:
+                      raise RuntimeError(f'target blob read-back mismatch for {path}')
+
+              unresolved = sorted(path for path in absent_paths if path not in recovered)
+              diagnostic['absent_before_persistence'] = absent_paths
+              diagnostic['unresolved_after_recovery'] = unresolved
+              diagnostic['queue_items_examined'] = len(seen)
+              diagnostic['queue_bytes_examined'] = total_enqueued_bytes
+              diagnostic['git_pack_candidates_attempted'] = len(pack_attempted)
+              if unresolved:
+                  raise RuntimeError('exact recovery remains incomplete: ' + ', '.join(unresolved))
+
+              for path in sorted(absent_paths):
+                  payload = recovered[path]
+                  expected_sha = targets[path]
+                  created = api(
+                      'POST',
+                      f'/repos/{repo}/git/blobs',
+                      {'content': base64.b64encode(payload).decode('ascii'), 'encoding': 'base64'},
+                  )
+                  if created['sha'] != expected_sha:
+                      raise RuntimeError(f'{path}: GitHub returned {created["sha"]}, expected {expected_sha}')
+                  read_back = api('GET', f'/repos/{repo}/git/blobs/{expected_sha}')
+                  if read_back.get('sha') != expected_sha:
+                      raise RuntimeError(f'{path}: post-create blob read-back failed')
+
+              for path, sha in targets.items():
+                  blob = api('GET', f'/repos/{repo}/git/blobs/{sha}', allow_404=True)
+                  if blob is None or blob.get('sha') != sha:
+                      raise RuntimeError(f'complete 42-object CAS verification failed for {path}')
+
+              tree = api(
+                  'POST',
+                  f'/repos/{repo}/git/trees',
+                  {
+                      'base_tree': base_tree,
+                      'tree': [
+                          {'path': path, 'mode': '100644', 'type': 'blob', 'sha': sha}
+                          for path, sha in sorted(targets.items())
+                      ],
+                  },
+              )
+              if tree['sha'] != expected_tree:
+                  raise RuntimeError(f'candidate tree {tree["sha"]} != {expected_tree}')
+              tree_read_back = api('GET', f'/repos/{repo}/git/trees/{expected_tree}', query={'recursive': '1'})
+              remote_blobs = {entry['path']: entry['sha'] for entry in tree_read_back['tree'] if entry.get('type') == 'blob'}
+              mismatches = {
+                  path: {'remote': remote_blobs.get(path), 'expected': sha}
+                  for path, sha in targets.items()
+                  if remote_blobs.get(path) != sha
+              }
+              if mismatches:
+                  raise RuntimeError(f'candidate tree read-back mismatch: {mismatches}')
+
+              if audit_is_candidate:
+                  candidate_sha = audit_head
+              elif local_transport is not None and local_transport['tree']['sha'] == expected_tree:
+                  candidate_sha = 'bac462c384ff41fccdeba340fccad7f602fae297'
+              else:
+                  stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+                  identity = {
+                      'name': 'Antonio Clim',
+                      'email': '48681843+antonioclim@users.noreply.github.com',
+                      'date': stamp,
+                  }
+                  candidate = api(
+                      'POST',
+                      f'/repos/{repo}/git/commits',
+                      {
+                          'message': (
+                              'Complete the byte-exact I14-I19 audit remediation candidate\n\n'
+                              'Persist the verified 42-file cumulative candidate directly over the authorised main baseline. '
+                              'This commit is submitted for candidate-specific CI and finding adjudication. It does not close '
+                              'A01-F003, change APP_VERSION or alter release state.'
+                          ),
+                          'tree': expected_tree,
+                          'parents': [base],
+                          'author': identity,
+                          'committer': identity,
+                      },
+                  )
+                  candidate_sha = candidate['sha']
+
+              candidate = api('GET', f'/repos/{repo}/git/commits/{candidate_sha}')
+              if candidate['tree']['sha'] != expected_tree or [parent['sha'] for parent in candidate['parents']] != [base]:
+                  raise RuntimeError('candidate commit structure mismatch')
+              comparison = api('GET', f'/repos/{repo}/compare/{base}...{candidate_sha}')
+              changed = {item['filename'] for item in comparison.get('files', [])}
+              if comparison['ahead_by'] != 1 or comparison['behind_by'] != 0 or changed != set(targets):
+                  raise RuntimeError('candidate comparison is not one direct commit with exactly 42 authorised paths')
+              if workflow_path in changed:
+                  raise RuntimeError('temporary staging workflow leaked into the candidate')
+
+              if audit_head != candidate_sha:
+                  updated = api(
+                      'PATCH',
+                      f'/repos/{repo}/git/refs/heads/{audit_branch}',
+                      {'sha': candidate_sha, 'force': True},
+                  )
+                  if updated['object']['sha'] != candidate_sha:
+                      raise RuntimeError('audit ref update response mismatch')
+              audit_read_back = api('GET', f'/repos/{repo}/git/ref/heads/{audit_branch}')
+              candidate_read_back = api('GET', f'/repos/{repo}/git/commits/{candidate_sha}')
+              if audit_read_back['object']['sha'] != candidate_sha:
+                  raise RuntimeError('audit branch read-back mismatch')
+              if candidate_read_back['tree']['sha'] != expected_tree or [p['sha'] for p in candidate_read_back['parents']] != [base]:
+                  raise RuntimeError('candidate commit read-back mismatch')
+
+              pr = api('GET', f'/repos/{repo}/pulls/{pr_number}')
+              if pr.get('merged_at') is not None or pr['head']['ref'] != audit_branch or pr['base']['ref'] != 'main':
+                  raise RuntimeError('PR #6 identity or merge state is incompatible with R01')
+              pending_body = f'''## Scope
+
+This pull request presents the cumulative I14–I19 remediation candidate as exactly 42 replacement files over baseline `{base}`. Candidate `{candidate_sha}` has that baseline as its sole direct parent and tree `{expected_tree}`.
+
+## Verified evidence
+
+- The authoritative checkpoint passed byte-level verification before remote persistence.
+- GitHub read-back confirmed all 42 target blobs, the exact tree, the direct-child commit, the audit ref and exactly 42 changed paths.
+- Candidate-specific CI for this exact commit is pending observation; all transport and staging runs are excluded.
+
+## Evidence boundary
+
+- `A01-F003` remains P1 `OPEN/PARTIALLY_IMPLEMENTED`; universal containment, including detached sessions, is not claimed.
+- This candidate does not alter `APP_VERSION`, the MIT licence, repository visibility, the public v2.2.0 release or any Zenodo state.
+- CodeProbe remains a formative heuristic code/project review kit. No empirical AI-authorship, misconduct-detection or authorship-probability validity is claimed.
+
+No merge or release action is requested in this pull request.'''
+              api(
+                  'PATCH',
+                  f'/repos/{repo}/pulls/{pr_number}',
+                  {
+                      'state': 'open',
+                      'title': 'Integrate the byte-exact I14–I19 audit remediation candidate',
+                      'body': pending_body,
+                      'maintainer_can_modify': False,
+                  },
+              )
+              pr_read_back = api('GET', f'/repos/{repo}/pulls/{pr_number}')
+              if pr_read_back['state'] != 'open' or pr_read_back['head']['sha'] != candidate_sha or pr_read_back['base']['sha'] != base:
+                  raise RuntimeError('PR #6 read-back failed after reopening')
+
+              def candidate_runs():
+                  listing = api('GET', f'/repos/{repo}/actions/runs', query={'head_sha': candidate_sha, 'per_page': 100})
+                  return [
+                      run for run in listing.get('workflow_runs', [])
+                      if run.get('name') == 'CI' and run.get('event') in {'pull_request', 'workflow_dispatch'}
+                  ]
+
+              # Give a naturally triggered pull-request run a bounded opportunity to appear before dispatching.
+              runs = []
+              for _ in range(10):
+                  runs = candidate_runs()
+                  if runs:
+                      break
+                  time.sleep(3)
+              successful = [run for run in runs if run.get('status') == 'completed' and run.get('conclusion') == 'success']
+              failed = [run for run in runs if run.get('status') == 'completed' and run.get('conclusion') not in {None, 'success'}]
+              active = [run for run in runs if run.get('status') != 'completed']
+              if successful:
+                  ci_run = max(successful, key=lambda run: run['id'])
+                  print(f'REUSE_GREEN_CANDIDATE_CI {ci_run["id"]}')
+              elif failed and not active:
+                  raise RuntimeError('a completed candidate-specific CI already failed; automatic rerun is refused')
+              else:
+                  if active:
+                      ci_run = max(active, key=lambda run: run['id'])
+                      print(f'OBSERVE_ACTIVE_CANDIDATE_CI {ci_run["id"]}')
+                  else:
+                      api('POST', f'/repos/{repo}/actions/workflows/ci.yml/dispatches', {'ref': audit_branch})
+                      ci_run = None
+                      for _ in range(40):
+                          time.sleep(3)
+                          dispatched = [run for run in candidate_runs() if run.get('event') == 'workflow_dispatch']
+                          if dispatched:
+                              ci_run = max(dispatched, key=lambda run: run['id'])
+                              break
+                      if ci_run is None:
+                          raise RuntimeError('one candidate CI was dispatched but did not become observable')
+                      print(f'DISPATCHED_ONE_CANDIDATE_CI {ci_run["id"]}')
+
+                  run_id = ci_run['id']
+                  for _ in range(125):
+                      current = api('GET', f'/repos/{repo}/actions/runs/{run_id}')
+                      if current['head_sha'] != candidate_sha or current['name'] != 'CI':
+                          raise RuntimeError('observed CI run identity changed')
+                      if current['status'] == 'completed':
+                          ci_run = current
+                          break
+                      time.sleep(10)
+                  else:
+                      raise RuntimeError('candidate CI did not complete within the bounded observation interval')
+                  if ci_run.get('conclusion') != 'success':
+                      raise RuntimeError(f'candidate CI {ci_run["id"]} concluded {ci_run.get("conclusion")}')
+
+              jobs = api('GET', f'/repos/{repo}/actions/runs/{ci_run["id"]}/jobs', query={'per_page': 100})
+              bad_jobs = [
+                  {'name': job.get('name'), 'status': job.get('status'), 'conclusion': job.get('conclusion')}
+                  for job in jobs.get('jobs', [])
+                  if job.get('status') != 'completed' or job.get('conclusion') not in {'success', 'skipped'}
+              ]
+              if bad_jobs:
+                  raise RuntimeError(f'candidate CI job matrix is not green: {bad_jobs}')
+
+              final_body = pending_body.replace(
+                  'Candidate-specific CI for this exact commit is pending observation; all transport and staging runs are excluded.',
+                  f'Candidate-specific CI run `{ci_run["id"]}` (CI #{ci_run["run_number"]}, event `{ci_run["event"]}`) completed successfully for this exact commit; all transport and staging runs are excluded.',
+              )
+              api('PATCH', f'/repos/{repo}/pulls/{pr_number}', {'state': 'open', 'body': final_body})
+              final_pr = api('GET', f'/repos/{repo}/pulls/{pr_number}')
+              final_main = api('GET', f'/repos/{repo}/git/ref/heads/main')
+              if final_pr['state'] != 'open' or final_pr['head']['sha'] != candidate_sha or str(ci_run['id']) not in final_pr.get('body', ''):
+                  raise RuntimeError('final PR evidence read-back failed')
+              if final_main['object']['sha'] != base:
+                  raise RuntimeError('main changed during R01')
+
+              save(
+                  'PASS',
+                  candidate_commit=candidate_sha,
+                  candidate_tree=expected_tree,
+                  direct_parent=base,
+                  replacement_paths=42,
+                  target_blobs_present=42,
+                  target_blobs_created=len(absent_paths),
+                  pr_number=pr_number,
+                  pr_state='open',
+                  ci_run_id=ci_run['id'],
+                  ci_run_number=ci_run['run_number'],
+                  ci_event=ci_run['event'],
+                  ci_conclusion=ci_run['conclusion'],
+                  main_unchanged=True,
+              )
+
+              # Remove only temporary controller/diagnostic refs. The accepted audit branch is retained.
+              for branch in (
+                  'audit/codeprobe-r01-controller-20260911',
+                  'audit/codeprobe-r01-controller2-20260911',
+                  controller_branch,
+                  diagnostic_branch,
+              ):
+                  ref = api('GET', f'/repos/{repo}/git/ref/heads/{branch}', allow_404=True)
+                  if ref is not None:
+                      api('DELETE', f'/repos/{repo}/git/refs/heads/{branch}')
+          except Exception as exc:
+              save('FAIL', exc)
+              raise
+          PY
+
+      - name: Publish bounded failure diagnostic
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import pathlib
+          import urllib.error
+          import urllib.request
+
+          repo = os.environ['REPOSITORY']
+          base = os.environ['BASE_COMMIT']
+          base_tree = os.environ['BASE_TREE']
+          branch = os.environ['DIAGNOSTIC_BRANCH']
+          token = os.environ['GH_TOKEN']
+          source = pathlib.Path('/tmp/r01-controller3-outcome.json')
+          if not source.exists():
+              source.write_text('{"status":"FAIL","error":"controller ended before diagnostic initialisation"}\n', encoding='utf-8')
+          payload = source.read_bytes()
+
+          def api(method, path, body=None, allow_404=False):
+              data = None if body is None else json.dumps(body, separators=(',', ':')).encode('utf-8')
+              request = urllib.request.Request(
+                  'https://api.github.com' + path,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'User-Agent': 'codeprobe-r01-controller-v3-diagnostic',
+                      'Content-Type': 'application/json',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=90) as response:
+                      raw = response.read()
+                  return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as exc:
+                  if allow_404 and exc.code == 404:
+                      return None
+                  raise
+
+          blob = api('POST', f'/repos/{repo}/git/blobs', {'content': base64.b64encode(payload).decode('ascii'), 'encoding': 'base64'})
+          tree = api(
+              'POST',
+              f'/repos/{repo}/git/trees',
+              {
+                  'base_tree': base_tree,
+                  'tree': [{'path': 'r01/R01_DIAGNOSTIC.json', 'mode': '100644', 'type': 'blob', 'sha': blob['sha']}],
+              },
+          )
+          commit = api(
+              'POST',
+              f'/repos/{repo}/git/commits',
+              {'message': 'Record bounded R01 controller v3 diagnostic', 'tree': tree['sha'], 'parents': [base]},
+          )
+          current = api('GET', f'/repos/{repo}/git/ref/heads/{branch}', allow_404=True)
+          if current is None:
+              api('POST', f'/repos/{repo}/git/refs', {'ref': 'refs/heads/' + branch, 'sha': commit['sha']})
+          else:
+              api('PATCH', f'/repos/{repo}/git/refs/heads/{branch}', {'sha': commit['sha'], 'force': True})
+          PY
