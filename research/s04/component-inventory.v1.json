@@ -1,0 +1,33 @@
+{
+  "schema": "codeprobe-implementation-components/v1",
+  "version": "1.0.0",
+  "base_commit": "5e8036489a830afcf557e8accded80c85eea01bc",
+  "components": [
+    "research/claim-policy.v1.json",
+    "research/construct-map.v1.json",
+    "research/measurement-error-register.v1.json",
+    "research/observation-catalogue.v1.json",
+    "research/s03/error-register-extension.v1.json",
+    "research/s04/acceptance-lock.v1.json",
+    "research/s04/calibration-design.v1.json",
+    "research/s04/component-inventory.v1.json",
+    "research/s04/condition-migration.v1.json",
+    "research/s04/profiles.v1.json",
+    "src/codeprobe_calibration_admission.py",
+    "src/codeprobe_interpretation.py",
+    "src/codeprobe_measurement_kernel.py",
+    "src/codeprobe_review_contract.py",
+    "src/codeprobe_s01_observation_adapter.py"
+  ],
+  "inherited_sha256": {
+    "src/codeprobe_measurement_kernel.py": "c5ae37de7f0cafc0dfa456574a23ead35636c1c7675668b5aa4c04d8be22e7e4",
+    "src/codeprobe_s01_observation_adapter.py": "dd4dd1c60e69e5dd73aa1134426145a2335c731fe9dd6c52ed3be4bfe3c95779",
+    "src/codeprobe_review_contract.py": "c922e8dfd98188e30fa2621ba38a61cde834f343cdc42a48360569ac699f6c0a",
+    "research/construct-map.v1.json": "f9645a8f101fc67c99f998a9e13323275f0c0b0184a51f92f34626cb16d12424",
+    "research/claim-policy.v1.json": "b9ebcf240396356e347ddcf1df254c948e594edab202ffdeed8ab35174ecaea2",
+    "research/observation-catalogue.v1.json": "2d48306d88942a7b44d9b68139e94f4af6b6d2ae290f0fb2e0a88cf5a4365725",
+    "research/measurement-error-register.v1.json": "85979b58e521e208c953a49ee559dcedfc4ab5528a7612f7bf13a977571a52dd",
+    "research/s03/error-register-extension.v1.json": "d14fbefa9eec586481c35143787b04ce7178658e7eb2abf54f7a1d7c79b32a5a"
+  },
+  "identity_scope": "Implementation source and executable interpretation contracts; the workflow, tests and prose are not in this component digest. Whole-candidate identity is the Git commit/tree."
+}

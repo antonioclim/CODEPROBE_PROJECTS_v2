@@ -1,0 +1,170 @@
+{
+  "schema": "codeprobe-condition-migration/v1",
+  "version": "1.0.0",
+  "entries": [
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-001",
+      "condition_id": "codeprobe.condition.symlink_or_non_regular",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-002",
+      "condition_id": "codeprobe.condition.byte_budget_exceeded",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-003",
+      "condition_id": "codeprobe.condition.invalid_utf8",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-004",
+      "condition_id": "codeprobe.condition.nul_byte",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-005",
+      "condition_id": "codeprobe.condition.file_identity_changed_during_read",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-006",
+      "condition_id": "codeprobe.condition.python_syntax_error",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-007",
+      "condition_id": "codeprobe.condition.python_token_error",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-008",
+      "condition_id": "codeprobe.condition.markdown_subset_omission",
+      "disposition": "observed_with_limitation"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-009",
+      "condition_id": "codeprobe.condition.entity_or_evidence_budget_exceeded",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-010",
+      "condition_id": "codeprobe.condition.python_ast_or_unicode_semantics_changed",
+      "disposition": "unavailable_or_digest_mismatch"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-011",
+      "condition_id": "codeprobe.condition.property_not_present",
+      "disposition": "observed"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-012",
+      "condition_id": "codeprobe.condition.zero_denominator_or_no_entity",
+      "disposition": "insufficient_evidence"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-013",
+      "condition_id": "codeprobe.condition.bounded_syntactic_complexity_convention",
+      "disposition": "observed_with_limitation"
+    },
+    {
+      "legacy_namespace": "measurement-error-register/1.0.0",
+      "legacy_code": "ME-014",
+      "condition_id": "codeprobe.condition.catalogue_or_schema_mismatch",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "s03-kernel/exception",
+      "legacy_code": "ME-001",
+      "condition_id": "codeprobe.condition.source_file_admission_failed",
+      "disposition": "refused"
+    },
+    {
+      "legacy_namespace": "s03-kernel/exception",
+      "legacy_code": "ME-002",
+      "condition_id": "codeprobe.condition.byte_budget_exceeded",
+      "disposition": "refused"
+    },
+    {
+      "legacy_namespace": "s03-kernel/exception",
+      "legacy_code": "ME-003",
+      "condition_id": "codeprobe.condition.invalid_utf8",
+      "disposition": "refused"
+    },
+    {
+      "legacy_namespace": "s03-kernel/exception",
+      "legacy_code": "ME-004",
+      "condition_id": "codeprobe.condition.nul_byte",
+      "disposition": "refused"
+    },
+    {
+      "legacy_namespace": "s03-kernel/exception",
+      "legacy_code": "ME-005",
+      "condition_id": "codeprobe.condition.file_identity_changed_during_read",
+      "disposition": "refused"
+    },
+    {
+      "legacy_namespace": "s03-kernel/exception",
+      "legacy_code": "ME-008",
+      "condition_id": "codeprobe.condition.unsupported_language_declaration",
+      "disposition": "refused"
+    },
+    {
+      "legacy_namespace": "s03-kernel/exception",
+      "legacy_code": "ME-015",
+      "condition_id": "codeprobe.condition.recoverable_runtime_resource_exhaustion",
+      "disposition": "refused"
+    },
+    {
+      "legacy_namespace": "s03-kernel/observation",
+      "legacy_code": "ME-006",
+      "condition_id": "codeprobe.condition.python_syntax_error",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "s03-kernel/observation",
+      "legacy_code": "ME-007",
+      "condition_id": "codeprobe.condition.python_token_error",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "s03-kernel/observation",
+      "legacy_code": "ME-012",
+      "condition_id": "codeprobe.condition.zero_denominator_or_no_entity",
+      "disposition": "insufficient_evidence"
+    },
+    {
+      "legacy_namespace": "s03-kernel/observation",
+      "legacy_code": "ME-013",
+      "condition_id": "codeprobe.condition.callable_source_span_unavailable",
+      "disposition": "unavailable"
+    },
+    {
+      "legacy_namespace": "s03-kernel/observation",
+      "legacy_code": "language_not_python",
+      "condition_id": "codeprobe.condition.language_not_python",
+      "disposition": "not_applicable"
+    },
+    {
+      "legacy_namespace": "s03-kernel/observation",
+      "legacy_code": "language_not_markdown",
+      "condition_id": "codeprobe.condition.language_not_markdown",
+      "disposition": "not_applicable"
+    }
+  ],
+  "ambiguity_policy": "Reject an unqualified or unknown namespace/code pair; never infer origin from the code alone.",
+  "legacy_mutation": false
+}

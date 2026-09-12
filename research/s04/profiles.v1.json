@@ -1,0 +1,132 @@
+{
+  "schema": "codeprobe-s04-profile-registry/v1",
+  "version": "1.0.0",
+  "author": "Antonio Clim",
+  "profiles": [
+    {
+      "schema": "codeprobe-formative-interpretation-profile/v1",
+      "profile_id": "observation-only",
+      "version": "1.0.0",
+      "purpose": "formative_review",
+      "languages": [
+        "python",
+        "markdown",
+        "text"
+      ],
+      "task_families": [
+        "source_inspection"
+      ],
+      "evidence_status": "not_yet_established",
+      "threshold_basis": "illustrative_policy_choice_not_empirical_calibration",
+      "rules": []
+    },
+    {
+      "schema": "codeprobe-formative-interpretation-profile/v1",
+      "profile_id": "structural-review",
+      "version": "1.0.0",
+      "purpose": "formative_review",
+      "languages": [
+        "python",
+        "markdown",
+        "text"
+      ],
+      "task_families": [
+        "source_inspection"
+      ],
+      "evidence_status": "not_yet_established",
+      "threshold_basis": "illustrative_policy_choice_not_empirical_calibration",
+      "rules": [
+        {
+          "rule_id": "mccabe_complexity",
+          "observation_id": "python.callable.mccabe_complexity",
+          "dimension_id": "structural_complexity_dispersion",
+          "operator": "gt",
+          "threshold_set": {
+            "lower": 8,
+            "nominal": 10,
+            "upper": 12
+          },
+          "action_id": "inspect_branching"
+        },
+        {
+          "rule_id": "max_control_nesting_depth",
+          "observation_id": "python.callable.max_control_nesting_depth",
+          "dimension_id": "structural_complexity_dispersion",
+          "operator": "gt",
+          "threshold_set": {
+            "lower": 2,
+            "nominal": 3,
+            "upper": 4
+          },
+          "action_id": "inspect_nesting"
+        },
+        {
+          "rule_id": "physical_span_lines",
+          "observation_id": "python.callable.physical_span_lines",
+          "dimension_id": "structural_complexity_dispersion",
+          "operator": "gt",
+          "threshold_set": {
+            "lower": 40,
+            "nominal": 60,
+            "upper": 80
+          },
+          "action_id": "inspect_function_span"
+        }
+      ]
+    },
+    {
+      "schema": "codeprobe-formative-interpretation-profile/v1",
+      "profile_id": "structural-review-conservative",
+      "version": "1.0.0",
+      "purpose": "formative_review",
+      "languages": [
+        "python",
+        "markdown",
+        "text"
+      ],
+      "task_families": [
+        "source_inspection"
+      ],
+      "evidence_status": "not_yet_established",
+      "threshold_basis": "illustrative_policy_choice_not_empirical_calibration",
+      "rules": [
+        {
+          "rule_id": "mccabe_complexity",
+          "observation_id": "python.callable.mccabe_complexity",
+          "dimension_id": "structural_complexity_dispersion",
+          "operator": "gt",
+          "threshold_set": {
+            "lower": 14,
+            "nominal": 16,
+            "upper": 18
+          },
+          "action_id": "inspect_branching"
+        },
+        {
+          "rule_id": "max_control_nesting_depth",
+          "observation_id": "python.callable.max_control_nesting_depth",
+          "dimension_id": "structural_complexity_dispersion",
+          "operator": "gt",
+          "threshold_set": {
+            "lower": 4,
+            "nominal": 5,
+            "upper": 6
+          },
+          "action_id": "inspect_nesting"
+        },
+        {
+          "rule_id": "physical_span_lines",
+          "observation_id": "python.callable.physical_span_lines",
+          "dimension_id": "structural_complexity_dispersion",
+          "operator": "gt",
+          "threshold_set": {
+            "lower": 80,
+            "nominal": 100,
+            "upper": 120
+          },
+          "action_id": "inspect_function_span"
+        }
+      ]
+    }
+  ]
+}

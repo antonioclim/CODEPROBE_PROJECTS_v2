@@ -1,0 +1,86 @@
+name: S04 evidence-bounded interpretation
+on:
+  push:
+    branches: [research/codeprobe-s04-interpretation-uncertainty-20260912]
+    paths:
+      - .github/workflows/s04-interpretation.yml
+      - src/codeprobe_interpretation.py
+      - src/codeprobe_calibration_admission.py
+      - research/s04/**
+      - tests/s04/**
+      - tools/*s04*.py
+permissions:
+  contents: read
+concurrency:
+  group: s04-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  interpretation:
+    name: S04 (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, python: '3.10.21', architecture: x64}
+          - {os: ubuntu-24.04, python: '3.14.7', architecture: x64}
+          - {os: windows-2025, python: '3.14.7', architecture: x64}
+          - {os: macos-15, python: '3.14.7', architecture: arm64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.architecture }}
+          check-latest: false
+      - name: Verify exact source, contracts and finite interpretation
+        shell: bash
+        env:
+          S04_OS: ${{ matrix.os }}
+        run: python -I -S -B tools/check_s04_interpretation.py --output "$RUNNER_TEMP/s04-evidence" --sha "$GITHUB_SHA"
+      - name: Preserve all available evidence including failures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: s04-${{ matrix.os }}-${{ matrix.python }}
+          path: ${{ runner.temp }}/s04-evidence/
+          if-no-files-found: error
+          retention-days: 30
+  compare:
+    name: Required S04 and finite interpretation equivalence
+    if: ${{ always() }}
+    needs: [interpretation]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+          check-latest: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: s04-*
+          path: ${{ runner.temp }}/s04-matrix
+      - name: Require every cell and compare actual finite outputs
+        shell: bash
+        env:
+          CELL_RESULT: ${{ needs.interpretation.result }}
+        run: |
+          test "$CELL_RESULT" = success
+          python -I -S -B tools/check_s04_interpretation.py --compare "$RUNNER_TEMP/s04-matrix" --sha "$GITHUB_SHA"
+      - name: Preserve matrix verdict
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: s04-matrix-verdict
+          path: ${{ runner.temp }}/s04-matrix/MATRIX_VERDICT.json
+          if-no-files-found: warn
+          retention-days: 30

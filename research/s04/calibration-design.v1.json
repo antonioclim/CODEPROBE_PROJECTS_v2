@@ -1,0 +1,43 @@
+{
+  "schema": "codeprobe-s04-calibration-design/v1",
+  "author": "Antonio Clim",
+  "status": "prospective_design_only",
+  "empirical_status": "not_established",
+  "dataset_reference": null,
+  "authority_reference": null,
+  "study_reference": null,
+  "preregistration_reference": null,
+  "targets": [
+    "action_correctness",
+    "false_prompting",
+    "coverage",
+    "burden"
+  ],
+  "partition_fields": [
+    "raw_sha256",
+    "normalised_sha256",
+    "lineage_group",
+    "contributor_group"
+  ],
+  "split_roles": [
+    "training",
+    "tuning",
+    "evaluation"
+  ],
+  "maximum_manifest_rows": 4096,
+  "unknown_relationships": "not_detectable_from_declarations_alone",
+  "profile_freeze": "Exact canonical profile SHA-256 required before evaluation labels are unsealed.",
+  "outcome_access": "No outcome values are accepted by the admission interface; evaluation labels must be sealed.",
+  "estimands": {
+    "action_correctness": "Fraction of independently adjudicated surfaced opportunities correct and feasible, by rule and task family; denominator and rater disagreement retained.",
+    "false_prompting": "Fraction of surfaced opportunities judged unwarranted, by rule and task family; not an authorship false-positive rate.",
+    "coverage": "Fraction of eligible entity-rule pairs with a non-abstaining interpretation; report absent and unsupported entities separately.",
+    "burden": "Reviewer time and rejected-prompt burden per artefact; no benefit claim from uptake alone."
+  },
+  "analysis_limits": [
+    "No current estimator, empirical interval or calibrated decision is produced.",
+    "Synthetic conformance manifests cannot establish authorisation, rater validity or population representativeness.",
+    "Near-duplicate and concealed contributor relationships require later independent corpus audit.",
+    "Sampling, rater codebook, power, multiplicity and cluster-aware uncertainty must be locked in M01/M02 before authorised E02 data are analysed."
+  ]
+}

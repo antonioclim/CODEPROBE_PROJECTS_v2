@@ -1,0 +1,90 @@
+{
+  "schema": "codeprobe-s04-development-register/v1",
+  "author": "Antonio Clim",
+  "stage": "local-pre-CI; final source and remote verdict belong to the phase audit",
+  "base_commit": "5e8036489a830afcf557e8accded80c85eea01bc",
+  "acceptance_commit": "fd883a13c705fdddae8814f2759027afb92bd5f5",
+  "acceptance_sha256": "2402c6812ff44f84cd5237d3648338a5aed72f2cb9b8c4fc0ae5a6624f1328c4",
+  "development_negatives": [
+    {
+      "id": "S04-F001",
+      "severity": "P2",
+      "problem": "JSON byte limits and a caught RecursionError did not enforce the declared nesting bound.",
+      "before": "44 unit tests: 43 passed and 1 failed; unit-first.log",
+      "correction": "Explicit depth-64 and node-200000 walk; reject overflow to non-finite float.",
+      "after": "44 unit tests passed; unit-after-depth-fix.log",
+      "scope": "Bounded input parser; not OS resource containment."
+    },
+    {
+      "id": "S04-F002",
+      "severity": "P2",
+      "problem": "Available dimensions inherited an inaccurate no-admissible-observation uncertainty qualification.",
+      "before": "46 unit tests: 45 passed and 1 failed; unit-dimension-qualification-before.log",
+      "correction": "Use the dimension-specific limitations for dimension-level uncertainty; retain item qualifications separately.",
+      "after": "46 unit tests passed; unit-dimension-fix.log",
+      "scope": "Semantic consistency of emitted qualifications; no empirical uncertainty estimate."
+    }
+  ],
+  "carried_findings": [
+    {
+      "id": "S03-F007",
+      "local_disposition": "IMPLEMENTED_SOURCE_QUALIFIED_MIGRATION_PENDING_EXACT_CI",
+      "evidence": "27 explicit namespace/code entries; ME-008 collision kept distinct, legacy source unchanged."
+    },
+    {
+      "id": "S03-F008",
+      "local_disposition": "IMPLEMENTED_BUILD_IDENTITY_PENDING_EXACT_CI",
+      "evidence": "15-component digest, actual Git anchor/tree, checkout state, runtime and separate profile/specification identities."
+    },
+    {
+      "id": "S04-F003",
+      "severity": "P2",
+      "local_disposition": "ADDITIONAL_COLLISION_MAPPED_PENDING_EXACT_CI",
+      "evidence": "ME-013 means different conditions in the legacy register and kernel observation; no bare-code inference is permitted."
+    }
+  ],
+  "deviations": [
+    {
+      "id": "D-S04-001",
+      "kind": "development_refinement",
+      "description": "Explicit JSON depth and node admission were corrected after a negative test; threshold sets and prospective decision semantics were unchanged."
+    },
+    {
+      "id": "D-S04-002",
+      "kind": "supplementary_semantic_regression",
+      "description": "A dimension-level qualification check exposed an inaccurate absence message. Its failing log and pre-fix source are retained; a narrowly scoped correction preserves policy projections."
+    },
+    {
+      "id": "D-S04-003",
+      "kind": "scope_qualified_extension",
+      "description": "Source inspection found the additional historical ME-013 collision. The prelocked source-qualified migration rule was applied to it without changing S03 bytes."
+    }
+  ],
+  "finite_development": {
+    "boundary_cases": 504,
+    "base_source_cases": 21,
+    "interpretation_executions": 369,
+    "metamorphic_comparisons": 306,
+    "failure_count": 0,
+    "qualification": "Dependent synthetic tests only; final exact-candidate execution is separately required."
+  },
+  "historical_ledger": {
+    "universe": 111,
+    "closed": 80,
+    "open": 31,
+    "formal_closures_in_S04": 0,
+    "A01-F003": "P1 OPEN/PARTIALLY_IMPLEMENTED"
+  },
+  "empirical_absences": [
+    "authorised calibration dataset",
+    "participant study",
+    "rater outcomes",
+    "ethics approval",
+    "external preregistration",
+    "empirical calibration",
+    "construct validity",
+    "educational utility",
+    "fairness"
+  ],
+  "continuation": "S05 integrates the new capsule with product reports and UX. No public-route migration is claimed by this native phase."
+}
