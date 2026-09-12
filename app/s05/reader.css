@@ -1,0 +1,38 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #172338; background: #ffffff; line-height: 1.55; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header, main, footer { max-width: 70rem; margin: auto; padding: 1.5rem; }
+header { border-bottom: .3rem solid #233b56; }
+h1 { font-size: clamp(1.8rem, 4vw, 2.7rem); line-height: 1.2; }
+h2 { font-size: 1.45rem; margin-top: 2rem; }
+h3 { font-size: 1.1rem; }
+h4 { font-size: 1rem; }
+h1, h2, h3, h4, p, dd, pre, label, legend, a { overflow-wrap: anywhere; }
+.eyebrow { letter-spacing: .08em; font-size: .8rem; font-weight: 700; }
+.lede { font-size: 1.2rem; }
+.dimension { border-top: 1px solid #6b7785; padding-top: 1rem; }
+.observation, .evidence { border: 1px solid #6b7785; padding: 1rem; margin-block: 1rem; }
+.state, .decision, .withheld { font-weight: 650; }
+[data-decision="abstain"] { border-left: .35rem solid #785100; }
+a { color: #174b82; text-decoration: underline; }
+a:focus-visible, button:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, [tabindex]:focus { outline: 3px solid #874500; outline-offset: 3px; }
+button, select, textarea { font: inherit; max-width: 100%; border: 1px solid #536272; border-radius: .15rem; padding: .55rem; background: white; color: #172338; }
+button { min-height: 44px; margin-block: .4rem; cursor: pointer; }
+button:disabled { cursor: default; }
+fieldset { min-width: 0; margin-top: 1rem; border: 1px solid #6b7785; padding: 1rem; }
+label { display: block; font-weight: 600; margin-top: .6rem; }
+select, textarea { width: 100%; }
+textarea { resize: vertical; }
+pre { white-space: pre-wrap; font-size: .85rem; word-break: break-word; }
+details { margin-block: .75rem; }
+summary { cursor: pointer; padding: .4rem 0; }
+dl { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 3fr); gap: .3rem 1rem; }
+dt { font-weight: 650; }
+dd { margin: 0; }
+.reference { font-size: .8rem; }
+.source span { display: block; }
+#feedback-error { color: #8c1717; font-weight: 650; }
+.skip { position: absolute; left: 1rem; top: -10rem; background: white; padding: 1rem; }
+.skip:focus { top: .4rem; }
+@media (max-width: 36rem) { header, main, footer { padding: 1rem; } dl { display: block; } dd { margin-bottom: .5rem; } .observation, .evidence { padding: .65rem; } }
+@media print { fieldset, #export-feedback, #clear-feedback, .skip { display: none; } header, main, footer { max-width: none; } }

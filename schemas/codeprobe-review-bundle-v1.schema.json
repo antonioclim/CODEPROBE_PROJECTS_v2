@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codeprobe:s05:review-bundle:1",
+  "title": "CodeProbe S05 review bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "codeprobe-review-bundle/v1"
+    },
+    "bridge_version": {
+      "const": "1.0.0"
+    },
+    "capsule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "codeprobe-interpretation-capsule/v1"
+        },
+        "contract_version": {},
+        "measurement_specification": {},
+        "build": {},
+        "profile": {},
+        "context": {},
+        "measurement": {},
+        "composition_rule": {},
+        "dimensions": {},
+        "empirical_calibration": {},
+        "non_inferences": {},
+        "digest": {}
+      },
+      "required": [
+        "schema",
+        "contract_version",
+        "measurement_specification",
+        "build",
+        "profile",
+        "context",
+        "measurement",
+        "composition_rule",
+        "dimensions",
+        "empirical_calibration",
+        "non_inferences",
+        "digest"
+      ],
+      "description": "S04 outer fields are closed. Full nested semantics and exact values require native source replay; this schema alone is not admission."
+    },
+    "presentation_build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "codeprobe-presentation-build/v1"
+        },
+        "component_sha256": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "qualification": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "component_sha256",
+        "digest",
+        "qualification"
+      ]
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "enum": [
+            "neutral_label",
+            "explicit_disclosure"
+          ]
+        },
+        "literal_source": {
+          "enum": [
+            "omitted",
+            "included_by_request"
+          ]
+        },
+        "residual": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "literal_source",
+        "residual"
+      ]
+    },
+    "normalised_source": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "compatibility": {
+      "const": {
+        "s01_complete_report": false,
+        "s04_capsule_unchanged": true,
+        "browser_role": "presentation_snapshot_not_source_replay"
+      }
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "description": "A new envelope, not the S01 v3 complete report. Native full canonical source replay is required for admission.",
+  "required": [
+    "schema",
+    "bridge_version",
+    "capsule",
+    "presentation_build",
+    "privacy",
+    "normalised_source",
+    "compatibility",
+    "digest"
+  ]
+}

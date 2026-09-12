@@ -1,0 +1,81 @@
+{
+  "schema": "codeprobe-s05-development-register/v1",
+  "author": "Antonio Clim",
+  "stage": "pre-CI local evidence; final verdict belongs to the verified phase audit",
+  "base_commit": "03163d557969d49c53a43ed5805733b13c4a1950",
+  "prospective_lock_commit": "cbc7ea89d89fbdac6569c2dbd2b058c9e85cc42d",
+  "lock_sha256": "a1fc2d39880a2a44a8a3d62f89eaadd17a39d2d20865fe39905be5edfda57acc",
+  "findings": [
+    {
+      "id": "S05-F001",
+      "severity": "P2",
+      "problem": "Rendered JSON details were sensitive to dictionary insertion order after a canonical JSON round-trip.",
+      "negative_evidence": "native_initial.log: one genuine round-trip failure among the two failing tests; before_first_correction.zip contains source.",
+      "correction": "Sort keys in every rendered JSON details block.",
+      "disposition": "CORRECTED_LOCAL_PENDING_SHA_CI"
+    },
+    {
+      "id": "S05-F002",
+      "severity": "P2",
+      "problem": "Argparse echoed a malformed user-supplied argument, outside the otherwise private terminal-error path.",
+      "negative_evidence": "supplementary-before-repair.json: PRIVATE_ARGUMENT_83f5 present in stderr.",
+      "correction": "A dedicated argument parser emits a generic error without argument values.",
+      "disposition": "CORRECTED_LOCAL_PENDING_SHA_CI"
+    },
+    {
+      "id": "S05-F003",
+      "severity": "P2",
+      "problem": "Browser feedback export admitted an unpaired surrogate that native feedback admission rejected.",
+      "negative_evidence": "browser-surrogate-before.json and actual native rejection in supplementary-before-repair.json.",
+      "correction": "Reject unpaired UTF-16 surrogates in the Unicode-aware browser rationale check; count valid astral characters as code points.",
+      "disposition": "CORRECTED_LOCAL_PENDING_SHA_CI"
+    }
+  ],
+  "deviations": [
+    {
+      "id": "D-S05-001",
+      "class": "test_fixture",
+      "description": "The initial dimension forgery control assigned an already-present state and therefore did not mutate its input. It was corrected to select an explicitly withheld dimension and assert that the mutation changes bytes. The initial log and source are retained; no genuine product forgery was relabelled."
+    },
+    {
+      "id": "D-S05-002",
+      "class": "test_harness",
+      "description": "The first export-failure injection returned its assigned function to Playwright, which invoked it during evaluate. This was a harness failure before the export journey. Explicit function blocks prevent unintended invocation. The source and browser trace are retained."
+    },
+    {
+      "id": "D-S05-003",
+      "class": "environment",
+      "description": "The local system Chromium policy refused both file and loopback URL navigation with ERR_BLOCKED_BY_ADMINISTRATOR. No policy was disabled. DOM-only local interaction testing is separately labelled; final acceptance requires actual file/reload CI evidence."
+    },
+    {
+      "id": "D-S05-004",
+      "class": "supplementary_adversarial_testing",
+      "description": "After the initial finite reports and DOM checks, targeted CLI argument disclosure and Unicode feedback parity probes identified two further defects. Their source/logs are retained. Two native tests and three browser checks were added without changing any acceptance criterion, source fixture, profile or interpretation threshold."
+    }
+  ],
+  "finite_inventory": {
+    "source_cases": 18,
+    "profiles": 3,
+    "reports": 54,
+    "native_unit_tests": 36,
+    "browser_checks": 41,
+    "browser_journey_groups": 12,
+    "statistical_independence": false
+  },
+  "scope_limits": [
+    "Alternative native-to-standalone route, not full legacy Pyodide migration",
+    "Five dimensions deliberately withheld",
+    "No source execution or network-dependent report processing",
+    "Schema outer structure plus native full replay, not independent authentication",
+    "Automated Chromium only; no manual screen-reader or WCAG certificate",
+    "No empirical calibration, educational study or authorship inference"
+  ],
+  "historical_ledger": {
+    "universe": 111,
+    "closed": 80,
+    "open": 31,
+    "s05_historical_closures": 0,
+    "A01-F003": "P1 OPEN/PARTIALLY_IMPLEMENTED"
+  },
+  "next_phase": "M01 only after completed S05 audit and Antonio next"
+}

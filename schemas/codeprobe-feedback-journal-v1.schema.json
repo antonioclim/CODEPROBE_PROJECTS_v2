@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codeprobe:s05:feedback-journal:1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "codeprobe-feedback-journal/v1"
+    },
+    "report_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "responses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "opportunity_id": {
+            "type": "string",
+            "pattern": "^opportunity\\.[0-9a-f]{64}$"
+          },
+          "state": {
+            "enum": [
+              "accepted",
+              "declined",
+              "not_applicable",
+              "deferred"
+            ]
+          },
+          "actor_role": {
+            "enum": [
+              "learner",
+              "educator",
+              "reviewer",
+              "other"
+            ]
+          },
+          "rationale": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "opportunity_id",
+          "state",
+          "actor_role",
+          "rationale"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "report_digest",
+    "responses"
+  ],
+  "description": "Mutable journal; native replay plus unique owned opportunity checks remain mandatory. Not a S01 response instance."
+}

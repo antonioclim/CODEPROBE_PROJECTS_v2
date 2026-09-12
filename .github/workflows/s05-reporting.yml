@@ -1,0 +1,119 @@
+name: S05 offline reporting and feedback
+on:
+  push:
+    branches: [research/codeprobe-s05-feedback-ux-privacy-20260912]
+    paths:
+      - .github/workflows/s05-reporting.yml
+      - src/codeprobe_reporting.py
+      - src/codeprobe_report_cli.py
+      - app/s05/**
+      - research/s05/**
+      - schemas/codeprobe-review-bundle-v1.schema.json
+      - schemas/codeprobe-feedback-journal-v1.schema.json
+      - tests/s05/**
+      - tools/*s05*.py
+permissions:
+  contents: read
+concurrency:
+  group: s05-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  native:
+    name: S05 (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, python: '3.10.21', architecture: x64}
+          - {os: ubuntu-24.04, python: '3.14.7', architecture: x64}
+          - {os: windows-2025, python: '3.14.7', architecture: x64}
+          - {os: macos-15, python: '3.14.7', architecture: arm64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.architecture }}
+          check-latest: false
+      - name: Native source, contracts and finite reporting
+        shell: bash
+        env:
+          S05_OS: ${{ matrix.os }}
+        run: python -I -S -B tools/check_s05_reporting.py --sha "$GITHUB_SHA" --output "$RUNNER_TEMP/s05-native"
+      - name: Retain available evidence including failures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: s05-native-${{ matrix.os }}-${{ matrix.python }}
+          path: ${{ runner.temp }}/s05-native/
+          if-no-files-found: error
+          retention-days: 30
+  browser:
+    name: S05 standalone Chromium journeys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+          check-latest: false
+      - name: Acquire test-only driver and matching Chromium
+        shell: bash
+        run: |
+          python -m pip install -r research/s05/browser-test-requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Actual standalone file journeys on exact candidate
+        shell: bash
+        run: python -I -B tools/check_s05_browser.py --sha "$GITHUB_SHA" --output "$RUNNER_TEMP/s05-browser"
+      - name: Retain browser evidence including failures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: s05-browser
+          path: ${{ runner.temp }}/s05-browser/
+          if-no-files-found: error
+          retention-days: 30
+  compare:
+    name: Required S05 and finite reader equivalence
+    if: ${{ always() }}
+    needs: [native, browser]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: s05-*
+          path: ${{ runner.temp }}/s05-matrix
+      - name: Require every native and browser check
+        shell: bash
+        env:
+          NATIVE_RESULT: ${{ needs.native.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: |
+          test "$NATIVE_RESULT" = success
+          test "$BROWSER_RESULT" = success
+          python -I -S -B tools/check_s05_reporting.py --compare "$RUNNER_TEMP/s05-matrix" --sha "$GITHUB_SHA"
+      - name: Preserve matrix verdict
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: s05-matrix-verdict
+          path: ${{ runner.temp }}/s05-matrix/MATRIX_VERDICT.json
+          if-no-files-found: warn
+          retention-days: 30
