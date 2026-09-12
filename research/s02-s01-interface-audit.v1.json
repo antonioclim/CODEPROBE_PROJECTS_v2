@@ -1,0 +1,27 @@
+{
+  "adapter": "src/codeprobe_s01_observation_adapter.py",
+  "limitations": [
+    "The adapter proves structural compatibility, not empirical construct validity.",
+    "Detailed source-span enrichment remains an S04 integration task."
+  ],
+  "mapped_required_properties": [
+    "observation_id",
+    "spec_version",
+    "entity",
+    "attribute",
+    "value",
+    "unit",
+    "measurement_scale",
+    "applicability",
+    "scope_qualification",
+    "source_evidence",
+    "instrumentation",
+    "metamorphic_contract",
+    "fingerprint"
+  ],
+  "non_equivalence": true,
+  "s01_contract_version": "1.1.0",
+  "schema": "codeprobe-s02-s01-interface-audit/v1",
+  "unmapped_required_properties": [],
+  "version": "1.1.0"
+}

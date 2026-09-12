@@ -1,0 +1,480 @@
+{
+  "$defs": {
+    "applicabilityState": {
+      "additionalProperties": false,
+      "properties": {
+        "meaning": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "observed",
+            "not_applicable",
+            "insufficient_evidence",
+            "unavailable"
+          ]
+        },
+        "value_rule": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "meaning",
+        "value_rule"
+      ],
+      "type": "object"
+    },
+    "metamorphicRelation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^MR-[A-Z0-9-]+$",
+          "type": "string"
+        },
+        "relation": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "transformation": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "transformation",
+        "relation"
+      ],
+      "type": "object"
+    },
+    "nonemptyStrings": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "specification": {
+      "additionalProperties": false,
+      "properties": {
+        "admissible_interpretations": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "algorithm": {
+          "additionalProperties": false,
+          "properties": {
+            "component": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "deterministic_given_contract": {
+              "const": true
+            },
+            "normalisation": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "version": {
+              "const": "1.1.0"
+            }
+          },
+          "required": [
+            "component",
+            "version",
+            "deterministic_given_contract",
+            "normalisation"
+          ],
+          "type": "object"
+        },
+        "applicability_states": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "meaning": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "observed",
+                  "not_applicable",
+                  "insufficient_evidence",
+                  "unavailable"
+                ]
+              },
+              "value_rule": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "meaning",
+              "value_rule"
+            ],
+            "type": "object"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "attribute": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "codomain": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "enum": {
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "maximum": {
+              "type": "number"
+            },
+            "minimum": {
+              "type": "number"
+            },
+            "type": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "string",
+                    "number",
+                    "integer",
+                    "boolean",
+                    "null"
+                  ]
+                },
+                {
+                  "items": {
+                    "enum": [
+                      "string",
+                      "number",
+                      "integer",
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "counting_rule": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "dimension_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "entity": {
+          "enum": [
+            "source_artifact",
+            "python_module",
+            "python_callable",
+            "markdown_document"
+          ]
+        },
+        "expected_metamorphic_relations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^MR-[A-Z0-9-]+$",
+                "type": "string"
+              },
+              "relation": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "transformation": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "transformation",
+              "relation"
+            ],
+            "type": "object"
+          },
+          "minItems": 2,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "instance_cardinality": {
+          "enum": [
+            "one_per_artifact",
+            "zero_or_more_per_artifact"
+          ]
+        },
+        "legacy_sources": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "measurement_scale": {
+          "enum": [
+            "nominal",
+            "ordinal",
+            "interval",
+            "ratio"
+          ]
+        },
+        "nuisance_factors": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "observation_id": {
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+          "type": "string"
+        },
+        "oracle_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "parser_scope": {
+          "additionalProperties": false,
+          "properties": {
+            "failure_state": {
+              "const": "unavailable"
+            },
+            "languages": {
+              "items": {
+                "enum": [
+                  "all_supported_text",
+                  "python",
+                  "markdown"
+                ]
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "parser": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "scope_note": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "languages",
+            "parser",
+            "scope_note",
+            "failure_state"
+          ],
+          "type": "object"
+        },
+        "prohibited_inferences": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "residual_limitations": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_evidence_production": {
+          "additionalProperties": false,
+          "properties": {
+            "id_rule": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "required": {
+              "const": true
+            },
+            "span_granularity": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "required",
+            "id_rule",
+            "span_granularity"
+          ],
+          "type": "object"
+        },
+        "specification_id": {
+          "pattern": "^codeprobe-observation/[a-z0-9][a-z0-9_.-]*/1\\.1\\.0$",
+          "type": "string"
+        },
+        "status": {
+          "const": "reference_implementation_s02"
+        },
+        "title": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "unit": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "specification_id",
+        "observation_id",
+        "title",
+        "status",
+        "entity",
+        "attribute",
+        "measurement_scale",
+        "unit",
+        "codomain",
+        "counting_rule",
+        "algorithm",
+        "parser_scope",
+        "applicability_states",
+        "source_evidence_production",
+        "nuisance_factors",
+        "expected_metamorphic_relations",
+        "admissible_interpretations",
+        "prohibited_inferences",
+        "oracle_ids",
+        "residual_limitations",
+        "dimension_ids",
+        "legacy_sources",
+        "instance_cardinality"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://codeprobe.org/schemas/observation-catalogue-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Normative structural schema for the S02 atomic observation catalogue.",
+  "properties": {
+    "base_contract": {
+      "const": "codeprobe-review-report/v3"
+    },
+    "observation_count": {
+      "const": 40
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/specification"
+      },
+      "maxItems": 40,
+      "minItems": 40,
+      "type": "array"
+    },
+    "principles": {
+      "additionalProperties": false,
+      "properties": {
+        "atomic_values_only": {
+          "const": true
+        },
+        "canonical_s01_dimension_ids": {
+          "const": true
+        },
+        "causal_attribution": {
+          "const": false
+        },
+        "conformance_not_construct_validity": {
+          "const": true
+        },
+        "global_scalar": {
+          "const": false
+        },
+        "source_evidence_required": {
+          "const": true
+        },
+        "typed_applicability": {
+          "const": true
+        },
+        "unavailable_is_zero": {
+          "const": false
+        }
+      },
+      "required": [
+        "atomic_values_only",
+        "canonical_s01_dimension_ids",
+        "causal_attribution",
+        "conformance_not_construct_validity",
+        "global_scalar",
+        "source_evidence_required",
+        "typed_applicability",
+        "unavailable_is_zero"
+      ],
+      "type": "object"
+    },
+    "schema": {
+      "const": "codeprobe-observation-catalogue/v1"
+    },
+    "status": {
+      "const": "reference_implementation_s02_candidate"
+    },
+    "title": {
+      "const": "CodeProbe S02 atomic observation catalogue"
+    },
+    "version": {
+      "const": "1.1.0"
+    }
+  },
+  "required": [
+    "schema",
+    "title",
+    "version",
+    "status",
+    "base_contract",
+    "principles",
+    "observation_count",
+    "observations"
+  ],
+  "title": "CodeProbe observation catalogue v1",
+  "type": "object"
+}

@@ -1,0 +1,288 @@
+{
+  "schema": "codeprobe-oracle-hierarchy/v1",
+  "version": "1.0.0",
+  "ranking": [
+    "independent_reference_implementation",
+    "algorithmically_independent_shared_parser",
+    "independent_finite_reference_scanner",
+    "worked_example_plus_metamorphic",
+    "negative_system_oracle",
+    "cross_environment_digest_oracle",
+    "no_adequate_oracle_retirement_or_deferral"
+  ],
+  "rule": "Every implemented observation must reference at least one implementation oracle and state residual limitations. Passing an oracle does not establish construct validity.",
+  "oracles": [
+    {
+      "oracle_id": "O-GEN-LINES",
+      "class": "independent_reference_implementation",
+      "independence": "Separate test module uses regex/splitlines-derived logic rather than the production scanner.",
+      "covers": [
+        "source.byte_count",
+        "source.normalized_codepoint_count",
+        "source.physical_line_count",
+        "source.nonblank_line_count",
+        "source.blank_line_count",
+        "source.max_line_length_codepoints",
+        "source.trailing_whitespace_line_count",
+        "source.mixed_indentation_line_count",
+        "source.max_blank_line_run_length"
+      ],
+      "positive_evidence": [
+        "worked fixtures",
+        "property tests",
+        "line-ending metamorphic pairs"
+      ],
+      "failure_modes": [
+        "shared Python Unicode whitespace semantics"
+      ],
+      "residual_limitations": [
+        "Not independent of the language runtime's Unicode character database."
+      ]
+    },
+    {
+      "oracle_id": "O-GEN-DISPERSION",
+      "class": "independent_reference_implementation",
+      "independence": "Reference tests use Decimal arithmetic over fixture line lengths while production uses math.fsum and square root.",
+      "covers": [
+        "source.mean_line_length_codepoints",
+        "source.population_sd_line_length_codepoints",
+        "source.line_length_cv"
+      ],
+      "positive_evidence": [
+        "hand-worked vectors",
+        "duplicate-sample invariance",
+        "translation and scaling relations"
+      ],
+      "failure_modes": [
+        "rounding convention mismatch"
+      ],
+      "residual_limitations": [
+        "Both implementations consume the same declared physical-line records."
+      ]
+    },
+    {
+      "oracle_id": "O-PY-AST-COUNT",
+      "class": "algorithmically_independent_shared_parser",
+      "independence": "Production uses dedicated visitors; reference tests use ast.walk and direct node predicates, sharing only CPython's parser.",
+      "covers": [
+        "python.parse_status",
+        "python.function_definition_count",
+        "python.async_function_definition_count",
+        "python.class_definition_count",
+        "python.import_statement_count",
+        "python.imported_binding_count",
+        "python.wildcard_import_count",
+        "python.numeric_literal_count",
+        "python.exception_handler_count",
+        "python.raise_statement_count"
+      ],
+      "positive_evidence": [
+        "hand-worked AST fixtures",
+        "alpha-renaming relations",
+        "add-one-node relations"
+      ],
+      "failure_modes": [
+        "shared parser defect or version drift"
+      ],
+      "residual_limitations": [
+        "This oracle cannot detect a defect common to CPython ast.parse."
+      ]
+    },
+    {
+      "oracle_id": "O-PY-TOKENIZE",
+      "class": "worked_example_plus_metamorphic",
+      "independence": "No second standards-complete Python tokenizer is bundled; hand-labelled token spans and transformations are used.",
+      "covers": [
+        "python.comment_token_count",
+        "python.comment_physical_line_count",
+        "python.comment_line_proportion"
+      ],
+      "positive_evidence": [
+        "hand-labelled standalone and inline comments",
+        "string-with-hash negative cases",
+        "comment insertion relation"
+      ],
+      "failure_modes": [
+        "shared tokenize behaviour"
+      ],
+      "residual_limitations": [
+        "Not independent of CPython tokenize."
+      ]
+    },
+    {
+      "oracle_id": "O-PY-DOC",
+      "class": "worked_example_plus_metamorphic",
+      "independence": "Expected eligible/present counts are manually enumerated in fixtures, then checked under insert/remove transformations.",
+      "covers": [
+        "python.docstring_eligible_definition_count",
+        "python.docstring_present_definition_count",
+        "python.docstring_coverage_proportion"
+      ],
+      "positive_evidence": [
+        "module/class/function fixture table",
+        "zero-denominator case"
+      ],
+      "failure_modes": [
+        "shared ast.get_docstring convention"
+      ],
+      "residual_limitations": [
+        "Presence only; semantic quality has no oracle."
+      ]
+    },
+    {
+      "oracle_id": "O-PY-ANNOTATION",
+      "class": "worked_example_plus_metamorphic",
+      "independence": "Signature slots are hand-enumerated and tested under one-slot annotation edits.",
+      "covers": [
+        "python.annotation_eligible_slot_count",
+        "python.annotation_present_slot_count",
+        "python.annotation_coverage_proportion"
+      ],
+      "positive_evidence": [
+        "positional-only, vararg, keyword-only and return fixtures",
+        "zero-denominator case"
+      ],
+      "failure_modes": [
+        "future syntax and type-comment handling"
+      ],
+      "residual_limitations": [
+        "No type checker is invoked."
+      ]
+    },
+    {
+      "oracle_id": "O-PY-CALLABLE",
+      "class": "worked_example_plus_metamorphic",
+      "independence": "Complexity and nesting expectations are hand-derived from small control structures rather than copied from production code.",
+      "covers": [
+        "python.callable.physical_span_lines",
+        "python.callable.decision_point_count",
+        "python.callable.mccabe_complexity",
+        "python.callable.max_control_nesting_depth"
+      ],
+      "positive_evidence": [
+        "one-if, Boolean, loop, exception and nested-definition fixtures",
+        "sequential-statement invariance"
+      ],
+      "failure_modes": [
+        "declared convention may differ from external tools"
+      ],
+      "residual_limitations": [
+        "No independent control-flow graph is built in S02."
+      ]
+    },
+    {
+      "oracle_id": "O-MD-FINITE",
+      "class": "independent_finite_reference_scanner",
+      "independence": "The test oracle uses a separate state machine and regular expressions for the declared subset.",
+      "covers": [
+        "markdown.parse_status",
+        "markdown.atx_heading_count",
+        "markdown.setext_heading_count",
+        "markdown.fenced_code_block_count",
+        "markdown.heading_level_jump_count"
+      ],
+      "positive_evidence": [
+        "headings inside fences",
+        "unclosed fence",
+        "ATX and Setext worked examples"
+      ],
+      "failure_modes": [
+        "both implementations intentionally exclude container semantics"
+      ],
+      "residual_limitations": [
+        "No claim of CommonMark conformance."
+      ]
+    },
+    {
+      "oracle_id": "O-IO-BOUNDARY",
+      "class": "negative_system_oracle",
+      "independence": "The operating system supplies file-type and identity metadata; tests provoke symlink, oversize, NUL and invalid UTF-8 failures.",
+      "covers": [
+        "bounded file intake and source.byte_count"
+      ],
+      "positive_evidence": [
+        "exact-limit success",
+        "limit-plus-one rejection",
+        "symlink rejection",
+        "pre/post metadata checks"
+      ],
+      "failure_modes": [
+        "platforms without O_NOFOLLOW rely on lstat/fstat checks"
+      ],
+      "residual_limitations": [
+        "A hostile filesystem can expose platform-specific race behaviour outside the test environment."
+      ]
+    },
+    {
+      "oracle_id": "O-BOUNDED-RATIONALE",
+      "class": "no_adequate_oracle_retirement_or_deferral",
+      "independence": "Used only to document why a legacy metric is retired or deferred.",
+      "covers": [],
+      "positive_evidence": [
+        "explicit disposition and residual question"
+      ],
+      "failure_modes": [
+        "future evidence may justify reconsideration"
+      ],
+      "residual_limitations": [
+        "Not an implementation oracle."
+      ]
+    },
+    {
+      "oracle_id": "O-CROSS-VERSION",
+      "class": "cross_environment_digest_oracle",
+      "independence": "Python 3.10.21 and 3.14.7 execute the same fixture set and compare against repository-fixed observation digests.",
+      "covers": [
+        "source.byte_count",
+        "source.normalized_codepoint_count",
+        "source.physical_line_count",
+        "source.nonblank_line_count",
+        "source.blank_line_count",
+        "source.max_line_length_codepoints",
+        "source.mean_line_length_codepoints",
+        "source.population_sd_line_length_codepoints",
+        "source.line_length_cv",
+        "source.trailing_whitespace_line_count",
+        "source.mixed_indentation_line_count",
+        "source.max_blank_line_run_length",
+        "python.parse_status",
+        "python.function_definition_count",
+        "python.async_function_definition_count",
+        "python.class_definition_count",
+        "python.import_statement_count",
+        "python.imported_binding_count",
+        "python.wildcard_import_count",
+        "python.comment_token_count",
+        "python.comment_physical_line_count",
+        "python.comment_line_proportion",
+        "python.docstring_eligible_definition_count",
+        "python.docstring_present_definition_count",
+        "python.docstring_coverage_proportion",
+        "python.annotation_eligible_slot_count",
+        "python.annotation_present_slot_count",
+        "python.annotation_coverage_proportion",
+        "python.numeric_literal_count",
+        "python.exception_handler_count",
+        "python.raise_statement_count",
+        "python.callable.physical_span_lines",
+        "python.callable.decision_point_count",
+        "python.callable.mccabe_complexity",
+        "python.callable.max_control_nesting_depth",
+        "markdown.parse_status",
+        "markdown.atx_heading_count",
+        "markdown.setext_heading_count",
+        "markdown.fenced_code_block_count",
+        "markdown.heading_level_jump_count"
+      ],
+      "positive_evidence": [
+        "phase-specific CI matrix"
+      ],
+      "failure_modes": [
+        "shared standard-library semantics can change in both compared endpoints"
+      ],
+      "residual_limitations": [
+        "Two endpoints are not exhaustive platform invariance evidence."
+      ]
+    }
+  ]
+}

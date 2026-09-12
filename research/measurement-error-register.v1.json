@@ -1,0 +1,147 @@
+{
+  "schema": "codeprobe-measurement-error-register/v1",
+  "version": "1.0.0",
+  "principle": "Parser failure, approximation, unsupported syntax, environment drift, finite-budget failure and true absence are distinct states. Only true absence after successful applicable measurement may yield numeric zero.",
+  "errors": [
+    {
+      "error_id": "ME-001",
+      "class": "intake_error",
+      "condition": "symlink_or_non_regular",
+      "affected_observations": "all",
+      "required_state": "unavailable",
+      "zero_policy": "Reject before reading; never convert to zero.",
+      "detection": "lstat/fstat file-type checks and O_NOFOLLOW where available",
+      "residual_risk": "Filesystem-specific race windows remain."
+    },
+    {
+      "error_id": "ME-002",
+      "class": "intake_error",
+      "condition": "byte_budget_exceeded",
+      "affected_observations": "all",
+      "required_state": "unavailable",
+      "zero_policy": "Read at most limit+1 and reject; never truncate.",
+      "detection": "bounded chunk reader",
+      "residual_risk": "Caller-selected limit affects admissibility."
+    },
+    {
+      "error_id": "ME-003",
+      "class": "decoding_error",
+      "condition": "invalid_utf8",
+      "affected_observations": "all",
+      "required_state": "unavailable",
+      "zero_policy": "Reject; no lossy fallback.",
+      "detection": "strict UTF-8 decoder",
+      "residual_risk": "Other source encodings require a separately declared adapter."
+    },
+    {
+      "error_id": "ME-004",
+      "class": "decoding_error",
+      "condition": "nul_byte",
+      "affected_observations": "all",
+      "required_state": "unavailable",
+      "zero_policy": "Reject text containing NUL.",
+      "detection": "explicit byte scan",
+      "residual_risk": "A NUL-free file may still be semantically binary."
+    },
+    {
+      "error_id": "ME-005",
+      "class": "intake_error",
+      "condition": "file_identity_changed_during_read",
+      "affected_observations": "all",
+      "required_state": "unavailable",
+      "zero_policy": "Reject when pre/post stat differs.",
+      "detection": "device, inode, size and mtime_ns comparison",
+      "residual_risk": "Metadata-preserving hostile races are platform dependent."
+    },
+    {
+      "error_id": "ME-006",
+      "class": "parser_error",
+      "condition": "python_syntax_error",
+      "affected_observations": "python_ast_dependent",
+      "required_state": "unavailable",
+      "zero_policy": "Emit parse status syntax_error and null dependent values.",
+      "detection": "ast.parse exception",
+      "residual_risk": "A newer grammar may parse the same bytes."
+    },
+    {
+      "error_id": "ME-007",
+      "class": "parser_error",
+      "condition": "python_token_error",
+      "affected_observations": "python_comment_dependent",
+      "required_state": "unavailable",
+      "zero_policy": "Keep AST-independent observations; null comment observations.",
+      "detection": "tokenize.TokenError",
+      "residual_risk": "Shared tokenizer is not an independent oracle."
+    },
+    {
+      "error_id": "ME-008",
+      "class": "unsupported_syntax",
+      "condition": "markdown_subset_omission",
+      "affected_observations": "markdown",
+      "required_state": "observed_with_limitation",
+      "zero_policy": "Count only the declared subset and record limitation.",
+      "detection": "finite scanner scope",
+      "residual_risk": "Nested containers and full CommonMark remain unmodelled."
+    },
+    {
+      "error_id": "ME-009",
+      "class": "finite_budget",
+      "condition": "entity_or_evidence_budget_exceeded",
+      "affected_observations": "affected_subset",
+      "required_state": "unavailable",
+      "zero_policy": "Fail closed rather than silently truncate.",
+      "detection": "declared limits",
+      "residual_risk": "Production budgets may change only with a versioned specification."
+    },
+    {
+      "error_id": "ME-010",
+      "class": "environment_drift",
+      "condition": "python_ast_or_unicode_semantics_changed",
+      "affected_observations": "affected_subset",
+      "required_state": "unavailable_or_digest_mismatch",
+      "zero_policy": "CI rejects unexpected reference digest changes.",
+      "detection": "cross-version fixture digests",
+      "residual_risk": "Only two Python endpoints are assessed in S02."
+    },
+    {
+      "error_id": "ME-011",
+      "class": "true_absence",
+      "condition": "property_not_present",
+      "affected_observations": "applicable_observation",
+      "required_state": "observed",
+      "zero_policy": "Emit numeric zero only after successful applicable measurement.",
+      "detection": "successful parser/intake state",
+      "residual_risk": "Zero does not mean low concern or good quality."
+    },
+    {
+      "error_id": "ME-012",
+      "class": "insufficient_evidence",
+      "condition": "zero_denominator_or_no_entity",
+      "affected_observations": "derived_proportion_or_entity_series",
+      "required_state": "insufficient_evidence",
+      "zero_policy": "Emit null with reason; never zero.",
+      "detection": "explicit denominator check",
+      "residual_risk": "Minimum useful sample sizes require later empirical work."
+    },
+    {
+      "error_id": "ME-013",
+      "class": "approximation",
+      "condition": "bounded_syntactic_complexity_convention",
+      "affected_observations": "python_callable",
+      "required_state": "observed_with_limitation",
+      "zero_policy": "Emit the declared finite count and limitation.",
+      "detection": "worked and metamorphic oracles",
+      "residual_risk": "Not a CFG-equivalent universal complexity measure."
+    },
+    {
+      "error_id": "ME-014",
+      "class": "instrumentation_error",
+      "condition": "catalogue_or_schema_mismatch",
+      "affected_observations": "all",
+      "required_state": "unavailable",
+      "zero_policy": "Reject the result envelope.",
+      "detection": "contract checker",
+      "residual_risk": "Checker defects remain possible and are tested adversarially."
+    }
+  ]
+}

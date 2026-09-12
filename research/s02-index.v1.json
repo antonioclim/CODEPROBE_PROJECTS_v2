@@ -1,0 +1,23 @@
+{
+  "claim_boundary": "Computational conformance only; construct validity and educational utility remain unestablished.",
+  "documents": [
+    "research/observation-catalogue.v1.json",
+    "research/legacy-metric-disposition.v1.csv",
+    "research/legacy-metric-disposition.v1.json",
+    "research/oracle-hierarchy.v1.json",
+    "research/measurement-dependency-graph.v1.json",
+    "research/measurement-error-register.v1.json",
+    "research/conformance-matrix.v1.csv",
+    "research/conformance-matrix.v1.json",
+    "research/s02-robustness-hypotheses.v1.json",
+    "research/s02-s01-interface-audit.v1.json",
+    "research/s02-acceptance-contract.v1.json"
+  ],
+  "implementation": [
+    "src/codeprobe_measurement_kernel.py",
+    "src/codeprobe_s01_observation_adapter.py"
+  ],
+  "phase": "S02",
+  "schema": "codeprobe-s02-index/v1",
+  "version": "1.1.0"
+}

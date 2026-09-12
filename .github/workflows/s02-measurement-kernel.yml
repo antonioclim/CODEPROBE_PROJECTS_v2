@@ -1,0 +1,91 @@
+name: S02 measurement kernel
+
+on:
+  push:
+    branches:
+      - research/codeprobe-s02-measurement-kernel-20260911
+    paths:
+      - .github/workflows/s02-measurement-kernel.yml
+      - docs/research/**
+      - research/**
+      - schemas/**
+      - src/codeprobe_measurement_kernel.py
+      - src/codeprobe_s01_observation_adapter.py
+      - tools/check_s01_construct_contract.py
+      - tools/check_s02_measurement_kernel.py
+      - tests/test_s01_construct_contract.py
+      - tests/test_s02_measurement_kernel.py
+      - tests/fixtures/s01/**
+      - tests/fixtures/s02/**
+      - tests/oracles/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s02-kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  conformance:
+    name: Conformance (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10.21", "3.14.7"]
+    steps:
+      - name: Check out S02 candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          architecture: x64
+          check-latest: false
+          python-version: ${{ matrix.python }}
+
+      - name: Verify S02 and S01 contracts
+        shell: bash
+        run: python -I -S -B tools/check_s02_measurement_kernel.py --root .
+
+      - name: Confirm clean checkout
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dirty="$(git status --porcelain=v1 --untracked-files=all)"
+          if [[ -n "$dirty" ]]; then
+            printf '%s\n' "$dirty"
+            exit 1
+          fi
+
+  required_s02:
+    name: Required S02
+    if: ${{ always() }}
+    needs: [conformance]
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Require every S02 job
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failed = {name: value.get("result") for name, value in needs.items() if value.get("result") != "success"}
+          if failed:
+              print(json.dumps(failed, sort_keys=True), file=sys.stderr)
+              raise SystemExit(1)
+          print("All S02 measurement-kernel jobs passed.")
+          PY

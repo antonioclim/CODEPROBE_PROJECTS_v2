@@ -1,0 +1,31 @@
+{
+  "gates": [
+    "catalogue_complete",
+    "legacy_disposition_complete",
+    "oracle_resolution",
+    "error_taxonomy_complete",
+    "conformance_matrix_complete",
+    "fixture_provenance_exact",
+    "kernel_catalogue_agreement",
+    "s01_contract_regression_free",
+    "python_3_10_and_3_14_ci",
+    "exact_git_readback"
+  ],
+  "phase": "S02",
+  "prohibited_closures": [
+    "empirical construct validity",
+    "educational utility",
+    "fairness",
+    "authorship attribution",
+    "misconduct detection",
+    "universal process containment"
+  ],
+  "required_counts": {
+    "legacy_metric_decisions": 37,
+    "minimum_conformance_cases": 30,
+    "observation_specifications": 40,
+    "required_applicability_states": 4
+  },
+  "schema": "codeprobe-s02-acceptance-contract/v1",
+  "version": "1.1.0"
+}

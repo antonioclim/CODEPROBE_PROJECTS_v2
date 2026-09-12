@@ -1,0 +1,34 @@
+case_id,category,description,adapter,fixture,expected_outcome,oracle_ids,implemented_in_s02,result_before_candidate_ci,residual_limitation
+C-G-001,normal,empty text,memory,empty.txt,all generic counts defined; dispersion insufficient,O-GEN-LINES;O-GEN-DISPERSION,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-G-002,normal,single unterminated line,memory,single_line.txt,one physical and non-blank line,O-GEN-LINES,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-G-003,boundary,terminal LF convention,memory,single_line_lf.txt,same line count as C-G-002,O-GEN-LINES,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-G-004,metamorphic,LF and CRLF pair,memory,line_endings_lf.txt|line_endings_crlf.txt,normalised observations identical except raw bytes/digest,O-GEN-LINES;O-CROSS-VERSION,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-G-005,normal,UTF-8 BOM and non-ASCII,memory,unicode_bom.txt,"BOM removed; code points counted, no lossy decoding",O-GEN-LINES,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-G-006,normal,blank runs and whitespace,memory,layout.txt,"blank, trailing whitespace and mixed indentation hand counts match",O-GEN-LINES,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-I-001,boundary,exact byte budget,file,generated,accepted when size equals max_bytes,O-IO-BOUNDARY,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-I-002,resource_exhaustion,byte budget plus one,file,generated,rejected without truncation,O-IO-BOUNDARY,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-I-003,malformed,invalid UTF-8,file,generated,rejected as unavailable,O-IO-BOUNDARY,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-I-004,malformed,NUL-containing text,file,generated,rejected as unavailable,O-IO-BOUNDARY,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-I-005,security_boundary,symbolic link input,file,generated,rejected before content use,O-IO-BOUNDARY,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-I-006,security_boundary,non-regular directory input,file,generated,rejected,O-IO-BOUNDARY,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-001,normal,basic Python definitions,python,python_normal.py,module counts match hand oracle,O-PY-AST-COUNT,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-002,malformed,Python syntax error,python,python_syntax_error.py,parse status syntax_error; AST-dependent values null/unavailable,O-PY-AST-COUNT,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-003,normal,inline and standalone comments plus # in strings,python,python_comments.py,token and line counts match labelled fixture,O-PY-TOKENIZE,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-004,normal,docstrings and undocumented definitions,python,python_docstrings.py,"numerator, denominator and proportion match",O-PY-DOC,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-005,normal,all function-signature slot kinds,python,python_annotations.py,eligible and present slots match,O-PY-ANNOTATION,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-006,normal,imports including wildcard,python,python_imports.py,"statement, binding and wildcard counts match",O-PY-AST-COUNT,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-007,normal,numeric constants including bool and unary sign,python,python_literals.py,numeric literal count follows Constant rule,O-PY-AST-COUNT,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-008,normal,exception handlers and raise statements,python,python_exceptions.py,handler and raise counts match,O-PY-AST-COUNT,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-009,normal,callable branching and nesting,python,python_complexity.py,"per-callable span, decision, complexity and nesting match",O-PY-CALLABLE,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-010,scope_boundary,nested callable exclusion,python,python_nested.py,outer callable metrics exclude inner callable body,O-PY-CALLABLE,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-011,metamorphic,alpha-renamed Python pair,python,python_alpha_a.py|python_alpha_b.py,all observation values identical,O-PY-AST-COUNT;O-PY-CALLABLE,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-P-012,metamorphic,comment insertion pair,python,python_comment_base.py|python_comment_added.py,comment counts change exactly; AST counts invariant,O-PY-TOKENIZE;O-PY-AST-COUNT,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-M-001,normal,ATX and Setext headings,markdown,markdown_normal.md,heading counts and jump count match,O-MD-FINITE,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-M-002,scope_boundary,heading-like text inside fence,markdown,markdown_fenced.md,inside-fence headings excluded,O-MD-FINITE,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-M-003,malformed_but_bounded,unclosed fence,markdown,markdown_unclosed.md,status unclosed_fence; deterministic bounded counts,O-MD-FINITE,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-M-004,metamorphic,close unclosed fence,markdown,markdown_unclosed.md|markdown_closed.md,parse status changes to complete; opener count invariant,O-MD-FINITE,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-X-001,determinism,repeat same input and configuration,all,fixture set,canonical observation digest identical,O-CROSS-VERSION,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-X-002,cross_version,Python 3.10.21 versus 3.14.7,all,fixture set,repository-fixed observation digests match per fixture,O-CROSS-VERSION,true,PENDING_CI_ENDPOINTS,Passing conformance does not establish construct validity.
+C-X-003,negative_claim,forbidden provenance field injection,contract,generated,validator rejects recursively,S01 contract checker,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-X-004,negative_missingness,replace unavailable null with numeric zero,contract,generated,validator rejects,S01/S02 contract checker,true,PASS_LOCAL,Passing conformance does not establish construct validity.
+C-X-005,catalogue_integrity,legacy metric inventory,metadata,legacy-metric-disposition.v1.csv,exactly 37 unique decisions; no legacy weight or threshold preserved,S02 checker,true,PASS_LOCAL,Passing conformance does not establish construct validity.

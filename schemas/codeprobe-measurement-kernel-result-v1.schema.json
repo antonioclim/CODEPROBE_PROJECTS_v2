@@ -1,0 +1,385 @@
+{
+  "$defs": {
+    "applicability": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "observed",
+            "not_applicable",
+            "insufficient_evidence",
+            "unavailable"
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason_code",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "end_column": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "end_line": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "evidence_id": {
+          "pattern": "^evidence:[0-9a-f]{64}:(?:whole_artifact|python_callable):L[1-9][0-9]*-L[1-9][0-9]*:C0-C0$",
+          "type": "string"
+        },
+        "normalised_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "whole_artifact",
+            "python_callable"
+          ]
+        },
+        "start_column": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start_line": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "path",
+        "normalised_sha256",
+        "start_line",
+        "end_line",
+        "start_column",
+        "end_column",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "observation": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "applicability": {
+                "properties": {
+                  "reason": {
+                    "minLength": 1
+                  },
+                  "reason_code": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "value": {
+                "type": "null"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "applicability": {
+                "properties": {
+                  "state": {
+                    "const": "observed"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              }
+            },
+            "required": [
+              "applicability"
+            ]
+          },
+          "then": {
+            "properties": {
+              "applicability": {
+                "properties": {
+                  "reason": {
+                    "const": ""
+                  },
+                  "reason_code": {
+                    "const": ""
+                  }
+                }
+              },
+              "value": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "applicability": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "reason_code": {
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "observed",
+                "not_applicable",
+                "insufficient_evidence",
+                "unavailable"
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "reason_code",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "entity": {
+          "additionalProperties": false,
+          "properties": {
+            "entity_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "entity_kind": {
+              "enum": [
+                "source_artifact",
+                "python_module",
+                "python_callable",
+                "markdown_document"
+              ]
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "entity_id",
+            "entity_kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        "instrumentation": {
+          "additionalProperties": false,
+          "properties": {
+            "algorithm_version": {
+              "const": "1.1.0"
+            },
+            "component": {
+              "const": "codeprobe_measurement_kernel"
+            },
+            "parser": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "component",
+            "algorithm_version",
+            "parser"
+          ],
+          "type": "object"
+        },
+        "limitations": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "measurement_scale": {
+          "enum": [
+            "nominal",
+            "ordinal",
+            "interval",
+            "ratio"
+          ]
+        },
+        "observation_id": {
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+          "type": "string"
+        },
+        "record_id": {
+          "pattern": "^observation:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "source_evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "specification_id": {
+          "pattern": "^codeprobe-observation/[a-z0-9][a-z0-9_.-]*/1\\.1\\.0$",
+          "type": "string"
+        },
+        "unit": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "record_id",
+        "specification_id",
+        "observation_id",
+        "entity",
+        "applicability",
+        "value",
+        "measurement_scale",
+        "unit",
+        "source_evidence_ids",
+        "instrumentation",
+        "limitations"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://codeprobe.org/schemas/measurement-kernel-result-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Structural schema for the S02 deterministic measurement result. Cross-record identity, digest, span-order and catalogue-cardinality rules are additionally enforced by src/codeprobe_measurement_kernel.py.",
+  "properties": {
+    "artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "encoding": {
+          "enum": [
+            "utf-8",
+            "utf-8-sig"
+          ]
+        },
+        "language": {
+          "enum": [
+            "python",
+            "markdown",
+            "text"
+          ]
+        },
+        "normalisation": {
+          "const": "utf8_bom_strip+crlf_cr_to_lf"
+        },
+        "normalised_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "raw_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "language",
+        "raw_sha256",
+        "normalised_sha256",
+        "encoding",
+        "normalisation"
+      ],
+      "type": "object"
+    },
+    "catalogue_schema": {
+      "const": "codeprobe-observation-catalogue/v1"
+    },
+    "kernel_version": {
+      "const": "1.1.0"
+    },
+    "legacy_compatibility": {
+      "additionalProperties": false,
+      "properties": {
+        "legacy_scalar_mapped": {
+          "const": false
+        },
+        "non_equivalent": {
+          "const": true
+        }
+      },
+      "required": [
+        "non_equivalent",
+        "legacy_scalar_mapped"
+      ],
+      "type": "object"
+    },
+    "measurement_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "non_inferences": {
+      "const": [
+        "The report does not estimate or classify who or what authored the source.",
+        "The report does not determine misconduct, cheating or independent work.",
+        "The report does not recommend or trigger a sanction.",
+        "A code-derived observation does not establish the cause of the observed property."
+      ]
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/observation"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema": {
+      "const": "codeprobe-measurement-kernel-result/v1"
+    },
+    "source_evidence": {
+      "items": {
+        "$ref": "#/$defs/evidence"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "kernel_version",
+    "catalogue_schema",
+    "artifact",
+    "source_evidence",
+    "observations",
+    "non_inferences",
+    "legacy_compatibility",
+    "measurement_digest"
+  ],
+  "title": "CodeProbe S02 measurement-kernel result",
+  "type": "object"
+}

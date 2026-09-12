@@ -1,0 +1,214 @@
+{
+  "schema": "codeprobe-measurement-dependency-graph/v1",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "raw_bytes",
+      "kind": "input",
+      "failure_modes": [
+        "oversize",
+        "symlink_or_non_regular",
+        "read_race"
+      ]
+    },
+    {
+      "id": "bounded_reader",
+      "kind": "intake",
+      "failure_modes": [
+        "budget_exceeded",
+        "identity_changed"
+      ]
+    },
+    {
+      "id": "strict_utf8_decoder",
+      "kind": "normalisation",
+      "failure_modes": [
+        "invalid_utf8",
+        "nul_byte"
+      ]
+    },
+    {
+      "id": "newline_normaliser",
+      "kind": "normalisation",
+      "failure_modes": []
+    },
+    {
+      "id": "physical_line_scanner",
+      "kind": "shared_state",
+      "failure_modes": [
+        "unicode_whitespace_semantics"
+      ]
+    },
+    {
+      "id": "cpython_ast",
+      "kind": "parser",
+      "failure_modes": [
+        "syntax_error",
+        "grammar_version_drift"
+      ]
+    },
+    {
+      "id": "cpython_tokenize",
+      "kind": "parser",
+      "failure_modes": [
+        "token_error",
+        "tokenizer_version_drift"
+      ]
+    },
+    {
+      "id": "callable_visitor",
+      "kind": "adapter",
+      "failure_modes": [
+        "convention_mismatch"
+      ]
+    },
+    {
+      "id": "markdown_finite_scanner",
+      "kind": "parser",
+      "failure_modes": [
+        "unclosed_fence",
+        "subset_omission"
+      ]
+    },
+    {
+      "id": "atomic_observation_emitter",
+      "kind": "output",
+      "failure_modes": [
+        "catalogue_contract_violation"
+      ]
+    },
+    {
+      "id": "canonical_digest",
+      "kind": "provenance",
+      "failure_modes": [
+        "environment_field_leakage"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "raw_bytes",
+      "to": "bounded_reader",
+      "relation": "bounded_read"
+    },
+    {
+      "from": "bounded_reader",
+      "to": "strict_utf8_decoder",
+      "relation": "exact_bytes"
+    },
+    {
+      "from": "strict_utf8_decoder",
+      "to": "newline_normaliser",
+      "relation": "decoded_text"
+    },
+    {
+      "from": "newline_normaliser",
+      "to": "physical_line_scanner",
+      "relation": "normalised_text"
+    },
+    {
+      "from": "newline_normaliser",
+      "to": "cpython_ast",
+      "relation": "language_python"
+    },
+    {
+      "from": "newline_normaliser",
+      "to": "cpython_tokenize",
+      "relation": "language_python"
+    },
+    {
+      "from": "newline_normaliser",
+      "to": "markdown_finite_scanner",
+      "relation": "language_markdown"
+    },
+    {
+      "from": "cpython_ast",
+      "to": "callable_visitor",
+      "relation": "callable_subtrees"
+    },
+    {
+      "from": "physical_line_scanner",
+      "to": "atomic_observation_emitter",
+      "relation": "generic_observations"
+    },
+    {
+      "from": "cpython_ast",
+      "to": "atomic_observation_emitter",
+      "relation": "AST_observations"
+    },
+    {
+      "from": "cpython_tokenize",
+      "to": "atomic_observation_emitter",
+      "relation": "comment_observations"
+    },
+    {
+      "from": "callable_visitor",
+      "to": "atomic_observation_emitter",
+      "relation": "per_callable_observations"
+    },
+    {
+      "from": "markdown_finite_scanner",
+      "to": "atomic_observation_emitter",
+      "relation": "markdown_observations"
+    },
+    {
+      "from": "atomic_observation_emitter",
+      "to": "canonical_digest",
+      "relation": "canonical_JSON"
+    }
+  ],
+  "correlated_failure_sets": [
+    {
+      "id": "CF-01",
+      "members": [
+        "strict_utf8_decoder",
+        "newline_normaliser",
+        "physical_line_scanner"
+      ],
+      "effect": "All generic line observations can fail or shift together."
+    },
+    {
+      "id": "CF-02",
+      "members": [
+        "cpython_ast",
+        "callable_visitor"
+      ],
+      "effect": "One syntax or grammar failure makes all AST-dependent module and callable observations unavailable."
+    },
+    {
+      "id": "CF-03",
+      "members": [
+        "cpython_tokenize"
+      ],
+      "effect": "Comment observations can fail independently of AST counts."
+    },
+    {
+      "id": "CF-04",
+      "members": [
+        "markdown_finite_scanner"
+      ],
+      "effect": "All Markdown observations share the finite subset and fence state."
+    },
+    {
+      "id": "CF-05",
+      "members": [
+        "atomic_observation_emitter",
+        "canonical_digest"
+      ],
+      "effect": "A schema or canonicalisation defect affects every emitted record."
+    }
+  ],
+  "topological_order": [
+    "raw_bytes",
+    "bounded_reader",
+    "strict_utf8_decoder",
+    "newline_normaliser",
+    "physical_line_scanner",
+    "cpython_ast",
+    "cpython_tokenize",
+    "callable_visitor",
+    "markdown_finite_scanner",
+    "atomic_observation_emitter",
+    "canonical_digest"
+  ]
+}

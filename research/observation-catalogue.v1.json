@@ -1,0 +1,3895 @@
+{
+  "base_contract": "codeprobe-review-report/v3",
+  "observation_count": 40,
+  "observations": [
+    {
+      "admissible_interpretations": [
+        "Describes input size under the intake contract."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of supplied bytes",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Count the exact bytes supplied before decoding or normalisation.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G01",
+          "relation": "invariant",
+          "transformation": "rename path only"
+        },
+        {
+          "id": "MR-G02",
+          "relation": "equivariant: increases by one byte per converted line ending",
+          "transformation": "LF to CRLF"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "encoding choice",
+        "line-ending convention"
+      ],
+      "observation_id": "source.byte_count",
+      "oracle_ids": [
+        "O-IO-BOUNDARY"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Byte count is intentionally sensitive to encoding and line endings."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Byte count is intentionally sensitive to encoding and line endings."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.byte_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Raw source byte count",
+      "unit": "byte"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes normalised text extent in code points."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of Unicode code points after intake normalisation",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Decode strict UTF-8, remove one leading UTF-8 BOM if present, normalise CRLF and CR to LF, then count Python string code points.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G03",
+          "relation": "invariant",
+          "transformation": "LF to CRLF"
+        },
+        {
+          "id": "MR-G04",
+          "relation": "invariant",
+          "transformation": "rename path only"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "Unicode normalisation form",
+        "grapheme composition"
+      ],
+      "observation_id": "source.normalized_codepoint_count",
+      "oracle_ids": [
+        "O-GEN-LINES"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Code points are not grapheme clusters, display cells, tokens or semantic content."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Code points are not grapheme clusters, display cells, tokens or semantic content."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.normalized_codepoint_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Normalised Unicode code-point count",
+      "unit": "codepoint"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes source extent in physical lines under the declared convention."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of physical source-line records",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "After newline normalisation, split at LF. A terminal LF terminates the final line but does not create an additional empty line; empty input has zero lines.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G05",
+          "relation": "invariant",
+          "transformation": "LF to CRLF"
+        },
+        {
+          "id": "MR-G06",
+          "relation": "invariant",
+          "transformation": "append one LF to a non-terminated final line"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "line_length_uniformity",
+        "comment_density",
+        "function_length"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "terminal newline convention"
+      ],
+      "observation_id": "source.physical_line_count",
+      "oracle_ids": [
+        "O-GEN-LINES"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Physical lines are not source lines of code and do not imply complexity."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Physical lines are not source lines of code and do not imply complexity."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.physical_line_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Physical line record count",
+      "unit": "line"
+    },
+    {
+      "admissible_interpretations": [
+        "Provides an explicit denominator candidate for descriptive line proportions."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of lines containing at least one non-whitespace code point",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Count physical lines for which Unicode str.strip() is non-empty.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G07",
+          "relation": "invariant",
+          "transformation": "append one blank line"
+        },
+        {
+          "id": "MR-G08",
+          "relation": "invariant",
+          "transformation": "replace LF with CRLF"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "comment_density",
+        "comment_to_code_ratio",
+        "declarative_ratio",
+        "control_ratio"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "Unicode whitespace classification"
+      ],
+      "observation_id": "source.nonblank_line_count",
+      "oracle_ids": [
+        "O-GEN-LINES"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Does not distinguish executable code, comments, strings or documentation."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not distinguish executable code, comments, strings or documentation."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.nonblank_line_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Non-blank physical line count",
+      "unit": "line"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes blank-line prevalence without judging style."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of whitespace-only physical lines",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Count physical lines for which Unicode str.strip() is empty.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G09",
+          "relation": "increases by exactly one",
+          "transformation": "append one blank line"
+        },
+        {
+          "id": "MR-G10",
+          "relation": "invariant",
+          "transformation": "replace spaces on a blank line by tabs"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "blank_line_regularity"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "Unicode whitespace classification"
+      ],
+      "observation_id": "source.blank_line_count",
+      "oracle_ids": [
+        "O-GEN-LINES"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Formatter and house-style policies strongly affect the value."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Formatter and house-style policies strongly affect the value."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.blank_line_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Blank physical line count",
+      "unit": "line"
+    },
+    {
+      "admissible_interpretations": [
+        "Identifies the longest physical line under a code-point convention."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "maximum number of code points in one physical line",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Take max(len(line)) over physical lines; return insufficient_evidence for empty input.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G11",
+          "relation": "invariant",
+          "transformation": "append a shorter line"
+        },
+        {
+          "id": "MR-G12",
+          "relation": "equals appended line length",
+          "transformation": "append a longer line"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "line_length_uniformity"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "tabs versus display width",
+        "Unicode combining characters"
+      ],
+      "observation_id": "source.max_line_length_codepoints",
+      "oracle_ids": [
+        "O-GEN-LINES"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Not terminal width, rendered width or a style violation."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Not terminal width, rendered width or a style violation."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.max_line_length_codepoints/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Maximum physical line length",
+      "unit": "codepoint_per_line"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes central tendency of physical line lengths."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "arithmetic mean of code-point lengths across physical lines",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "counting_rule": "Use math.fsum(lengths)/n and round to 12 decimal places; empty input is insufficient_evidence.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G13",
+          "relation": "invariant",
+          "transformation": "duplicate every line once"
+        },
+        {
+          "id": "MR-G14",
+          "relation": "weighted mean update",
+          "transformation": "append a line of known length L"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "line_length_uniformity"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "blank-line inclusion",
+        "tabs versus display width"
+      ],
+      "observation_id": "source.mean_line_length_codepoints",
+      "oracle_ids": [
+        "O-GEN-DISPERSION"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "The arithmetic mean can obscure multimodality and is formatting-sensitive."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "The arithmetic mean can obscure multimodality and is formatting-sensitive."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.mean_line_length_codepoints/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Mean physical line length",
+      "unit": "codepoint_per_line"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes dispersion under the declared population convention."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "population dispersion of physical line lengths",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "counting_rule": "Compute sqrt(fsum((length-mean)^2)/n), rounded to 12 decimals; fewer than two lines is insufficient_evidence.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G15",
+          "relation": "invariant",
+          "transformation": "duplicate every line once"
+        },
+        {
+          "id": "MR-G16",
+          "relation": "invariant",
+          "transformation": "add the same constant number of code points to every line"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "line_length_uniformity"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "blank-line inclusion",
+        "formatter behaviour"
+      ],
+      "observation_id": "source.population_sd_line_length_codepoints",
+      "oracle_ids": [
+        "O-GEN-DISPERSION"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Does not establish regularity quality or source provenance."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not establish regularity quality or source provenance."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.population_sd_line_length_codepoints/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Population standard deviation of line length",
+      "unit": "codepoint_per_line"
+    },
+    {
+      "admissible_interpretations": [
+        "Supports within-contract relative dispersion comparisons."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "relative dispersion of physical line lengths",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "counting_rule": "Population standard deviation divided by mean, rounded to 12 decimals; fewer than two lines or zero mean is insufficient_evidence.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G17",
+          "relation": "invariant",
+          "transformation": "multiply every line length by positive integer k"
+        },
+        {
+          "id": "MR-G18",
+          "relation": "invariant",
+          "transformation": "duplicate every line once"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "line_length_uniformity"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "zero or near-zero mean",
+        "blank-line prevalence"
+      ],
+      "observation_id": "source.line_length_cv",
+      "oracle_ids": [
+        "O-GEN-DISPERSION"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Undefined at zero mean and unstable for very small means; not a provenance indicator."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Undefined at zero mean and unstable for very small means; not a provenance indicator."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.line_length_cv/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Coefficient of variation of line length",
+      "unit": "dimensionless"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes a mechanically inspectable formatting property."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of lines ending in one or more spaces or tabs",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Count physical lines matching the finite suffix class [space or tab]+ at end of line.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G19",
+          "relation": "becomes zero",
+          "transformation": "remove all trailing spaces and tabs"
+        },
+        {
+          "id": "MR-G20",
+          "relation": "invariant",
+          "transformation": "rename path only"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "indentation_consistency"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "editor save hooks",
+        "formatter configuration"
+      ],
+      "observation_id": "source.trailing_whitespace_line_count",
+      "oracle_ids": [
+        "O-GEN-LINES"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Not evidence of care, authorship or semantic correctness."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Not evidence of care, authorship or semantic correctness."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.trailing_whitespace_line_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Trailing-whitespace line count",
+      "unit": "line"
+    },
+    {
+      "admissible_interpretations": [
+        "Flags mixed indentation for inspection."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of non-blank lines whose leading indentation contains both spaces and tabs",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "For each non-blank line, inspect only the maximal leading run of spaces and tabs and count it when both occur.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G21",
+          "relation": "non-increasing",
+          "transformation": "replace all leading tabs by spaces"
+        },
+        {
+          "id": "MR-G22",
+          "relation": "invariant",
+          "transformation": "change non-leading tabs"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "indentation_consistency"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "tab-stop policy",
+        "language-specific indentation semantics"
+      ],
+      "observation_id": "source.mixed_indentation_line_count",
+      "oracle_ids": [
+        "O-GEN-LINES"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Does not establish syntactic invalidity; tab-stop semantics are not modelled."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not establish syntactic invalidity; tab-stop semantics are not modelled."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.mixed_indentation_line_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Mixed leading-indentation line count",
+      "unit": "line"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes spacing structure without assigning quality."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "largest number of consecutive blank physical lines",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Scan physical lines and return the maximum consecutive run for which str.strip() is empty; empty input returns zero.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "source_artifact",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-G23",
+          "relation": "increases by at most one and exactly one when inserted into a unique maximal run",
+          "transformation": "insert one blank line into a longest run"
+        },
+        {
+          "id": "MR-G24",
+          "relation": "invariant",
+          "transformation": "duplicate non-blank lines"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "blank_line_regularity"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "formatter policy",
+        "terminal newline convention"
+      ],
+      "observation_id": "source.max_blank_line_run_length",
+      "oracle_ids": [
+        "O-GEN-LINES"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "all_supported_text"
+        ],
+        "parser": "bounded_utf8_line_scanner",
+        "scope_note": "Highly formatter-dependent and unsuitable for provenance inference."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Highly formatter-dependent and unsuitable for provenance inference."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/source.max_blank_line_run_length/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Maximum blank-line run length",
+      "unit": "line"
+    },
+    {
+      "admissible_interpretations": [
+        "Declares whether AST-dependent observations are available."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "outcome of CPython ast.parse under the executing runtime",
+      "codomain": {
+        "enum": [
+          "parsed",
+          "syntax_error"
+        ],
+        "type": "string"
+      },
+      "counting_rule": "Attempt ast.parse(type_comments=True). Record parsed or syntax_error; the status itself remains observed.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P01",
+          "relation": "invariant",
+          "transformation": "rename file path"
+        },
+        {
+          "id": "MR-P02",
+          "relation": "changes to syntax_error",
+          "transformation": "introduce unmatched delimiter"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [],
+      "measurement_scale": "nominal",
+      "nuisance_factors": [
+        "CPython grammar version",
+        "future syntax"
+      ],
+      "observation_id": "python.parse_status",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "A successful parse does not imply executable correctness, type correctness or runtime safety."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "A successful parse does not imply executable correctness, type correctness or runtime safety."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.parse_status/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Python parser status",
+      "unit": "category"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes the number of syntactic synchronous function definitions."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of ast.FunctionDef nodes",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count every ast.FunctionDef node including nested definitions and methods after a successful parse.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P03",
+          "relation": "invariant",
+          "transformation": "alpha-rename identifiers"
+        },
+        {
+          "id": "MR-P04",
+          "relation": "increases by one",
+          "transformation": "append one synchronous function definition"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "function_length"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "generated wrappers",
+        "nested definitions"
+      ],
+      "observation_id": "python.function_definition_count",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not establish distinct runtime callables because control flow and redefinition are not resolved."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not establish distinct runtime callables because control flow and redefinition are not resolved."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.function_definition_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Synchronous function-definition count",
+      "unit": "definition"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes the number of syntactic asynchronous function definitions."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of ast.AsyncFunctionDef nodes",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count every ast.AsyncFunctionDef node including nested definitions and methods after a successful parse.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P05",
+          "relation": "invariant",
+          "transformation": "alpha-rename identifiers"
+        },
+        {
+          "id": "MR-P06",
+          "relation": "increases by one",
+          "transformation": "append one async function definition"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "function_length"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "generated wrappers",
+        "nested definitions"
+      ],
+      "observation_id": "python.async_function_definition_count",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not establish scheduling or awaited execution."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not establish scheduling or awaited execution."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.async_function_definition_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Asynchronous function-definition count",
+      "unit": "definition"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes syntactic class-definition count."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of ast.ClassDef nodes",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count every ast.ClassDef node including nested classes after a successful parse.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P07",
+          "relation": "invariant",
+          "transformation": "alpha-rename identifiers"
+        },
+        {
+          "id": "MR-P08",
+          "relation": "increases by one",
+          "transformation": "append one class definition"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "metaprogramming",
+        "conditional definitions"
+      ],
+      "observation_id": "python.class_definition_count",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not resolve metaclasses, decorators or runtime class creation."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not resolve metaclasses, decorators or runtime class creation."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.class_definition_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Class-definition count",
+      "unit": "definition"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes explicit static import statements."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of ast.Import and ast.ImportFrom statements",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count each Import or ImportFrom statement once, irrespective of aliases.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P09",
+          "relation": "increases by one",
+          "transformation": "split one multi-alias import into two statements"
+        },
+        {
+          "id": "MR-P10",
+          "relation": "invariant",
+          "transformation": "alpha-rename an alias"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "used_import_ratio",
+        "import_organization"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "conditional imports",
+        "dynamic imports"
+      ],
+      "observation_id": "python.import_statement_count",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not capture importlib, __import__, plugin loading or dependency resolution."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not capture importlib, __import__, plugin loading or dependency resolution."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.import_statement_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Import-statement count",
+      "unit": "statement"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes the number of explicit static import bindings."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of statically bound names introduced by non-wildcard import aliases",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "For Import count each alias; for ImportFrom count each non-star alias. The bound-name spelling is not interpreted.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P11",
+          "relation": "invariant",
+          "transformation": "split a multi-alias import into separate statements"
+        },
+        {
+          "id": "MR-P12",
+          "relation": "increases by one",
+          "transformation": "add one non-star import alias"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "used_import_ratio"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "aliasing",
+        "scope shadowing"
+      ],
+      "observation_id": "python.imported_binding_count",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not determine whether a binding is used, resolvable or semantically required."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not determine whether a binding is used, resolvable or semantically required."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.imported_binding_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Imported binding count",
+      "unit": "binding"
+    },
+    {
+      "admissible_interpretations": [
+        "Identifies wildcard import syntax for bounded review."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of from-import statements containing alias name *",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count each ast.ImportFrom alias whose name is exactly '*'.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P13",
+          "relation": "changes according to statement syntax",
+          "transformation": "replace explicit imported names by one wildcard import"
+        },
+        {
+          "id": "MR-P14",
+          "relation": "invariant",
+          "transformation": "alpha-rename local identifiers"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "used_import_ratio",
+        "import_organization"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "module __all__",
+        "runtime mutation"
+      ],
+      "observation_id": "python.wildcard_import_count",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not determine names imported at runtime or whether wildcard use is acceptable."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not determine names imported at runtime or whether wildcard use is acceptable."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.wildcard_import_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Wildcard import count",
+      "unit": "statement"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes lexical comment-token frequency."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of tokenize.COMMENT tokens",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Tokenise normalised source with tokenize.generate_tokens and count COMMENT tokens.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P15",
+          "relation": "increases by one",
+          "transformation": "append one standalone comment line"
+        },
+        {
+          "id": "MR-P16",
+          "relation": "invariant",
+          "transformation": "change comment text without adding # tokens"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "comment_density",
+        "comment_to_code_ratio",
+        "comment_genericness"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "encoding already normalised",
+        "tokenizer grammar version"
+      ],
+      "observation_id": "python.comment_token_count",
+      "oracle_ids": [
+        "O-PY-TOKENIZE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "A token can be inline or standalone and is not a measure of documentation quality."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "A token can be inline or standalone and is not a measure of documentation quality."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.comment_token_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Python comment-token count",
+      "unit": "token"
+    },
+    {
+      "admissible_interpretations": [
+        "Provides an explicit numerator for a line-based comment proportion."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of distinct physical lines containing a COMMENT token",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Tokenise source and count distinct 1-based start rows for COMMENT tokens.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P17",
+          "relation": "line count invariant",
+          "transformation": "add a second lexical comment token on an already comment-bearing line where syntax permits"
+        },
+        {
+          "id": "MR-P18",
+          "relation": "increases by one",
+          "transformation": "append one standalone comment line"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "comment_density",
+        "comment_to_code_ratio"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "multiple comments cannot occur on one ordinary Python line",
+        "tokenizer grammar version"
+      ],
+      "observation_id": "python.comment_physical_line_count",
+      "oracle_ids": [
+        "O-PY-TOKENIZE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not distinguish explanatory, licensing, directive or disabled-code comments."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not distinguish explanatory, licensing, directive or disabled-code comments."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.comment_physical_line_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Python comment-bearing physical line count",
+      "unit": "line"
+    },
+    {
+      "admissible_interpretations": [
+        "Supports descriptive within-contract comparison of comment prevalence."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "comment-bearing physical lines divided by physical line count",
+      "codomain": {
+        "maximum": 1,
+        "minimum": 0,
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "counting_rule": "Divide python.comment_physical_line_count by source.physical_line_count; empty input is insufficient_evidence.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P19",
+          "relation": "invariant",
+          "transformation": "duplicate every source line including comments"
+        },
+        {
+          "id": "MR-P20",
+          "relation": "non-increasing",
+          "transformation": "append one non-comment line"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "comment_density",
+        "comment_to_code_ratio"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "line-ending convention after normalisation",
+        "inline comments"
+      ],
+      "observation_id": "python.comment_line_proportion",
+      "oracle_ids": [
+        "O-PY-TOKENIZE",
+        "O-GEN-LINES"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Not evidence of quality, authorship or explanatory adequacy."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Not evidence of quality, authorship or explanatory adequacy."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.comment_line_proportion/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Python comment-bearing line proportion",
+      "unit": "proportion"
+    },
+    {
+      "admissible_interpretations": [
+        "Defines the denominator for definition-level docstring coverage."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of class, synchronous-function and asynchronous-function definitions",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count ClassDef, FunctionDef and AsyncFunctionDef nodes. The module itself is intentionally excluded.",
+      "dimension_ids": [
+        "clarity_naming"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P21",
+          "relation": "increases by one",
+          "transformation": "add one function definition without a docstring"
+        },
+        {
+          "id": "MR-P22",
+          "relation": "invariant",
+          "transformation": "edit docstring text only"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "docstring_coverage"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "generated definitions",
+        "conditional definitions"
+      ],
+      "observation_id": "python.docstring_eligible_definition_count",
+      "oracle_ids": [
+        "O-PY-DOC"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Eligibility is syntactic and does not imply that a docstring is required."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Eligibility is syntactic and does not imply that a docstring is required."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.docstring_eligible_definition_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Docstring-eligible definition count",
+      "unit": "definition"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes syntactic docstring presence."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of eligible definitions for which ast.get_docstring(clean=False) is non-null",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "For every eligible definition, count one when its first body statement is a string expression recognised by ast.get_docstring.",
+      "dimension_ids": [
+        "clarity_naming"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P23",
+          "relation": "increases by one",
+          "transformation": "insert a leading string expression into one undocumented definition"
+        },
+        {
+          "id": "MR-P24",
+          "relation": "invariant",
+          "transformation": "change docstring contents"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "docstring_coverage"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "CPython docstring recognition",
+        "decorators do not affect recognition"
+      ],
+      "observation_id": "python.docstring_present_definition_count",
+      "oracle_ids": [
+        "O-PY-DOC"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not assess correctness, usefulness, language or style of documentation."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not assess correctness, usefulness, language or style of documentation."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.docstring_present_definition_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Definitions with docstrings",
+      "unit": "definition"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes syntactic coverage under an explicit denominator."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "definitions with docstrings divided by eligible definitions",
+      "codomain": {
+        "maximum": 1,
+        "minimum": 0,
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "counting_rule": "Divide present count by eligible count; when no eligible definitions exist, return insufficient_evidence rather than zero.",
+      "dimension_ids": [
+        "clarity_naming"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P25",
+          "relation": "updates by declared numerator/denominator arithmetic",
+          "transformation": "add a documented definition"
+        },
+        {
+          "id": "MR-P26",
+          "relation": "becomes insufficient_evidence",
+          "transformation": "remove all eligible definitions"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "docstring_coverage"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "task policy",
+        "generated APIs"
+      ],
+      "observation_id": "python.docstring_coverage_proportion",
+      "oracle_ids": [
+        "O-PY-DOC"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not establish documentation quality or policy compliance."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not establish documentation quality or policy compliance."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.docstring_coverage_proportion/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Definition-level docstring coverage",
+      "unit": "proportion"
+    },
+    {
+      "admissible_interpretations": [
+        "Defines the denominator for signature annotation coverage."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of parameter and return slots in function signatures",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "For every FunctionDef and AsyncFunctionDef, count positional-only, positional, keyword-only, vararg and kwarg parameters plus one return slot.",
+      "dimension_ids": [
+        "clarity_naming"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P27",
+          "relation": "invariant",
+          "transformation": "alpha-rename parameters"
+        },
+        {
+          "id": "MR-P28",
+          "relation": "increases by one",
+          "transformation": "add one unannotated parameter"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "type_hint_coverage"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "implicit self/cls conventions",
+        "type comments excluded"
+      ],
+      "observation_id": "python.annotation_eligible_slot_count",
+      "oracle_ids": [
+        "O-PY-ANNOTATION"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Eligibility does not imply annotations are required or semantically correct."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Eligibility does not imply annotations are required or semantically correct."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.annotation_eligible_slot_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Function-signature annotation-eligible slot count",
+      "unit": "slot"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes syntactic presence of signature annotations."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of eligible slots with an annotation AST node",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count parameter slots with non-null annotation and return slots with non-null returns.",
+      "dimension_ids": [
+        "clarity_naming"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P29",
+          "relation": "increases by one",
+          "transformation": "add one annotation to an eligible slot"
+        },
+        {
+          "id": "MR-P30",
+          "relation": "invariant",
+          "transformation": "change annotation spelling"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "type_hint_coverage"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "string annotations",
+        "future annotations"
+      ],
+      "observation_id": "python.annotation_present_slot_count",
+      "oracle_ids": [
+        "O-PY-ANNOTATION"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not type-check or establish annotation correctness."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not type-check or establish annotation correctness."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.annotation_present_slot_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Annotated function-signature slot count",
+      "unit": "slot"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes syntactic coverage under an explicit denominator."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "annotated slots divided by eligible slots",
+      "codomain": {
+        "maximum": 1,
+        "minimum": 0,
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "counting_rule": "Divide present annotation slots by eligible slots; no eligible slots yields insufficient_evidence.",
+      "dimension_ids": [
+        "clarity_naming"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P31",
+          "relation": "non-decreasing",
+          "transformation": "annotate one previously unannotated slot"
+        },
+        {
+          "id": "MR-P32",
+          "relation": "becomes insufficient_evidence",
+          "transformation": "remove all functions"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "type_hint_coverage"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "framework conventions",
+        "implicit receiver parameters"
+      ],
+      "observation_id": "python.annotation_coverage_proportion",
+      "oracle_ids": [
+        "O-PY-ANNOTATION"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not establish type safety, type-checker success or pedagogical quality."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not establish type safety, type-checker success or pedagogical quality."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.annotation_coverage_proportion/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Function-signature annotation coverage",
+      "unit": "proportion"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes numeric-literal frequency without labelling literals as magic."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of numeric ast.Constant nodes excluding Boolean values",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count Constant nodes whose value is int, float or complex and not bool. Unary signs do not create an additional literal.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P33",
+          "relation": "invariant",
+          "transformation": "replace one numeric literal by another numeric literal"
+        },
+        {
+          "id": "MR-P34",
+          "relation": "increases by one",
+          "transformation": "append an assignment containing one numeric literal"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "magic_numbers"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "constant folding in parser",
+        "version-specific AST representation"
+      ],
+      "observation_id": "python.numeric_literal_count",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not distinguish configuration values, constants, test data or problematic literals."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not distinguish configuration values, constants, test data or problematic literals."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.numeric_literal_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Numeric literal AST count",
+      "unit": "literal"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes explicit exception-handler syntax."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of ast.ExceptHandler nodes",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count every ExceptHandler node after a successful parse.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P35",
+          "relation": "increases by one",
+          "transformation": "add one except clause"
+        },
+        {
+          "id": "MR-P36",
+          "relation": "invariant",
+          "transformation": "change caught exception type"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "error_handling_density",
+        "defensive_programming"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "exception groups",
+        "generated wrappers"
+      ],
+      "observation_id": "python.exception_handler_count",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not establish adequate recovery, logging or exception policy."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not establish adequate recovery, logging or exception policy."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.exception_handler_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Exception-handler count",
+      "unit": "handler"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes explicit raise syntax."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of ast.Raise nodes",
+      "codomain": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "counting_rule": "Count every Raise node after a successful parse.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_module",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-P37",
+          "relation": "increases by one",
+          "transformation": "append one reachable or unreachable raise statement"
+        },
+        {
+          "id": "MR-P38",
+          "relation": "invariant",
+          "transformation": "change exception expression"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "error_handling_density",
+        "defensive_programming"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "conditional execution",
+        "helper abstractions"
+      ],
+      "observation_id": "python.raise_statement_count",
+      "oracle_ids": [
+        "O-PY-AST-COUNT"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast/tokenize finite adapter",
+        "scope_note": "Does not establish whether an exception is appropriate, reachable or handled."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Does not establish whether an exception is appropriate, reachable or handled."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.raise_statement_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Raise-statement count",
+      "unit": "statement"
+    },
+    {
+      "admissible_interpretations": [
+        "Supports source-local inspection of callable size."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "inclusive physical line span from lineno through end_lineno",
+      "codomain": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "counting_rule": "For each FunctionDef or AsyncFunctionDef, compute end_lineno - lineno + 1. If end_lineno is absent, the instance is unavailable.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_callable",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-C01",
+          "relation": "increases that callable span by one",
+          "transformation": "insert one line inside a callable"
+        },
+        {
+          "id": "MR-C02",
+          "relation": "invariant",
+          "transformation": "alpha-rename identifiers"
+        }
+      ],
+      "instance_cardinality": "zero_or_more_per_artifact",
+      "legacy_sources": [
+        "function_length"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "decorators excluded from lineno",
+        "multiline signatures included"
+      ],
+      "observation_id": "python.callable.physical_span_lines",
+      "oracle_ids": [
+        "O-PY-CALLABLE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast finite callable visitor",
+        "scope_note": "Physical span includes blank lines, comments and nested definitions and is not executable SLOC."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Physical span includes blank lines, comments and nested definitions and is not executable SLOC."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.callable.physical_span_lines/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Callable physical source span",
+      "unit": "line"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes a bounded syntactic decision inventory for one callable."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "finite syntactic decision points inside a callable excluding nested definitions",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Count If, For, AsyncFor, While and IfExp as one; BoolOp contributes operands minus one; Try contributes handler count; Match contributes case count; each comprehension contributes generator count plus filter count. Do not descend into nested function, lambda or class bodies.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_callable",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-C03",
+          "relation": "increases by one",
+          "transformation": "add one simple if statement in the callable"
+        },
+        {
+          "id": "MR-C04",
+          "relation": "invariant",
+          "transformation": "add a sequential non-branching statement"
+        }
+      ],
+      "instance_cardinality": "zero_or_more_per_artifact",
+      "legacy_sources": [
+        "cyclomatic_complexity",
+        "function_complexity_uniformity"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "language-version AST changes",
+        "short-circuit semantics approximated syntactically"
+      ],
+      "observation_id": "python.callable.decision_point_count",
+      "oracle_ids": [
+        "O-PY-CALLABLE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast finite callable visitor",
+        "scope_note": "Not control-flow-graph complexity, path count or runtime branch frequency."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Not control-flow-graph complexity, path count or runtime branch frequency."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.callable.decision_point_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Callable decision-point count",
+      "unit": "decision_point"
+    },
+    {
+      "admissible_interpretations": [
+        "Supports within-contract comparison of bounded syntactic branching."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "one plus the S02 decision-point count",
+      "codomain": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "counting_rule": "Return 1 + python.callable.decision_point_count for the same entity and parser contract.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_callable",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-C05",
+          "relation": "increases by one",
+          "transformation": "add one simple if statement"
+        },
+        {
+          "id": "MR-C06",
+          "relation": "invariant",
+          "transformation": "add a sequential non-branching statement"
+        }
+      ],
+      "instance_cardinality": "zero_or_more_per_artifact",
+      "legacy_sources": [
+        "cyclomatic_complexity",
+        "function_complexity_uniformity"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "same limitations as decision-point count"
+      ],
+      "observation_id": "python.callable.mccabe_complexity",
+      "oracle_ids": [
+        "O-PY-CALLABLE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast finite callable visitor",
+        "scope_note": "Not equivalent to every published McCabe implementation and not a quality verdict."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Not equivalent to every published McCabe implementation and not a quality verdict."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.callable.mccabe_complexity/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Callable bounded McCabe-style complexity",
+      "unit": "complexity_unit"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes bounded syntactic nesting for source-local review."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "maximum nesting of finite control-container nodes excluding nested definitions",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Traverse If, For, AsyncFor, While, Try, With, AsyncWith and Match containers. Increment depth on entry and do not descend into nested function, lambda or class bodies.",
+      "dimension_ids": [
+        "structural_complexity_dispersion"
+      ],
+      "entity": "python_callable",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-C07",
+          "relation": "non-decreasing and increases when the wrapped path was deepest",
+          "transformation": "wrap an existing statement in one if"
+        },
+        {
+          "id": "MR-C08",
+          "relation": "invariant",
+          "transformation": "add a sequential statement"
+        }
+      ],
+      "instance_cardinality": "zero_or_more_per_artifact",
+      "legacy_sources": [
+        "nesting_depth"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "elif AST representation",
+        "context managers treated as containers"
+      ],
+      "observation_id": "python.callable.max_control_nesting_depth",
+      "oracle_ids": [
+        "O-PY-CALLABLE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "python"
+        ],
+        "parser": "CPython ast finite callable visitor",
+        "scope_note": "Container selection is a declared convention and not cognitive complexity."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Container selection is a declared convention and not cognitive complexity."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/python.callable.max_control_nesting_depth/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Callable maximum control nesting depth",
+      "unit": "level"
+    },
+    {
+      "admissible_interpretations": [
+        "Declares whether the recognised fence subset closed completely."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "completion status of the finite S02 Markdown scanner",
+      "codomain": {
+        "enum": [
+          "complete",
+          "unclosed_fence"
+        ],
+        "type": "string"
+      },
+      "counting_rule": "Scan recognised top-level fences. Report unclosed_fence when an opener remains active at end of input.",
+      "dimension_ids": [
+        "documentation_implementation_alignment"
+      ],
+      "entity": "markdown_document",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-M01",
+          "relation": "changes to complete",
+          "transformation": "append a valid matching closer to an unclosed fence"
+        },
+        {
+          "id": "MR-M02",
+          "relation": "invariant",
+          "transformation": "rename path"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "markdown_code_fence_density"
+      ],
+      "measurement_scale": "nominal",
+      "nuisance_factors": [
+        "containers and lazy continuation outside scope"
+      ],
+      "observation_id": "markdown.parse_status",
+      "oracle_ids": [
+        "O-MD-FINITE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "markdown"
+        ],
+        "parser": "finite S02 Markdown scanner",
+        "scope_note": "Not CommonMark conformance or rendering validity."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Not CommonMark conformance or rendering validity."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/markdown.parse_status/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Markdown finite-parser status",
+      "unit": "category"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes recognised ATX heading structure."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of recognised ATX headings outside fenced blocks",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Count lines outside recognised fences with 0–3 leading spaces, 1–6 # characters and then space, tab or end of line.",
+      "dimension_ids": [
+        "documentation_implementation_alignment"
+      ],
+      "entity": "markdown_document",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-M03",
+          "relation": "does not increase",
+          "transformation": "place heading-like text inside a recognised fence"
+        },
+        {
+          "id": "MR-M04",
+          "relation": "increases by one",
+          "transformation": "append one valid ATX heading outside fences"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "markdown_heading_structure"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "container indentation",
+        "raw HTML"
+      ],
+      "observation_id": "markdown.atx_heading_count",
+      "oracle_ids": [
+        "O-MD-FINITE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "markdown"
+        ],
+        "parser": "finite S02 Markdown scanner",
+        "scope_note": "Finite subset only; not editorial quality or CommonMark conformance."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Finite subset only; not editorial quality or CommonMark conformance."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/markdown.atx_heading_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "ATX heading count",
+      "unit": "heading"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes recognised Setext heading structure."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of recognised one-line Setext headings outside fenced blocks",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Count a non-blank ordinary line followed immediately by an outside-fence line of optional spaces, one or more = or - characters and optional spaces.",
+      "dimension_ids": [
+        "documentation_implementation_alignment"
+      ],
+      "entity": "markdown_document",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-M05",
+          "relation": "increases by one",
+          "transformation": "append a valid underline after an ordinary line"
+        },
+        {
+          "id": "MR-M06",
+          "relation": "does not increase",
+          "transformation": "move underline inside a fence"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "markdown_heading_structure"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "multiline paragraphs",
+        "container indentation"
+      ],
+      "observation_id": "markdown.setext_heading_count",
+      "oracle_ids": [
+        "O-MD-FINITE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "markdown"
+        ],
+        "parser": "finite S02 Markdown scanner",
+        "scope_note": "Multiline and nested-container Setext semantics are outside scope."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Multiline and nested-container Setext semantics are outside scope."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/markdown.setext_heading_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Setext heading count",
+      "unit": "heading"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes recognised fenced-block frequency."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of recognised top-level fenced block openers",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Count top-level openers with 0–3 leading spaces and at least three identical backticks or tildes. A block extends to a valid closer or EOF.",
+      "dimension_ids": [
+        "documentation_implementation_alignment"
+      ],
+      "entity": "markdown_document",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-M07",
+          "relation": "invariant",
+          "transformation": "append text inside an open fence"
+        },
+        {
+          "id": "MR-M08",
+          "relation": "increases by one",
+          "transformation": "append one complete fenced block"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "markdown_code_fence_density"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "nested containers",
+        "indented code blocks"
+      ],
+      "observation_id": "markdown.fenced_code_block_count",
+      "oracle_ids": [
+        "O-MD-FINITE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "markdown"
+        ],
+        "parser": "finite S02 Markdown scanner",
+        "scope_note": "Not code quality, language detection or execution."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "Not code quality, language detection or execution."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/markdown.fenced_code_block_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Fenced code-block opener count",
+      "unit": "block"
+    },
+    {
+      "admissible_interpretations": [
+        "Describes a mechanical heading-transition property."
+      ],
+      "algorithm": {
+        "component": "src/codeprobe_measurement_kernel.py",
+        "deterministic_given_contract": true,
+        "normalisation": "strict UTF-8, optional UTF-8 BOM removal, CRLF/CR to LF",
+        "version": "1.1.0"
+      },
+      "applicability_states": [
+        {
+          "meaning": "The observation was computed under the declared parser and budget contract.",
+          "state": "observed",
+          "value_rule": "value MUST be non-null."
+        },
+        {
+          "meaning": "The observation does not apply to the declared language or entity.",
+          "state": "not_applicable",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation applies but its denominator or entity set is inadequate for the defined statistic.",
+          "state": "insufficient_evidence",
+          "value_rule": "value MUST be null."
+        },
+        {
+          "meaning": "The observation could not be computed because the parser, intake or finite-budget contract failed.",
+          "state": "unavailable",
+          "value_rule": "value MUST be null."
+        }
+      ],
+      "attribute": "number of adjacent recognised headings whose level increases by more than one",
+      "codomain": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "counting_rule": "Build the recognised heading-level sequence outside fences and count adjacent pairs where current_level - previous_level > 1.",
+      "dimension_ids": [
+        "documentation_implementation_alignment"
+      ],
+      "entity": "markdown_document",
+      "expected_metamorphic_relations": [
+        {
+          "id": "MR-M09",
+          "relation": "non-increasing",
+          "transformation": "insert an intermediate heading level between a jump"
+        },
+        {
+          "id": "MR-M10",
+          "relation": "invariant",
+          "transformation": "change prose outside headings"
+        }
+      ],
+      "instance_cardinality": "one_per_artifact",
+      "legacy_sources": [
+        "markdown_heading_structure"
+      ],
+      "measurement_scale": "ratio",
+      "nuisance_factors": [
+        "finite heading subset",
+        "document fragments"
+      ],
+      "observation_id": "markdown.heading_level_jump_count",
+      "oracle_ids": [
+        "O-MD-FINITE"
+      ],
+      "parser_scope": {
+        "failure_state": "unavailable",
+        "languages": [
+          "markdown"
+        ],
+        "parser": "finite S02 Markdown scanner",
+        "scope_note": "A jump is not necessarily an editorial defect, especially in excerpts."
+      },
+      "prohibited_inferences": [
+        "authorship attribution",
+        "AI or human provenance classification",
+        "misconduct or cheating determination",
+        "sanction recommendation",
+        "causal attribution from code-derived observations"
+      ],
+      "residual_limitations": [
+        "A jump is not necessarily an editorial defect, especially in excerpts."
+      ],
+      "source_evidence_production": {
+        "id_rule": "SHA-256 of normalised source bytes plus evidence scope and 1-based source span; path is metadata and does not alter evidence identity.",
+        "required": true,
+        "span_granularity": "whole_artifact_or_callable"
+      },
+      "specification_id": "codeprobe-observation/markdown.heading_level_jump_count/1.1.0",
+      "status": "reference_implementation_s02",
+      "title": "Heading-level upward jump count",
+      "unit": "transition"
+    }
+  ],
+  "principles": {
+    "atomic_values_only": true,
+    "canonical_s01_dimension_ids": true,
+    "causal_attribution": false,
+    "conformance_not_construct_validity": true,
+    "global_scalar": false,
+    "source_evidence_required": true,
+    "typed_applicability": true,
+    "unavailable_is_zero": false
+  },
+  "schema": "codeprobe-observation-catalogue/v1",
+  "status": "reference_implementation_s02_candidate",
+  "title": "CodeProbe S02 atomic observation catalogue",
+  "version": "1.1.0"
+}

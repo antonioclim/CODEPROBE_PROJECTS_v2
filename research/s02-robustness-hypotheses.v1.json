@@ -1,0 +1,104 @@
+{
+  "hypotheses": [
+    {
+      "analysis_owner": "S03",
+      "expected_relation": "all measurement values and deterministic identities except path metadata remain invariant",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-S03-01",
+      "status": "preregister_before_s03_execution",
+      "transformation_or_shift": "path-only rename"
+    },
+    {
+      "analysis_owner": "S03",
+      "expected_relation": "normalised observations remain invariant while raw byte count changes predictably",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-S03-02",
+      "status": "preregister_before_s03_execution",
+      "transformation_or_shift": "LF to CRLF"
+    },
+    {
+      "analysis_owner": "S03",
+      "expected_relation": "normalised observations remain invariant while raw byte count and encoding metadata change",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-S03-03",
+      "status": "preregister_before_s03_execution",
+      "transformation_or_shift": "UTF-8 BOM insertion"
+    },
+    {
+      "analysis_owner": "S03",
+      "expected_relation": "structural counts remain invariant",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-S03-04",
+      "status": "preregister_before_s03_execution",
+      "transformation_or_shift": "alpha renaming within Python identifiers"
+    },
+    {
+      "analysis_owner": "S03",
+      "expected_relation": "only declared source-layout, comment and callable-span observations change",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-S03-05",
+      "status": "preregister_before_s03_execution",
+      "transformation_or_shift": "comment insertion"
+    },
+    {
+      "analysis_owner": "S03",
+      "expected_relation": "format-sensitive observations change while AST counts remain invariant",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-S03-06",
+      "status": "preregister_before_s03_execution",
+      "transformation_or_shift": "formatter application"
+    },
+    {
+      "analysis_owner": "S03",
+      "expected_relation": "kernel refuses rather than guessing or emitting zeros",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-S03-07",
+      "status": "preregister_before_s03_execution",
+      "transformation_or_shift": "unsupported-language declaration"
+    },
+    {
+      "analysis_owner": "S03",
+      "expected_relation": "dependent Python observations become unavailable rather than zero",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-S03-08",
+      "status": "preregister_before_s03_execution",
+      "transformation_or_shift": "syntax corruption"
+    },
+    {
+      "analysis_owner": "E01",
+      "expected_relation": "effect sizes and redundancy structure may change and must be estimated hierarchically",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-E01-01",
+      "status": "preregister_before_e01_execution",
+      "transformation_or_shift": "task-family shift"
+    },
+    {
+      "analysis_owner": "E01",
+      "expected_relation": "Python-only observations are not assumed transportable to other languages",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-E01-02",
+      "status": "preregister_before_e01_execution",
+      "transformation_or_shift": "language-family shift"
+    },
+    {
+      "analysis_owner": "E01",
+      "expected_relation": "surface layout measures show nuisance sensitivity that must be quantified",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-E01-03",
+      "status": "preregister_before_e01_execution",
+      "transformation_or_shift": "template/scaffold injection"
+    },
+    {
+      "analysis_owner": "E01",
+      "expected_relation": "naive random splits inflate apparent stability relative to group splits",
+      "falsification_rule": "A predeclared violation outside the confidence or tolerance rule counts against the hypothesis; it is not relabelled post hoc.",
+      "hypothesis_id": "H-E01-04",
+      "status": "preregister_before_e01_execution",
+      "transformation_or_shift": "duplicate/near-duplicate contamination"
+    }
+  ],
+  "non_claim": "These are analysis plans, not results or a preregistration record.",
+  "schema": "codeprobe-robustness-hypotheses/v1",
+  "status": "prospective_not_preregistered",
+  "version": "1.1.0"
+}
