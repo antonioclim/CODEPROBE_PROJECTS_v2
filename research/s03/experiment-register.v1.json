@@ -1,0 +1,504 @@
+{
+  "schema": "codeprobe-s03-experiment-register/v1",
+  "author": "Antonio Clim",
+  "stage": "local-candidate; exact remote CI belongs to the phase audit, not this pre-CI snapshot",
+  "baseline_commit": "dee3bdd9bae60b3fb7b6db9c1106306b83f36cb5",
+  "resumption_protocol_commit": "ef45fe8d20fe74a0e888e8dae4e6fe374c659aee",
+  "protocol_sha256": "e5ee95190a74e9f84e12450cd2b27dc3a2ac241409e5b41c384a7f920123c6e0",
+  "baseline_summary": {
+    "case_count": 2000,
+    "adversarial_count": 41,
+    "failed_checks": 197,
+    "failed_cases": 95,
+    "outcome_counts": {
+      "ok": 1574,
+      "refused": 426
+    },
+    "groups": {
+      "H-S03-01": {
+        "checks": 16720,
+        "failed_checks": 0,
+        "eligible_cases": 80,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "H-S03-02": {
+        "checks": 16480,
+        "failed_checks": 0,
+        "eligible_cases": 80,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "H-S03-03": {
+        "checks": 16560,
+        "failed_checks": 0,
+        "eligible_cases": 80,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "H-S03-04": {
+        "checks": 2736,
+        "failed_checks": 0,
+        "eligible_cases": 48,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "H-S03-05": {
+        "checks": 2352,
+        "failed_checks": 0,
+        "eligible_cases": 48,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "H-S03-06": {
+        "checks": 2256,
+        "failed_checks": 0,
+        "eligible_cases": 48,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "H-S03-07": {
+        "checks": 80,
+        "failed_checks": 0,
+        "eligible_cases": 80,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "H-S03-08": {
+        "checks": 960,
+        "failed_checks": 0,
+        "eligible_cases": 48,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "adversarial": {
+        "checks": 45,
+        "failed_checks": 17,
+        "eligible_cases": 36,
+        "failed_cases": 16,
+        "max_abs_error": 1,
+        "max_rel_error": 1.0,
+        "case_violation_proportion": 0.4444444444444444,
+        "check_discrepancy_proportion": 0.37777777777777777
+      },
+      "generic-differential": {
+        "checks": 37776,
+        "failed_checks": 0,
+        "eligible_cases": 1574,
+        "failed_cases": 0,
+        "max_abs_error": 5.009326287108706e-13,
+        "max_rel_error": 6.666634836764255e-12,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "intake-and-totality": {
+        "checks": 3574,
+        "failed_checks": 0,
+        "eligible_cases": 2000,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "markdown-differential": {
+        "checks": 2470,
+        "failed_checks": 178,
+        "eligible_cases": 247,
+        "failed_cases": 77,
+        "max_abs_error": 4,
+        "max_rel_error": 1.0,
+        "case_violation_proportion": 0.3117408906882591,
+        "check_discrepancy_proportion": 0.07206477732793522
+      },
+      "python-analytic": {
+        "checks": 7904,
+        "failed_checks": 0,
+        "eligible_cases": 304,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "python-differential": {
+        "checks": 36238,
+        "failed_checks": 0,
+        "eligible_cases": 957,
+        "failed_cases": 0,
+        "max_abs_error": 4.705957845629882e-13,
+        "max_rel_error": 8.000100581931183e-12,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "resource-adversarial": {
+        "checks": 5,
+        "failed_checks": 2,
+        "eligible_cases": 5,
+        "failed_cases": 2,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.4,
+        "check_discrepancy_proportion": 0.4
+      },
+      "route-equivalence": {
+        "checks": 6608,
+        "failed_checks": 0,
+        "eligible_cases": 80,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      },
+      "source-binding": {
+        "checks": 3148,
+        "failed_checks": 0,
+        "eligible_cases": 1574,
+        "failed_cases": 0,
+        "max_abs_error": 0.0,
+        "max_rel_error": 0.0,
+        "case_violation_proportion": 0.0,
+        "check_discrepancy_proportion": 0.0
+      }
+    }
+  },
+  "findings": [
+    {
+      "finding_id": "S03-F001",
+      "severity": "P2",
+      "problem": "Mixed fence delimiters were accepted as Markdown closers",
+      "evidence": "markdown-differential; adv-mixed-fence-closer",
+      "remedy": "Require a homogeneous closer matching the opening delimiter character and minimum length.",
+      "baseline_failed_checks": 180,
+      "status": "CORRECTED_LOCAL_PENDING_EXACT_SHA_CI"
+    },
+    {
+      "finding_id": "S03-F002",
+      "severity": "P2",
+      "problem": "Evidence and entity ownership were incompletely bound",
+      "evidence": "adv-evidence-path; adv-evidence-coordinate; adv-record-path; targeted-followup-before.json",
+      "remedy": "Bind path, coordinates, specification entity kind, singleton entity identity and evidence scope. Three additional targeted substitutions are retained separately.",
+      "baseline_failed_checks": 3,
+      "status": "CORRECTED_LOCAL_PENDING_EXACT_SHA_CI"
+    },
+    {
+      "finding_id": "S03-F003",
+      "severity": "P2",
+      "problem": "Record identifiers were format-checked but not recomputed",
+      "evidence": "adv-record-identity",
+      "remedy": "Recompute the identifier from specification, entity and evidence identifiers.",
+      "baseline_failed_checks": 1,
+      "status": "CORRECTED_LOCAL_PENDING_EXACT_SHA_CI"
+    },
+    {
+      "finding_id": "S03-F004",
+      "severity": "P2",
+      "problem": "Numeric codomains admitted invalid scalar types and ranges",
+      "evidence": "adv-negative-count; adv-fractional-count; adv-boolean-count; adv-string-count; adv-bytes-count; adv-complex-count",
+      "remedy": "Enforce all forty existing codomains, units and scales; explicitly exclude Boolean counts and non-JSON scalars.",
+      "baseline_failed_checks": 6,
+      "status": "CORRECTED_LOCAL_PENDING_EXACT_SHA_CI"
+    },
+    {
+      "finding_id": "S03-F005",
+      "severity": "P2",
+      "problem": "The S01 adapter accepted invalid input records",
+      "evidence": "adv-adapter-invalid-identity; adv-adapter-invalid-value; adv-adapter-invalid-entity",
+      "remedy": "Validate the kernel record before adapting it.",
+      "baseline_failed_checks": 3,
+      "status": "CORRECTED_LOCAL_PENDING_EXACT_SHA_CI"
+    },
+    {
+      "finding_id": "S03-F006",
+      "severity": "P2",
+      "problem": "Recoverable resource errors escaped the measurement boundary",
+      "evidence": "adv-injected-MemoryError; adv-injected-RecursionError; adv-deep-expression-1500; adv-deep-expression-6000",
+      "remedy": "Return typed ME-015 refusal by raising MeasurementError. No partial result, zero substitution or universal containment claim.",
+      "baseline_failed_checks": 4,
+      "status": "CORRECTED_LOCAL_PENDING_EXACT_SHA_CI"
+    },
+    {
+      "finding_id": "S03-F007",
+      "severity": "P2",
+      "problem": "ME-008 has conflicting historical descriptions in the kernel and error register",
+      "status": "OPEN_CARRY_FORWARD_S04",
+      "remedy": "Retain the locked unsupported-language ME-008 test; separate the two meanings explicitly in the additive error extension. Do not silently repurpose the code."
+    },
+    {
+      "finding_id": "S03-F008",
+      "severity": "P3",
+      "problem": "Contract version 1.1.0 does not uniquely identify implementation bytes",
+      "status": "OPEN_CARRY_FORWARD_S04",
+      "remedy": "No version change is authorised. Exact Git commit and source SHA-256 remain mandatory build identities; S04 must separate build identity from specification version in downstream interpretation."
+    }
+  ],
+  "deviations": [
+    {
+      "deviation_id": "D-S03-001",
+      "date": "2026-09-12",
+      "class_": "recovery",
+      "description": "An earlier S03 hash-only commitment was found at 7fceee8042f18fc6110ebc2dd6dc9d504e9f8683. Its protocol bytes and any subsequent local outcomes were not recovered. The full resumption protocol was persisted at ef45fe8d20fe74a0e888e8dae4e6fe374c659aee before measurements in this resumed execution. This is not the original protocol, an external preregistration or uninterrupted prospective history."
+    },
+    {
+      "deviation_id": "D-S03-002",
+      "date": "2026-09-12",
+      "class_": "execution_environment",
+      "description": "The first execution was stopped by the tool at its 200-second boundary. Its truncated raw output is retained; a repeat added incremental negative journals and progress checkpoints. This interruption is not classified as a product timeout."
+    },
+    {
+      "deviation_id": "D-S03-003",
+      "date": "2026-09-12",
+      "class_": "corrective_and_supplementary_testing",
+      "description": "Corrective regression tests, positive/negative oracle controls and three previously named runtime-grammar frontier checks were operationalised after baseline observation. They are supplementary, not new confirmatory hypotheses. The eight hypotheses, corpus input bytes, estimands and tolerances were not changed. Resource-worker successful results were subsequently retained in full and checked for byte counts, grammar-specific missingness and analytic literal counts; original baseline counts are not rewritten."
+    },
+    {
+      "deviation_id": "D-S03-004",
+      "date": "2026-09-12",
+      "class_": "test_fixture_defect",
+      "description": "An initial supplementary H04 negative control mutated the first record, a Markdown record deliberately excluded by H04. Its assertion failed. The control was corrected to mutate python.function_definition_count. The initial source and failing test log are preserved; no production outcome was reclassified."
+    },
+    {
+      "deviation_id": "D-S03-005",
+      "date": "2026-09-12",
+      "class_": "targeted_exploration",
+      "description": "Three additional entity-kind, singleton-identity and evidence-scope substitutions were tested after the first correction. All were accepted by S02 and the first correction, then rejected by the final correction. Their pre-repair results and regression tests are retained separately from the original 2000-case/41-probe matrix."
+    },
+    {
+      "deviation_id": "D-S03-006",
+      "scope": "post-baseline corrective fault-injection and CI evidence export",
+      "description": "A pre-persistence fault-injection probe found that the new scope binding rejected the pre-existing ME-013 unavailable-callable-span fallback. The failure was retained separately and the exception narrowed to physical_span_lines/unavailable/ME-013 with whole-artifact evidence. One corrective regression was added, increasing corrective unit tests from 18 to 19. This is not part of the original 197 baseline failed checks. Portable cell summaries were also added to CI job logs; raw artefacts remain separately uploaded."
+    }
+  ],
+  "historical_adjudications": [
+    {
+      "finding_id": "A04-F001",
+      "title": "Strict browser runtime-configuration admission",
+      "historic_phase": "I14",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_BROWSER_REVALIDATION_REQUIRED",
+      "evidence_boundary": "Native byte/file and S01-adapter evidence does not exercise the browser loader, SRI or Chromium cleanup.",
+      "next_required_work": "S05 browser integration, then exact-candidate functional/security CI.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A04-F002",
+      "title": "Fail-closed browser runtime acquisition and clean retry",
+      "historic_phase": "I14",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_BROWSER_REVALIDATION_REQUIRED",
+      "evidence_boundary": "Native byte/file and S01-adapter evidence does not exercise the browser loader, SRI or Chromium cleanup.",
+      "next_required_work": "S05 browser integration, then exact-candidate functional/security CI.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A04-F003",
+      "title": "Browser SRI/SHA-256 parity",
+      "historic_phase": "I14",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_BROWSER_REVALIDATION_REQUIRED",
+      "evidence_boundary": "Native byte/file and S01-adapter evidence does not exercise the browser loader, SRI or Chromium cleanup.",
+      "next_required_work": "S05 browser integration, then exact-candidate functional/security CI.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A04-F013",
+      "title": "Chromium harness cleanup across setup failures",
+      "historic_phase": "I14",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_BROWSER_REVALIDATION_REQUIRED",
+      "evidence_boundary": "Native byte/file and S01-adapter evidence does not exercise the browser loader, SRI or Chromium cleanup.",
+      "next_required_work": "S05 browser integration, then exact-candidate functional/security CI.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F001",
+      "title": "Remove superseded release rollback implementation",
+      "historic_phase": "I17",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_RELEASE_PATH_REVALIDATION_REQUIRED",
+      "evidence_boundary": "The S03 Git archive and SHA-256 manifest protect this continuity package only; they do not validate the historical publisher, rollback or canonical release gate.",
+      "next_required_work": "F01/REL01 release-path rebase and adversarial before/after validation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F003",
+      "title": "Canonical Unicode ZIP names and controlled metadata refusal",
+      "historic_phase": "I17",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_RELEASE_PATH_REVALIDATION_REQUIRED",
+      "evidence_boundary": "The S03 Git archive and SHA-256 manifest protect this continuity package only; they do not validate the historical publisher, rollback or canonical release gate.",
+      "next_required_work": "F01/REL01 release-path rebase and adversarial before/after validation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F004",
+      "title": "Exact ordered child release-gate inventory",
+      "historic_phase": "I17",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_RELEASE_PATH_REVALIDATION_REQUIRED",
+      "evidence_boundary": "The S03 Git archive and SHA-256 manifest protect this continuity package only; they do not validate the historical publisher, rollback or canonical release gate.",
+      "next_required_work": "F01/REL01 release-path rebase and adversarial before/after validation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A01-F011",
+      "title": "SHA-256 release comparison instead of CRC-32/size equality",
+      "historic_phase": "I17",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_RELEASE_PATH_REVALIDATION_REQUIRED",
+      "evidence_boundary": "The S03 Git archive and SHA-256 manifest protect this continuity package only; they do not validate the historical publisher, rollback or canonical release gate.",
+      "next_required_work": "F01/REL01 release-path rebase and adversarial before/after validation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A01-F008",
+      "title": "sys.monitoring coverage after trace removal",
+      "historic_phase": "I18",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_INTEGRATED_REVALIDATION_REQUIRED",
+      "evidence_boundary": "The native S03 kernel matrix is not evidence for the inherited monitoring, canonical coverage or document/resource reference tooling.",
+      "next_required_work": "S05/F01 appropriate exact-candidate legacy-path rebase and validation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A01-F009",
+      "title": "Finite deadlines for the historical test-owned subprocess inventory",
+      "historic_phase": "I18",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_PARTIAL_NEW_PATH_EVIDENCE",
+      "evidence_boundary": "The S03 resource children have 15-second deadlines and outer check processes 240-second deadlines. The full historical subprocess inventory and delayed-child negative control were not revalidated.",
+      "next_required_work": "Revalidate the inherited test-owned subprocess inventory before programme closure.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A01-F012",
+      "title": "Canonical discovered/executed/passed/skipped/expected-failure accounting",
+      "historic_phase": "I18",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_PARTIAL_NEW_ACCOUNTING_EVIDENCE",
+      "evidence_boundary": "S03 separates case IDs, executions, assertions, refusals, skips and supplementary controls. This does not repair or revalidate the inherited canonical unittest parser.",
+      "next_required_work": "F01 exact-candidate canonical accounting and malformed-terminal negative controls.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F010",
+      "title": "Canonical coverage floors on supported runtime",
+      "historic_phase": "I18",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_INTEGRATED_REVALIDATION_REQUIRED",
+      "evidence_boundary": "The native S03 kernel matrix is not evidence for the inherited monitoring, canonical coverage or document/resource reference tooling.",
+      "next_required_work": "S05/F01 appropriate exact-candidate legacy-path rebase and validation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F011",
+      "title": "Coverage evidence bound to policy, floors and enforcement state",
+      "historic_phase": "I18",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_INTEGRATED_REVALIDATION_REQUIRED",
+      "evidence_boundary": "The native S03 kernel matrix is not evidence for the inherited monitoring, canonical coverage or document/resource reference tooling.",
+      "next_required_work": "S05/F01 appropriate exact-candidate legacy-path rebase and validation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F012",
+      "title": "Correct document/base-relative reference resolution",
+      "historic_phase": "I18",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_INTEGRATED_REVALIDATION_REQUIRED",
+      "evidence_boundary": "The native S03 kernel matrix is not evidence for the inherited monitoring, canonical coverage or document/resource reference tooling.",
+      "next_required_work": "S05/F01 appropriate exact-candidate legacy-path rebase and validation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F013",
+      "title": "Bounded malformed resource-integrity metadata handling",
+      "historic_phase": "I18",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_INTEGRATED_REVALIDATION_REQUIRED",
+      "evidence_boundary": "The native S03 kernel matrix is not evidence for the inherited monitoring, canonical coverage or document/resource reference tooling.",
+      "next_required_work": "S05/F01 appropriate exact-candidate legacy-path rebase and validation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F007",
+      "title": "Explicit symbolic-link directory disposition in dependency inventory",
+      "historic_phase": "I19",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_DEPENDENCY_INVENTORY_REQUIRED",
+      "evidence_boundary": "A single-file symlink refusal is exercised, but is not proof of explicit symlink-directory reporting by the dependency inventory.",
+      "next_required_work": "S05/F01 dependency graph scanner rebase and external-target negative fixture.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F008",
+      "title": "Bounded transitive local CSS inspection",
+      "historic_phase": "I19",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_DISTRIBUTION_REVALIDATION_REQUIRED",
+      "evidence_boundary": "No CSS traversal, offline browser distribution or Node/Chromium execution is claimed in S03.",
+      "next_required_work": "S05/F01 distribution-specific tests and accurate deployment documentation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F009",
+      "title": "Truthful unvendored/offline browser distribution contract",
+      "historic_phase": "I19",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_DISTRIBUTION_REVALIDATION_REQUIRED",
+      "evidence_boundary": "No CSS traversal, offline browser distribution or Node/Chromium execution is claimed in S03.",
+      "next_required_work": "S05/F01 distribution-specific tests and accurate deployment documentation.",
+      "closed_by_s03": false
+    },
+    {
+      "finding_id": "A05-F014",
+      "title": "Accurate executable roles of Node, Chromium and Pyodide",
+      "historic_phase": "I19",
+      "historic_formal_status": "OPEN_SUPERSEDED_CARRY_FORWARD",
+      "s03_adjudication": "OPEN_DISTRIBUTION_REVALIDATION_REQUIRED",
+      "evidence_boundary": "No CSS traversal, offline browser distribution or Node/Chromium execution is claimed in S03.",
+      "next_required_work": "S05/F01 distribution-specific tests and accurate deployment documentation.",
+      "closed_by_s03": false
+    }
+  ],
+  "historical_ledger": {
+    "universe": 111,
+    "closed": 80,
+    "open": 31,
+    "s03_closures": 0,
+    "A01-F003": "P1 OPEN/PARTIALLY_IMPLEMENTED; universal process containment is not proven"
+  },
+  "scope_limits": [
+    "No participant study, construct validation, educational utility, fairness or authorship detection",
+    "The finite token-spacing formatter is not Black, Ruff or a universal formatter",
+    "The generated grammar is not factorial: async selection is coupled to family parity",
+    "Independent traversal shares the CPython AST front-end; analytic counts are a separate finite oracle",
+    "Schema/identity validation checks internal consistency, not authentic measurement or signed attestation",
+    "Core equality is assessed separately from runtime grammar frontiers and OS-specific limits"
+  ]
+}

@@ -1,0 +1,89 @@
+name: S03 robustness and computational validity
+on:
+  push:
+    branches: [research/codeprobe-s03-robustness-validity-20260912]
+    paths:
+      - .github/workflows/s03-robustness-validity.yml
+      - src/codeprobe_measurement_kernel.py
+      - src/codeprobe_s01_observation_adapter.py
+      - research/s03/**
+      - research/measurement-error-register.v1.json
+      - tools/*s03*.py
+      - tests/s03/**
+permissions:
+  contents: read
+concurrency:
+  group: s03-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  finite-validity:
+    name: S03 (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, python: '3.10.21', architecture: x64}
+          - {os: ubuntu-24.04, python: '3.14.7', architecture: x64}
+          - {os: windows-2025, python: '3.14.7', architecture: x64}
+          - {os: macos-15, python: '3.14.7', architecture: arm64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.architecture }}
+          check-latest: false
+      - name: Exact candidate, finite corpus and corrective regressions
+        shell: bash
+        env:
+          S03_OS: ${{ matrix.os }}
+        run: python -I -S -B tools/check_s03_robustness.py --output "$RUNNER_TEMP/s03-evidence"
+      - name: Preserve every outcome including failures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: s03-${{ matrix.os }}-${{ matrix.python }}
+          path: ${{ runner.temp }}/s03-evidence/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Confirm unchanged tracked source
+        if: ${{ always() }}
+        shell: bash
+        run: git diff --exit-code && git diff --cached --exit-code
+  compare:
+    name: Required S03 and cross-platform equivalence
+    if: ${{ always() }}
+    needs: [finite-validity]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: s03-*
+          path: ${{ runner.temp }}/s03-matrix
+      - name: Require all four cells and compare exact bytes
+        shell: bash
+        env:
+          CELL_RESULT: ${{ needs.finite-validity.result }}
+        run: |
+          test "$CELL_RESULT" = success
+          python -I -S -B tools/check_s03_robustness.py --compare "$RUNNER_TEMP/s03-matrix" --sha "$GITHUB_SHA"
+      - name: Preserve matrix verdict
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: s03-matrix-verdict
+          path: ${{ runner.temp }}/s03-matrix/MATRIX_VERDICT.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -40,6 +40,51 @@ REQUIRED_NON_INFERENCES = (
 )
 
 
+# S03 enforcement of the unchanged v1.1.0 atomic specification codomains.
+_VALUE_CONTRACTS = {
+    'source.byte_count': ('integer', 'byte', 0, None, ()),
+    'source.normalized_codepoint_count': ('integer', 'codepoint', 0, None, ()),
+    'source.physical_line_count': ('integer', 'line', 0, None, ()),
+    'source.nonblank_line_count': ('integer', 'line', 0, None, ()),
+    'source.blank_line_count': ('integer', 'line', 0, None, ()),
+    'source.max_line_length_codepoints': ('integer', 'codepoint_per_line', 0, None, ()),
+    'source.mean_line_length_codepoints': ('number', 'codepoint_per_line', 0, None, ()),
+    'source.population_sd_line_length_codepoints': ('number', 'codepoint_per_line', 0, None, ()),
+    'source.line_length_cv': ('number', 'dimensionless', 0, None, ()),
+    'source.trailing_whitespace_line_count': ('integer', 'line', 0, None, ()),
+    'source.mixed_indentation_line_count': ('integer', 'line', 0, None, ()),
+    'source.max_blank_line_run_length': ('integer', 'line', 0, None, ()),
+    'python.parse_status': ('string', 'category', None, None, ('parsed', 'syntax_error')),
+    'python.function_definition_count': ('integer', 'definition', 0, None, ()),
+    'python.async_function_definition_count': ('integer', 'definition', 0, None, ()),
+    'python.class_definition_count': ('integer', 'definition', 0, None, ()),
+    'python.import_statement_count': ('integer', 'statement', 0, None, ()),
+    'python.imported_binding_count': ('integer', 'binding', 0, None, ()),
+    'python.wildcard_import_count': ('integer', 'statement', 0, None, ()),
+    'python.comment_token_count': ('integer', 'token', 0, None, ()),
+    'python.comment_physical_line_count': ('integer', 'line', 0, None, ()),
+    'python.comment_line_proportion': ('number', 'proportion', 0, 1, ()),
+    'python.docstring_eligible_definition_count': ('integer', 'definition', 0, None, ()),
+    'python.docstring_present_definition_count': ('integer', 'definition', 0, None, ()),
+    'python.docstring_coverage_proportion': ('number', 'proportion', 0, 1, ()),
+    'python.annotation_eligible_slot_count': ('integer', 'slot', 0, None, ()),
+    'python.annotation_present_slot_count': ('integer', 'slot', 0, None, ()),
+    'python.annotation_coverage_proportion': ('number', 'proportion', 0, 1, ()),
+    'python.numeric_literal_count': ('integer', 'literal', 0, None, ()),
+    'python.exception_handler_count': ('integer', 'handler', 0, None, ()),
+    'python.raise_statement_count': ('integer', 'statement', 0, None, ()),
+    'python.callable.physical_span_lines': ('integer', 'line', 1, None, ()),
+    'python.callable.decision_point_count': ('integer', 'decision_point', 0, None, ()),
+    'python.callable.mccabe_complexity': ('integer', 'complexity_unit', 1, None, ()),
+    'python.callable.max_control_nesting_depth': ('integer', 'level', 0, None, ()),
+    'markdown.parse_status': ('string', 'category', None, None, ('complete', 'unclosed_fence')),
+    'markdown.atx_heading_count': ('integer', 'heading', 0, None, ()),
+    'markdown.setext_heading_count': ('integer', 'heading', 0, None, ()),
+    'markdown.fenced_code_block_count': ('integer', 'block', 0, None, ()),
+    'markdown.heading_level_jump_count': ('integer', 'transition', 0, None, ()),
+}
+
+
 class MeasurementError(ValueError):
     """Fail-closed measurement or intake error with a stable code."""
 
@@ -305,6 +350,16 @@ def validate_observation_record(record: Mapping[str, Any]) -> None:
     if entity["entity_kind"] not in {"source_artifact", "python_module", "python_callable", "markdown_document"}:
         raise ValueError("unsupported observation entity kind")
 
+    expected_kind = (
+        "python_callable" if observation_id.startswith("python.callable.") else
+        "python_module" if observation_id.startswith("python.") else
+        "markdown_document" if observation_id.startswith("markdown.") else "source_artifact"
+    )
+    if entity["entity_kind"] != expected_kind:
+        raise ValueError("observation entity kind differs from its specification")
+    if expected_kind != "python_callable" and entity["entity_id"] != ("source" if expected_kind == "source_artifact" else expected_kind):
+        raise ValueError("singleton observation entity identity differs from its specification")
+
     applicability = record["applicability"]
     if not isinstance(applicability, Mapping) or set(applicability) != {"state", "reason_code", "reason"}:
         raise ValueError("invalid applicability object")
@@ -320,10 +375,24 @@ def validate_observation_record(record: Mapping[str, Any]) -> None:
         raise ValueError("non-observed values require a reason code and explanation")
 
     value = record["value"]
-    if isinstance(value, (dict, list, tuple, set)):
-        raise ValueError("observation value is not atomic")
+    if value is not None and type(value) not in (str, int, float, bool):
+        raise ValueError("observation value is not an atomic JSON scalar")
     if isinstance(value, float) and not math.isfinite(value):
         raise ValueError("observation value must be finite")
+    if observation_id not in _VALUE_CONTRACTS:
+        raise ValueError("observation identifier has no declared value contract")
+    domain, expected_unit, minimum, maximum, categories = _VALUE_CONTRACTS[observation_id]
+    if record["unit"] != expected_unit or record["measurement_scale"] != ("nominal" if domain == "string" else "ratio"):
+        raise ValueError("observation unit or scale differs from its specification")
+    if value is not None:
+        if domain == "string":
+            if type(value) is not str or value not in categories:
+                raise ValueError("observation category lies outside its codomain")
+        else:
+            if type(value) not in ((int,) if domain == "integer" else (int, float)):
+                raise ValueError("observation numeric type differs from its codomain")
+            if (minimum is not None and value < minimum) or (maximum is not None and value > maximum):
+                raise ValueError("observation value lies outside its codomain")
     if record["measurement_scale"] not in {"nominal", "ordinal", "interval", "ratio"}:
         raise ValueError("invalid measurement scale")
     if not isinstance(record["unit"], str) or not record["unit"].strip():
@@ -332,6 +401,8 @@ def validate_observation_record(record: Mapping[str, Any]) -> None:
     evidence_ids = record["source_evidence_ids"]
     if not isinstance(evidence_ids, list) or not evidence_ids or len(evidence_ids) != len(set(evidence_ids)) or not all(isinstance(item, str) and item for item in evidence_ids):
         raise ValueError("unique source evidence identifiers are required")
+    if record["record_id"] != _record_id(record["specification_id"], entity["entity_id"], evidence_ids):
+        raise ValueError("observation record identity does not match its defining fields")
     instrumentation = record["instrumentation"]
     if not isinstance(instrumentation, Mapping) or set(instrumentation) != {"component", "algorithm_version", "parser"}:
         raise ValueError("invalid instrumentation object")
@@ -805,7 +876,7 @@ def _markdown_scan(lines: Sequence[str]) -> Tuple[str, int, int, int, int]:
         line = lines[index]
         if fence_character is not None:
             close = re.match(r"^[ ]{0,3}([`~]+)[ \t]*$", line)
-            if close and close.group(1)[0] == fence_character and len(close.group(1)) >= fence_length:
+            if close and set(close.group(1)) == {fence_character} and len(close.group(1)) >= fence_length:
                 fence_character = None
                 fence_length = 0
             index += 1
@@ -907,7 +978,7 @@ def _measurement_digest_scope(result: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def measure_bytes(data: bytes, *, language: str, path: str = "<memory>",
+def _measure_bytes_unchecked(data: bytes, *, language: str, path: str = "<memory>",
                   max_bytes: int = DEFAULT_MAX_BYTES) -> Dict[str, Any]:
     language_normalised = str(language).strip().lower()
     if language_normalised not in {"python", "markdown", "text"}:
@@ -953,6 +1024,19 @@ def measure_bytes(data: bytes, *, language: str, path: str = "<memory>",
     )
     validate_kernel_result(observation_payload)
     return observation_payload
+
+
+def measure_bytes(data: bytes, *, language: str, path: str = "<memory>",
+                  max_bytes: int = DEFAULT_MAX_BYTES) -> Dict[str, Any]:
+    """Measure under the finite contract; reject recoverable resource failures.
+
+    This boundary is not OS-level containment. Native crashes, process-wide
+    exhaustion and failures while constructing an exception remain outside it.
+    """
+    try:
+        return _measure_bytes_unchecked(data, language=language, path=path, max_bytes=max_bytes)
+    except (MemoryError, RecursionError) as exc:
+        raise MeasurementError("ME-015", "Python measurement exceeded a recoverable runtime resource limit") from exc
 
 
 def measure_file(path: os.PathLike[str] | str, *, language: str,
@@ -1003,7 +1087,7 @@ def validate_kernel_result(result: Mapping[str, Any]) -> None:
         if item["evidence_id"] in evidence_ids:
             raise ValueError("duplicate source evidence identifiers")
         evidence_ids.add(item["evidence_id"])
-        if item["normalised_sha256"] != artifact["normalised_sha256"] or not isinstance(item["path"], str):
+        if item["normalised_sha256"] != artifact["normalised_sha256"] or item["path"] != artifact["path"]:
             raise ValueError("source evidence artefact identity mismatch")
         if not all(isinstance(item[key], int) and not isinstance(item[key], bool) for key in ("start_line", "end_line", "start_column", "end_column")):
             raise ValueError("source evidence coordinates must be integers")
@@ -1011,6 +1095,12 @@ def validate_kernel_result(result: Mapping[str, Any]) -> None:
             raise ValueError("source evidence coordinates are invalid")
         if item["scope"] not in {"whole_artifact", "python_callable"}:
             raise ValueError("source evidence scope is unsupported")
+        expected_evidence_id = (
+            f"evidence:{item['normalised_sha256']}:{item['scope']}:"
+            f"L{item['start_line']}-L{item['end_line']}:C{item['start_column']}-C{item['end_column']}"
+        )
+        if item["evidence_id"] != expected_evidence_id:
+            raise ValueError("source evidence identity does not bind its coordinates")
 
     observations = result["observations"]
     if not isinstance(observations, list) or not observations:
@@ -1018,11 +1108,23 @@ def validate_kernel_result(result: Mapping[str, Any]) -> None:
     record_ids = set()
     for record in observations:
         validate_observation_record(record)
+        if record["entity"]["path"] != artifact["path"]:
+            raise ValueError("observation entity does not belong to the declared artefact path")
         if record["record_id"] in record_ids:
             raise ValueError("duplicate observation record identifier")
         record_ids.add(record["record_id"])
         if not set(record["source_evidence_ids"]).issubset(evidence_ids):
             raise ValueError("observation references unknown source evidence")
+        expected_scope = "python_callable" if record["entity"]["entity_kind"] == "python_callable" else "whole_artifact"
+        # An unavailable parser span cannot identify callable coordinates. Keep the
+        # existing ME-013 whole-artifact fallback without permitting observed data
+        # to borrow evidence at a different scope.
+        if (record["observation_id"] == "python.callable.physical_span_lines"
+                and record["applicability"]["state"] == "unavailable"
+                and record["applicability"]["reason_code"] == "ME-013"):
+            expected_scope = "whole_artifact"
+        if any(item["scope"] != expected_scope for item in source_evidence if item["evidence_id"] in record["source_evidence_ids"]):
+            raise ValueError("observation evidence scope differs from its entity scope")
 
     if "measurement_digest" in result:
         digest = result["measurement_digest"]

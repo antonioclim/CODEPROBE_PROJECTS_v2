@@ -10,6 +10,8 @@ import hashlib
 import json
 from typing import Any, Mapping
 
+from codeprobe_measurement_kernel import validate_observation_record
+
 ADAPTER_VERSION = "1.1.0"
 REQUIRED_MAPPING = {
     "observation_id": "observation_id",
@@ -56,6 +58,7 @@ def adapt_observation(record: Mapping[str, Any]) -> dict[str, Any]:
     owns the detailed span catalogue. S04 may enrich this boundary, but it may
     not weaken the non-equivalence or claim restrictions established here.
     """
+    validate_observation_record(record)
     output = {target: _get(record, source) for target, source in REQUIRED_MAPPING.items()}
     specification = str(record["specification_id"])
     spec_version = specification.rsplit("/", 1)[-1]

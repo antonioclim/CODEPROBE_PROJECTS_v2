@@ -1,0 +1,27 @@
+{
+  "schema": "codeprobe-s03-corpus-manifest/v1",
+  "seed": 20260912,
+  "case_identifiers": 2000,
+  "unique_byte_payloads": 1830,
+  "kind_counts": {
+    "core": 80,
+    "transformation": 512,
+    "property": 640,
+    "fuzz_bytes": 512,
+    "fuzz_python": 256
+  },
+  "hypothesis_case_counts": {
+    "H-S03-01": 80,
+    "H-S03-02": 80,
+    "H-S03-03": 80,
+    "H-S03-04": 48,
+    "H-S03-05": 48,
+    "H-S03-06": 48,
+    "H-S03-07": 80,
+    "H-S03-08": 48
+  },
+  "sha256": "7dc4f4bf0ff6260fa0e8f4aef7673f2a9c659eab4f76316a53441d8f9adac089",
+  "encoding": "UTF-8 JSON Lines with base64 payloads and per-case SHA-256",
+  "regeneration": "python -I -S -B tests/s03/corpus.py <output.jsonl>",
+  "claim_limit": "Repeated and dependent synthetic variants, not a factorial design or population sample; 2000 IDs do not mean 2000 independent artefacts."
+}
