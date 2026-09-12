@@ -1,0 +1,1 @@
+e25c7797c41f020c3268637d0bfbf0223a688ed789558f5d0d9be6a632218098  research/s03/protocol-lock.md
