@@ -1,0 +1,23 @@
+{
+  "title": "CodeProbe: Evidence contracts for measurement, policy and source localisation in heuristic code review",
+  "upload_type": "software",
+  "description": "A bounded source-review implementation that separates observation availability, measured values, interpretation policy, source localisation and consumer admission. This source-only candidate excludes held third-party executables and is not an AI-authorship or misconduct detector.",
+  "creators": [
+    {
+      "name": "Clim, Antonio",
+      "affiliation": "Bucharest University of Economic Studies",
+      "orcid": "0000-0003-4745-0431"
+    }
+  ],
+  "version": "2026.09.16-ce19",
+  "publication_date": "2026-09-16",
+  "license": "MIT",
+  "keywords": [
+    "software quality",
+    "source localisation",
+    "evidence contracts",
+    "result provenance",
+    "failure-oriented testing",
+    "computational repeatability"
+  ]
+}
