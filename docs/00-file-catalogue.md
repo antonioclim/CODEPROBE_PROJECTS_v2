@@ -1,6 +1,6 @@
 # 00 — File catalogue
 
-This catalogue is generated from `release/file-rename-map.csv` and records the canonical file names for the current package. `Previous path` is shown only for auditable migration history; current documentation and runtime references should use `Current path`.
+This catalogue is generated from `release/file-rename-map.csv` and records the canonical file names for the v2.3.0 release candidate. `Previous path` is shown only for auditable migration history; current documentation and runtime references should use `Current path`.
 
 ## Summary
 
@@ -14,11 +14,17 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 - `added_audit_phase4f2`: 3
 - `added_audit_phase4f3`: 8
 - `added_audit_phase4h`: 3
+- `added_ce20`: 1
 - `added_citation_lineage`: 2
 - `added_phase13`: 10
 - `completed_migration`: 30
 - `completed_phase13`: 4
+- `integrated_ce19`: 28
+- `integrated_ce19_patched`: 1
+- `integrated_ce20`: 9
 - `keep`: 68
+
+- **Total canonical files:** 194
 
 ## Current files
 
@@ -29,14 +35,19 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `.github/CODEOWNERS` | `—` | `.github` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `medium` |
 | `.github/workflows/ci.yml` | `—` | `.github` | continuous-integration workflow | `added_audit_phase4` | audit-4 | `high` |
 | `.gitignore` | `—` | `root` | standard project file | `keep` | current | `low` |
+| `.zenodo.json` | `—` | `root` | optional repository deposit metadata; no deposit authority | `integrated_ce20` | CE20 | `medium` |
 | `00-kit-index.md` | `KIT_INDEX.md` | `root` | standard project file | `completed_phase13` | 13 | `low` |
 | `CHANGELOG.md` | `—` | `root` | standard project file | `keep` | current | `low` |
 | `CITATION.bib` | `—` | `root` | release-specific software citation | `added_citation_lineage` | citation-lineage | `medium` |
 | `CITATION.cff` | `—` | `root` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `medium` |
 | `CONTRIBUTING.md` | `—` | `root` | standard project file | `keep` | current | `low` |
+| `DISTRIBUTION_BOUNDARY.md` | `—` | `root` | public distribution, provenance or third-party boundary | `integrated_ce20` | CE20 | `medium` |
 | `LICENSE` | `—` | `root` | standard project file | `keep` | current | `low` |
+| `NOTICE.md` | `—` | `root` | public distribution, provenance or third-party boundary | `integrated_ce20` | CE20 | `medium` |
 | `README.md` | `—` | `root` | standard project file | `keep` | current | `low` |
+| `REPRODUCIBILITY.md` | `—` | `root` | public distribution, provenance or third-party boundary | `integrated_ce20` | CE20 | `medium` |
 | `SECURITY.md` | `—` | `root` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `medium` |
+| `THIRD_PARTY_NOTICES.md` | `—` | `root` | public distribution, provenance or third-party boundary | `integrated_ce20` | CE20 | `medium` |
 | `app/README.md` | `—` | `app` | browser app asset | `keep` | current | `high` |
 | `app/analysis-worker.js` | `—` | `app` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `high` |
 | `app/codeprobe-ui.js` | `src/index.js` | `app` | browser app asset | `completed_migration` | current | `high` |
@@ -50,6 +61,8 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `app/resource-integrity.json` | `src/RESOURCE_INTEGRITY_MANIFEST.json` | `app` | browser app asset | `completed_migration` | current | `high` |
 | `app/runtime-config.example.json` | `src/runtime_config.example.json` | `app` | browser app asset | `completed_migration` | current | `high` |
 | `app/runtime-config.json` | `src/runtime_config.json` | `app` | browser app asset | `completed_migration` | current | `high` |
+| `app/s05/reader.css` | `—` | `app` | bounded evidence-contract reader asset | `integrated_ce20` | CE20 | `high` |
+| `app/s05/reader.js` | `—` | `app` | bounded evidence-contract reader asset | `integrated_ce20` | CE20 | `high` |
 | `app/vendor/pyodide/README.md` | `—` | `app` | browser app asset | `keep` | current | `high` |
 | `calibration/01-corpus-manifest-template.csv` | `calibration/manifest_template.csv` | `calibration` | calibration template or placeholder | `completed_migration` | current | `medium` |
 | `calibration/01-corpus-manifest-template.json` | `calibration/manifest_template.json` | `calibration` | calibration template or placeholder | `completed_migration` | current | `medium` |
@@ -109,10 +122,34 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `educator/07-course-integration.md` | `COURSE_INTEGRATION.md` | `educator` | educator resource | `completed_migration` | current | `medium` |
 | `educator/08-deployment-one-page.md` | `—` | `educator` | educator resource | `keep` | current | `medium` |
 | `educator/09-project-kit-notice.md` | `PROJECT_KIT_NOTICE.md` | `educator` | educator resource | `completed_migration` | current | `medium` |
+| `provenance/ACTIVE_NATIVE_FILES_CE04.json` | `—` | `provenance` | source identity and integration provenance record | `integrated_ce19` | CE20 | `high` |
+| `provenance/CE04_COMPLETE_SOURCE_IDENTITY.json` | `—` | `provenance` | source identity and integration provenance record | `integrated_ce19` | CE20 | `high` |
+| `provenance/CE19_OVERLAY.json` | `—` | `provenance` | source identity and integration provenance record | `integrated_ce19` | CE20 | `high` |
+| `provenance/CE20_P01_RELEASE_INTEGRATION.json` | `—` | `provenance` | source identity and integration provenance record | `added_ce20` | CE20 | `high` |
+| `release/RELEASE_NOTES_v2.3.0.md` | `release/RELEASE_NOTES_CE19_DRAFT.md` | `release` | release-specific notes and distribution boundary | `integrated_ce20` | CE20 | `medium` |
 | `release/file-rename-map.csv` | `release/rename-map.csv` | `release` | release evidence | `completed_phase13` | 13 | `high` |
 | `release/final-audit-report.json` | `—` | `release` | release evidence | `added_phase13` | 13 | `medium` |
 | `release/final-audit-summary.md` | `—` | `release` | release evidence | `added_phase13` | 13 | `medium` |
 | `release/release-manifest.json` | `RELEASE_MANIFEST.json` | `release` | release evidence | `completed_phase13` | 13 | `low` |
+| `reproducibility/README.md` | `—` | `reproducibility` | public reproducibility-scope documentation | `integrated_ce20` | CE20 | `medium` |
+| `research/ce04/component-inventory.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/ce04/locator-contract.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/claim-policy.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/construct-map.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/measurement-error-register.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/observation-catalogue.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/s03/error-register-extension.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/s04/acceptance-lock.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/s04/calibration-design.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/s04/condition-migration.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/s04/profiles.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/s05/BRIDGE_PRIVACY_ACCESSIBILITY.md` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `research/s05/acceptance-lock.v1.json` | `—` | `research` | machine-readable scientific claim, construct or acceptance contract | `integrated_ce19` | CE20 | `high` |
+| `schemas/codeprobe-feedback-journal-v1.schema.json` | `—` | `schemas` | machine-readable evidence-contract schema | `integrated_ce19` | CE20 | `high` |
+| `schemas/codeprobe-measurement-kernel-result-v1.schema.json` | `—` | `schemas` | machine-readable evidence-contract schema | `integrated_ce19` | CE20 | `high` |
+| `schemas/codeprobe-observation-catalogue-v1.schema.json` | `—` | `schemas` | machine-readable evidence-contract schema | `integrated_ce19` | CE20 | `high` |
+| `schemas/codeprobe-review-bundle-v1.schema.json` | `—` | `schemas` | machine-readable evidence-contract schema | `integrated_ce19` | CE20 | `high` |
+| `src/codeprobe_calibration_admission.py` | `—` | `src` | bounded evidence-contract implementation module | `integrated_ce19` | CE20 | `high` |
 | `src/codeprobe_engine/README.md` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
 | `src/codeprobe_engine/__init__.py` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
 | `src/codeprobe_engine/api.py` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
@@ -124,7 +161,14 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `src/codeprobe_engine/release.py` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
 | `src/codeprobe_engine/server.py` | `—` | `src` | maintainer engine support module | `added_audit_phase4c` | audit-4c | `high` |
 | `src/codeprobe_engine/version.py` | `—` | `src` | maintainer engine support module | `keep` | current | `high` |
+| `src/codeprobe_interpretation.py` | `—` | `src` | bounded evidence-contract implementation module | `integrated_ce19_patched` | CE20 | `high` |
+| `src/codeprobe_measurement_kernel.py` | `—` | `src` | bounded evidence-contract implementation module | `integrated_ce19` | CE20 | `high` |
+| `src/codeprobe_report_cli.py` | `—` | `src` | bounded evidence-contract implementation module | `integrated_ce19` | CE20 | `high` |
+| `src/codeprobe_reporting.py` | `—` | `src` | bounded evidence-contract implementation module | `integrated_ce19` | CE20 | `high` |
+| `src/codeprobe_review_contract.py` | `—` | `src` | bounded evidence-contract implementation module | `integrated_ce19` | CE20 | `high` |
 | `src/codeprobe_runtime.py` | `src/engine.py` | `src` | browser-compatible analysis runtime | `completed_migration` | current | `high` |
+| `src/codeprobe_s01_observation_adapter.py` | `—` | `src` | bounded evidence-contract implementation module | `integrated_ce19` | CE20 | `high` |
+| `tests/s05/view_oracle.py` | `—` | `tests` | support-only evidence-contract view oracle | `integrated_ce19` | CE20 | `high` |
 | `tests/test_app_runtime_tools_paths.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_browser_security.py` | `—` | `tests` | regression test | `keep` | current | `high` |
 | `tests/test_calibration_profiles.py` | `—` | `tests` | regression test | `keep` | current | `high` |
@@ -173,9 +217,14 @@ This catalogue is generated from `release/file-rename-map.csv` and records the c
 | `tools/check_release.py` | `src/release_check.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/check_release_reproducibility.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4` | audit-4 | `high` |
 | `tools/check_worker_protocol.js` | `—` | `tools` | worker resilience, export privacy or governance metadata | `added_audit_phase4f3` | audit-4f3 | `high` |
+| `tools/codeprobe_s05.py` | `—` | `tools` | bounded evidence-contract command-line entry point | `integrated_ce19` | CE20 | `high` |
 | `tools/compare_releases.py` | `—` | `tools` | command-line or release utility | `keep` | current | `high` |
 | `tools/coverage-policy.json` | `—` | `tools` | command-line or release utility | `added_audit_phase4d` | audit-4d | `high` |
 | `tools/final_audit.py` | `—` | `tools` | command-line or release utility | `added_phase13` | 13 | `high` |
 | `tools/prepare_pyodide_fixture.py` | `—` | `tools` | command-line or release utility | `added_audit_phase4f1` | audit-4f1 | `high` |
 | `tools/run_local_server.py` | `src/run_local_server.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
 | `tools/validate_release.py` | `src/validate_release.py` | `tools` | command-line or release utility | `completed_migration` | current | `high` |
+
+## Interpretation
+
+The catalogue proves path membership and migration history. It does not establish scientific validity, release authority, third-party redistribution rights or completion of held CE09/CE11 evidence packages.

@@ -17,9 +17,14 @@ Accepted contributions should be credited according to their documented scope.
 
 Contributions should improve correctness, robustness, security, usability,
 transparent methodology or documentation. CodeProbe is an inspectable formative
-static-analysis tool, not a validated disciplinary detector. A score is not an
-AI-authorship probability. Do not add a metric merely because it detects clean,
-well-documented or stylistically consistent code.
+static-analysis tool, not a validated disciplinary detector. The current scientific
+route is an evidence contract: observation availability, measured values,
+interpretation policy, source localisation and consumer admission remain separate.
+It is vector-only and non-compensatory. Do not reintroduce a global scalar,
+origin classification or screenshot threshold as current scientific guidance.
+The retained compatibility score is not an AI-authorship probability. Do not add
+a metric merely because it detects clean, well-documented or stylistically
+consistent code.
 
 A lower score after a code change is not proof of greater human authorship.
 A higher score is not proof of misconduct. Clearly distinguish measured software
@@ -79,8 +84,8 @@ integrity metadata and SRI updates, verified by the existing controls.
 
 ## Documentation and attribution
 
-Keep input formats, parser limitations, output schemas and commands consistent
-with implementation. Preserve the distinction between bundled teaching documents
+Keep input formats, parser limitations, output schemas, evidence-contract schemas and commands consistent
+with implementation. Preserve the distinction between software version and report-schema version; a release-number change does not silently create a schema migration. Preserve the distinction between bundled teaching documents
 and formats the engine can actually read. Update examples when behaviour changes;
 identify placeholders and pseudocode rather than claiming they were executed.
 

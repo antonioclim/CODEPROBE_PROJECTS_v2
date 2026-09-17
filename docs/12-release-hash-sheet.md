@@ -24,8 +24,8 @@ python3 -I -S -B tools/check_release.py
 `tools/build_release.py` creates two required sidecars beside the ZIP as:
 
 ```text
-CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
-CodeProbe_Project_Kit_v2.2.0.zip.package_audit.json
+CodeProbe_Project_Kit_v2.3.0.zip.sha256.txt
+CodeProbe_Project_Kit_v2.3.0.zip.package_audit.json
 ```
 
 The ZIP hash cannot be embedded inside the ZIP without changing the ZIP itself.

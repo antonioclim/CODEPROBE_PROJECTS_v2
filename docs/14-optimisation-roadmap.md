@@ -21,11 +21,11 @@ normalisation and CI controls without changing the scoring model.
 | 13 | v2.2.0 | final naming-stable audit and release boundary |
 | Audit 4C | branch candidate | constrained serving, bounded process execution and measured Pyodide startup provenance |
 | Audit 4D | branch candidate | supported-code coverage ratchet and focused execution-boundary extraction |
+| CE20 | v2.3.0 candidate | evidence-contract integration, compatibility shim and release-boundary reconciliation |
 
 ## Current status
 
-The v2.2.0 feature layout is stable. Its package areas are `.github/`, `app/`,
-`src/`, `tools/`, `docs/`, `educator/`, `calibration/`, `release/` and `tests/`.
+The v2.2.0 feature layout remains the compatibility baseline. The v2.3.0 candidate adds the stable `provenance/`, `reproducibility/`, `research/` and `schemas/` areas without renaming the established application paths.
 The authoritative inventory is `docs/00-file-catalogue.md`; the machine-readable
 path record is `release/file-rename-map.csv`; the final release audit is
 `docs/15-final-release-audit.md`. Engineering gates do not establish scientific

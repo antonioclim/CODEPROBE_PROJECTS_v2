@@ -62,7 +62,7 @@ class PhaseFourCalibrationTests(unittest.TestCase):
             "calibration_profile": calibration,
         })))
         report = result["report"]
-        self.assertEqual(report["app_version"], "2.2.0")
+        self.assertEqual(report["app_version"], "2.3.0")
         self.assertEqual(report["schema_version"], "2.2.0")
         self.assertEqual(report["calibration_profile_id"], "unit-test-profile")
         self.assertEqual(report["review_trigger_percent"], 1.0)

@@ -24,11 +24,11 @@ power-loss durability on every filesystem.
 
 ## 2. Transaction layout
 
-For an output named `CodeProbe_Project_Kit_v2.2.0.zip`, publication uses:
+For an output named `CodeProbe_Project_Kit_v2.3.0.zip`, publication uses:
 
 ```text
-.CodeProbe_Project_Kit_v2.2.0.zip.publish.lock
-.CodeProbe_Project_Kit_v2.2.0.zip.transaction-<32-hex-id>/
+.CodeProbe_Project_Kit_v2.3.0.zip.publish.lock
+.CodeProbe_Project_Kit_v2.3.0.zip.transaction-<32-hex-id>/
 ```
 
 The lock is a strict JSON document that binds the transaction identifier,
@@ -119,7 +119,7 @@ Run recovery without building a new packet:
 ```bash
 python3 -I -S -B tools/build_release.py \
   --recover-only \
-  --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+  --out dist/CodeProbe_Project_Kit_v2.3.0.zip
 ```
 
 The `--out` value must be identical to the interrupted publication target. For

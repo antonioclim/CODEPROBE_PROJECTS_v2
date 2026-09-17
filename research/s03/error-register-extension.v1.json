@@ -1,0 +1,25 @@
+{
+  "schema": "codeprobe-s03-error-register-extension/v1",
+  "author": "Antonio Clim",
+  "base_register": "research/measurement-error-register.v1.json",
+  "base_register_version": "1.0.0",
+  "errors": [
+    {
+      "error_id": "ME-015",
+      "class": "finite_budget",
+      "condition": "recoverable_python_runtime_resource_exhaustion",
+      "affected_observations": "all",
+      "required_state": "unavailable",
+      "zero_policy": "Raise typed MeasurementError; no partial observations or substituted zeros.",
+      "detection": "MemoryError or RecursionError caught at the measure_bytes boundary",
+      "residual_risk": "Not process containment. Native crashes and failure to allocate an exception are not caught."
+    }
+  ],
+  "scope_note": "An additive S03 definition. No product, kernel, catalogue or existing register version is changed.",
+  "historic_code_collision": {
+    "code": "ME-008",
+    "kernel_usage": "unsupported language declaration; typed rejection",
+    "register_usage": "finite Markdown subset omission with observed limitation",
+    "disposition": "Preserve the locked ME-008 unsupported-language test. Do not treat the two conditions as equivalent. Normalising the historical taxonomy is carried to S04."
+  }
+}

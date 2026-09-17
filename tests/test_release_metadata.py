@@ -76,7 +76,7 @@ class ReleaseMetadataTests(unittest.TestCase):
             "engine_fingerprint": "0" * 64,
         })))
         report = result["report"]
-        self.assertEqual(report["app_version"], "2.2.0")
+        self.assertEqual(report["app_version"], "2.3.0")
         self.assertEqual(report["schema_version"], engine.FILE_REPORT_SCHEMA_VERSION)
         self.assertIn("metric_config_digest", report)
         self.assertIn("metric_role_summary", report)
@@ -110,7 +110,7 @@ class ReleaseMetadataTests(unittest.TestCase):
 
     def test_release_manifest_can_be_built_and_verified(self):
         manifest = build_release_manifest(ROOT, app_version=engine.APP_VERSION)
-        self.assertEqual(manifest["app_version"], "2.2.0")
+        self.assertEqual(manifest["app_version"], "2.3.0")
         self.assertGreater(manifest["file_count"], 10)
         with tempfile.TemporaryDirectory() as tmp:
             fixture_root = Path(tmp) / "kit"

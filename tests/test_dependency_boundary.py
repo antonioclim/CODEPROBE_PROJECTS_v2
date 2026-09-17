@@ -1347,5 +1347,25 @@ class DependencyBoundaryTests(unittest.TestCase):
         self.assertIn("remain outside", rendered)
 
 
+class EvidenceContractIntegrationBoundaryTests(unittest.TestCase):
+    def test_interpretation_identity_uses_no_direct_process_launch(self) -> None:
+        source = (ROOT / "src" / "codeprobe_interpretation.py").read_text(encoding="utf-8")
+        self.assertNotIn("import subprocess", source)
+        self.assertNotIn("subprocess.", source)
+        self.assertIn("external release-provenance receipt", source)
+
+    def test_new_source_modules_are_declared_first_party_entries(self) -> None:
+        required = {
+            "codeprobe_calibration_admission.py",
+            "codeprobe_interpretation.py",
+            "codeprobe_measurement_kernel.py",
+            "codeprobe_report_cli.py",
+            "codeprobe_reporting.py",
+            "codeprobe_review_contract.py",
+            "codeprobe_s01_observation_adapter.py",
+        }
+        self.assertTrue(required.issubset(dependency_boundary.APPROVED_SOURCE_ENTRIES))
+
+
 if __name__ == "__main__":
     unittest.main()

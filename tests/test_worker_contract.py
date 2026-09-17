@@ -209,10 +209,15 @@ run().catch(error => {console.error(error);process.exitCode=1;});
         citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
         licence = (ROOT / "LICENSE").read_text(encoding="utf-8")
         owners = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
-        self.assertEqual(json.loads(citation)["authors"], [{"family-names": "Clim", "given-names": "Antonio"}])
+        self.assertEqual(json.loads(citation)["authors"], [{
+            "family-names": "Clim",
+            "given-names": "Antonio",
+            "orcid": "https://orcid.org/0000-0003-4745-0431",
+            "affiliation": "Bucharest University of Economic Studies",
+        }])
         self.assertIn("CodeProbe contributors", licence)
         self.assertNotIn("doi", json.loads(citation))
-        self.assertTrue(all("orcid" not in author for author in json.loads(citation)["authors"]))
+        self.assertNotIn("commit", json.loads(citation))
         self.assertIn("* @antonioclim", owners)
         self.assertIn("does not establish", owners)
         self.assertTrue((ROOT / "SECURITY.md").is_file())

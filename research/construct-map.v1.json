@@ -1,0 +1,268 @@
+{
+  "catalogue_version": "1.0.0",
+  "core_principles": [
+    {
+      "name": "causal_abstention",
+      "principle_id": "CP-01",
+      "rule": "A code-derived observation may describe a property of supplied bytes but may not identify why that property is present or who produced it."
+    },
+    {
+      "name": "typed_applicability",
+      "principle_id": "CP-02",
+      "rule": "Unavailable, inapplicable and unobserved values are distinct states and none is encoded as zero."
+    },
+    {
+      "name": "non_compensation",
+      "principle_id": "CP-03",
+      "rule": "Evidence in one review dimension may not cancel evidence in an unrelated dimension."
+    },
+    {
+      "name": "traceable_action",
+      "principle_id": "CP-04",
+      "rule": "Every suggested action must cite the observations and source evidence that warrant it and must remain reversible."
+    },
+    {
+      "name": "non_equivalent_legacy_migration",
+      "principle_id": "CP-05",
+      "rule": "Legacy scalar fields are preserved only as read-only historical semantics and are never silently translated into the v3 construct."
+    }
+  ],
+  "dimensions": [
+    {
+      "allowed_interpretations": [
+        "The supplied artefact contains structures that may increase comprehension or testing burden.",
+        "Complexity is concentrated or dispersed across identified entities."
+      ],
+      "dimension_id": "structural_complexity_dispersion",
+      "evidence_gate": "Retain only after metric-level specifications and metamorphic tests in S02-S03.",
+      "label": "Structural complexity and dispersion",
+      "metamorphic_expectations": [
+        "formatting-only changes should not alter structural counts",
+        "semantics-preserving extraction should preserve entity identity where the adapter supports it"
+      ],
+      "nuisance_factors": [
+        "language",
+        "task type",
+        "generated scaffolding",
+        "project size"
+      ],
+      "observable_families": [
+        "control-flow counts and nesting",
+        "function-size distribution",
+        "within-project dispersion",
+        "declared parser completeness"
+      ],
+      "permitted_actions": [
+        "Ask whether a named function can be decomposed without obscuring domain logic.",
+        "Inspect whether tests cover the identified branch or nesting concentration."
+      ],
+      "prohibited_inferences": [
+        "authorship or provenance",
+        "misconduct or independent-work status",
+        "developer competence",
+        "automatic grading or sanction"
+      ],
+      "status": "working_hypothesis"
+    },
+    {
+      "allowed_interpretations": [
+        "A reviewer may benefit from inspecting whether selected names communicate their local role."
+      ],
+      "dimension_id": "clarity_naming",
+      "evidence_gate": "Expert content mapping and language-specific specification are required before empirical interpretation.",
+      "label": "Clarity and naming evidence",
+      "metamorphic_expectations": [
+        "consistent alpha-renaming may change naming evidence but must not change unrelated dimensions"
+      ],
+      "nuisance_factors": [
+        "domain vocabulary",
+        "language conventions",
+        "assignment scaffolding",
+        "identifier normalisation"
+      ],
+      "observable_families": [
+        "identifier descriptiveness proxies",
+        "name reuse and shadowing observations",
+        "comment-to-entity alignment candidates"
+      ],
+      "permitted_actions": [
+        "Pose a source-local naming question with counterexamples.",
+        "Suggest a reversible rename only when references are traceable."
+      ],
+      "prohibited_inferences": [
+        "language fluency",
+        "authorship or provenance",
+        "intent or effort",
+        "misconduct"
+      ],
+      "status": "working_hypothesis"
+    },
+    {
+      "allowed_interpretations": [
+        "Specific documentation statements may be inconsistent with inspectable implementation evidence."
+      ],
+      "dimension_id": "documentation_implementation_alignment",
+      "evidence_gate": "Each alignment rule requires an independently checkable reference contract.",
+      "label": "Documentation–implementation alignment",
+      "metamorphic_expectations": [
+        "unrelated prose edits should not change implementation correspondence"
+      ],
+      "nuisance_factors": [
+        "documentation build configuration",
+        "version skew",
+        "generated references"
+      ],
+      "observable_families": [
+        "documented interface references",
+        "declared option and file correspondence",
+        "stale-link and resource checks"
+      ],
+      "permitted_actions": [
+        "Ask the author to reconcile a named statement and implementation location.",
+        "Suggest updating or removing a stale reference."
+      ],
+      "prohibited_inferences": [
+        "deception",
+        "authorship or provenance",
+        "misconduct",
+        "overall software quality"
+      ],
+      "status": "working_hypothesis"
+    },
+    {
+      "allowed_interpretations": [
+        "An identified operation may have an unexamined or weakly evidenced failure path."
+      ],
+      "dimension_id": "defensive_explicitness_failure_handling",
+      "evidence_gate": "Static observations must be separated from executed failure evidence.",
+      "label": "Defensive explicitness and failure handling",
+      "metamorphic_expectations": [
+        "adding a tested failure branch may alter this dimension but must not improve unrelated evidence by compensation"
+      ],
+      "nuisance_factors": [
+        "framework-provided handling",
+        "unresolved dependencies",
+        "platform-specific behaviour"
+      ],
+      "observable_families": [
+        "error-path visibility",
+        "input validation observations",
+        "resource-cleanup evidence",
+        "failure propagation candidates"
+      ],
+      "permitted_actions": [
+        "Ask how a named failure is represented and tested.",
+        "Suggest a bounded negative test tied to the source location."
+      ],
+      "prohibited_inferences": [
+        "security certification",
+        "absence of vulnerabilities",
+        "authorship or provenance",
+        "misconduct"
+      ],
+      "status": "working_hypothesis"
+    },
+    {
+      "allowed_interpretations": [
+        "Selected repeated structures may warrant a maintainability review."
+      ],
+      "dimension_id": "repetition_redundancy_maintainability",
+      "evidence_gate": "Clone and scaffold controls are mandatory before interpretation.",
+      "label": "Repetition, redundancy and maintainability signals",
+      "metamorphic_expectations": [
+        "extracting a shared helper should alter only mapped repetition observations unless other code properties actually change"
+      ],
+      "nuisance_factors": [
+        "generated code",
+        "protocol boilerplate",
+        "test parametrisation",
+        "small files"
+      ],
+      "observable_families": [
+        "duplicate-token or structure candidates",
+        "repeated constants",
+        "parallel implementation patterns"
+      ],
+      "permitted_actions": [
+        "Ask whether repetition is intentional domain duplication or a refactoring opportunity."
+      ],
+      "prohibited_inferences": [
+        "plagiarism",
+        "authorship or provenance",
+        "misconduct",
+        "automatic defect prediction"
+      ],
+      "status": "working_hypothesis"
+    },
+    {
+      "allowed_interpretations": [
+        "The supplied project packet has a specific provenance, intake or dependency-boundary issue."
+      ],
+      "dimension_id": "project_intake_dependency_hygiene",
+      "evidence_gate": "S03 must revalidate the historical intake and release-integrity requirements.",
+      "label": "Project intake and dependency hygiene",
+      "metamorphic_expectations": [
+        "reordering archive entries must not change admitted-file identity or hygiene findings"
+      ],
+      "nuisance_factors": [
+        "export tool",
+        "operating system",
+        "package manager",
+        "course template"
+      ],
+      "observable_families": [
+        "archive and path safety",
+        "dependency-boundary declarations",
+        "ignored/generated-file provenance",
+        "resource-integrity evidence"
+      ],
+      "permitted_actions": [
+        "Request a cleaner project packet or explicit dependency inventory.",
+        "Ask for provenance evidence for a named external resource."
+      ],
+      "prohibited_inferences": [
+        "malicious intent",
+        "authorship or provenance of source content",
+        "misconduct",
+        "security certification"
+      ],
+      "status": "working_hypothesis"
+    },
+    {
+      "allowed_interpretations": [
+        "The available observations are incomplete or qualified for identified source regions."
+      ],
+      "dimension_id": "parser_scope_unsupported_construct_burden",
+      "evidence_gate": "Adapter completeness and diagnostic behaviour must be specified in S02-S03.",
+      "label": "Parser scope and unsupported-construct burden",
+      "metamorphic_expectations": [
+        "unsupported-form diagnostics must remain explicit and must not be converted into low evidence"
+      ],
+      "nuisance_factors": [
+        "language version",
+        "preprocessor state",
+        "framework syntax",
+        "encoding"
+      ],
+      "observable_families": [
+        "adapter diagnostics",
+        "unsupported construct inventory",
+        "partial extraction qualifications",
+        "runtime and grammar version"
+      ],
+      "permitted_actions": [
+        "Suppress unsupported interpretations.",
+        "Ask for an alternative analysis route or manual inspection of the named region."
+      ],
+      "prohibited_inferences": [
+        "source defect",
+        "authorship or provenance",
+        "misconduct",
+        "low quality because the analyser lacks support"
+      ],
+      "status": "working_hypothesis"
+    }
+  ],
+  "schema": "codeprobe-construct-map/v1",
+  "status": "working_hypotheses_pending_content_and_empirical_validation"
+}

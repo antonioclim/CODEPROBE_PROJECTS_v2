@@ -1,8 +1,25 @@
 # Changelog
 
-## Unreleased — I13 calibration and documentation contracts
+## [2.3.0] - 2026-09-16
 
-- Remove the accepted-but-ignored `--min-per-class-for-language` argument. Existing scripts must remove it; no statistical minimum or scoring change replaces it.
+### Evidence-contract research integration
+
+- Integrate a bounded, vector-only evidence-contract route that separates observation availability, measured values, interpretation policy, source localisation and consumer admission.
+- Add measurement-kernel, interpretation, reporting, review-contract and calibration-admission modules together with machine-readable schemas, claim policy, construct mapping, measurement-error records and CE04/S05 provenance contracts.
+- Preserve the repaired local CE04 candidate and historical S05 comparator as distinct identities; retain the original negative replay result rather than converting it into a pass.
+- Keep the established browser, project-analysis and calibration application as a compatibility surface without restoring its global scalar, origin-classification language or provisional 60% trigger as current scientific guidance.
+- Separate the software version (`2.3.0`) from unchanged file and project report schemas (`2.2.0` and `2.2.0-project`).
+- Remove direct Git process launch from the bounded interpretation module; exact commit and tree anchors are recorded externally after the integration commit exists.
+- Add an explicit distribution boundary for the complete tagged repository snapshot and the separately attached bounded source-only asset.
+
+### Compatibility
+
+- Preserve `analyse_file(payload)` and `analyse_project(payload)` as the small Python API wrappers.
+- Retain `--min-per-class-for-language` as a hidden, deprecated and ignored parser alias for v2.2.0 command compatibility. Its value has no statistical effect and new scripts should omit it.
+
+### Calibration and documentation contracts
+
+- Preserve the no-effect status of `--min-per-class-for-language`; no statistical minimum or scoring change is inferred from its compatibility alias.
 - Separate file/project manifest templates in JSON/CSV with explicit fit/evaluation strata and declared groups. Mark both profile illustrations non-operational; do not activate them or edit replay hashes.
 - Make current calibration commands explicit about isolation, working directories, private outputs and compatible profile scope. Document fresh UUID4 exports and the wrapper's lack of inferred author/submission groups.
 - Correct report field/type examples using generated file/project projections without changing wire fields. Separate reading classes, inclusive review triggers and teaching actions; synchronise the student announcement and factual Word metadata.
@@ -13,9 +30,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on *Keep a Changelog* and this repository uses semantic-style version tags when releases are made.
 
-## [Unreleased]
+### Maintained engineering changes accumulated since v2.2.0
 
-### Named citation, contribution guidance and legacy lineage
+#### Named citation, contribution guidance and legacy lineage
 
 - Name Antonio Clim as the software author and maintainer in CFF, BibTeX,
   README and contribution guidance, without changing the MIT notices.
@@ -25,7 +42,7 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 - Keep citation identity, legacy-evidence qualifiers and the expanded format
   guide under maintained CI regressions.
 
-### Output, privacy and numeric boundaries
+#### Output, privacy and numeric boundaries
 
 - Validate report destinations before writes, refuse input/output aliases and
   stage complete UTF-8 reports outside the source tree before replacement.
@@ -34,14 +51,14 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 - Reject non-finite effective weights, thresholds and review-policy values
   before clamping or fitting; require conforming generated JSON before output.
 
-### Provenance and parser qualification
+#### Provenance and parser qualification
 
 - Distinguish caller-declared engine provenance from the measured source digest.
 - Require Python AST availability for calibration fitting and bound replay while
   retaining warning-bearing unbound diagnostics and common-syntax replay.
 - Record actual runtime metadata and clarify raw intake budgets and coverage policy.
 
-### Contract reconciliation after targeted re-audit
+#### Contract reconciliation after targeted re-audit
 
 - Read generated report fixtures explicitly as UTF-8 and exercise a legacy
   default codec without weakening CLI replay assertions.
@@ -60,7 +77,7 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 
 - Prevent a cancelled manual-engine file read from starting a worker after cancellation.
 
-### Worker resilience and export privacy
+#### Worker resilience and export privacy
 
 - Move both browser analysis routes into an authenticated dedicated worker, with single-flight admission, startup/analysis deadlines, termination on cancel and stale-result rejection.
 - Add real Chromium legal-input responsiveness, deadline/retry and worker-bootstrap tamper checks alongside hermetic protocol races.
@@ -68,13 +85,13 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 - Replace exported calibration identifiers with fresh opaque tokens only after partitioning and fitting, without exporting an identity mapping.
 - Add security reporting, runtime lifecycle, review routing and collective contributor citation metadata without changing the licence or claiming branch-rule enforcement.
 
-### Reconciliation
+#### Reconciliation
 
 - Preserve exact control-file bytes on Windows with binary descriptors, close failed lock writes before removal and declare pointer-sized process handles.
 - Exercise malformed recovery records, damaged staged packets, lock collisions and platform control-file contracts without lowering coverage floors.
 - Run normal-command release recovery before current-checkout validation, with regressions for an invalid checkout and an unknown concurrent packet change.
 
-### Added
+#### Added
 
 - Add a durable release-publication lock and journal with checksum-as-readiness semantics, explicit `--recover-only` operation and abrupt-process-termination recovery tests.
 - Add a real-browser functional-integrity gate that runs authenticated Pyodide bytes, performs single-file and project analyses, validates JSON/text downloads and exercises tamper and reload-recovery paths.
@@ -98,7 +115,7 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
 - Make vendored Pyodide bytes fail closed until a complete authenticated runtime
   inventory and verifier are present.
 
-### Fixed
+#### Fixed
 
 - Recover interrupted release publication deterministically by retaining a complete new packet, restoring the recorded prior packet or stopping fail-closed on an unknown concurrent state.
 - Bind each verified Pyodide startup artefact to the bytes actually consumed during bootstrap instead of permitting a second unchecked network response.
@@ -146,7 +163,6 @@ The format is based on *Keep a Changelog* and this repository uses semantic-styl
   attempt complete prior-packet rollback after detected in-process failures.
 - Normalise the historical CRLF file-rename map so a Windows checkout cannot
   invalidate committed resource-integrity and release evidence.
-
 ## [2.2.0] - 2026-05-29
 
 ### Changed

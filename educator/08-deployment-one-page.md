@@ -34,7 +34,7 @@ the release gate.
 6. Build and archive the institutional release packet:
 
 ```bash
-python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0_institutional.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.3.0_institutional.zip
 ```
 
 ## Minimum publication packet

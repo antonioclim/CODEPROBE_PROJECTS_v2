@@ -24,7 +24,7 @@ This document defines the file-naming rules used by the naming-stable CodeProbe 
 
 ## Final boundary
 
-The naming migration is complete in v2.2.0. The active path map is `release/file-rename-map.csv`; the human-readable inventory is `docs/00-file-catalogue.md`; the final release boundary is recorded in `docs/15-final-release-audit.md`.
+The original naming migration completed in v2.2.0 and the v2.3.0 release extends the stable areas with `provenance/`, `reproducibility/`, `research/` and `schemas/`. The active path map is `release/file-rename-map.csv`; the human-readable inventory is `docs/00-file-catalogue.md`; the final release boundary is recorded in `docs/15-final-release-audit.md`.
 
 ## Acceptance rule for future path changes
 

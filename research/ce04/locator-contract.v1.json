@@ -1,0 +1,18 @@
+{
+  "schema": "codeprobe-ce04-locator-contract/v1",
+  "version": "1.0.0",
+  "author": "Antonio Clim",
+  "baseline": "78f853eff8185da170a67d9f11d159e23dde036f",
+  "decisions": {
+    "numerical_traversal": "Preserve the existing root FunctionDef/AsyncFunctionDef traversal. It includes root defaults, annotations and decorators (and parser-exposed type-parameter expressions); nested function, class and lambda nodes and their entire subtrees are skipped when not the root. Syntactic count only, not dynamic function execution or CFG.",
+    "evidence_remedy": "Keep python_callable def-to-end scope for physical_span_lines. Give decision_point_count, mccabe_complexity and max_control_nesting_depth a separate python_callable_traversal locator, from the earliest root decorator AST expression lineno or def line to the callable end. This conservative line cover is not a minimal causal slice or complete compilable declaration.",
+    "parenthesised_decorator": "The @ token or opening grouping line may precede the first AST expression line; the coverage claim concerns visited expressions, not all decorator punctuation.",
+    "failure": "If a required decorator AST position is missing, invalid or outside source bounds, refuse with a dedicated CE04-LOC-001 MeasurementError; do not fabricate a full observed coverage. Existing ME-013 missing root span behaviour retained.",
+    "versions": "Kernel/catalogue algorithm 1.1.1; only three traversal-backed observation specifications move to 1.1.1. Other 37 specification identifiers including physical span remain 1.1.0. New evidence scope requires updated schema and typed validation.",
+    "identity": "Separate CE04 component inventory with explicit S05 baseline hashes and revised-component map. Historical S04 inventory remains unchanged. Native capsule/HTML identify new build honestly. No inherited CI result is assigned to new bytes."
+  },
+  "numerical_semantics_changed": false,
+  "local_candidate_only": true,
+  "old_bundle_relabel_allowed": false,
+  "claim_ceiling": "Conservative source-line coverage of admitted syntactic traversal, not semantic soundness, minimal explanatory sufficiency, authenticated execution or educational utility."
+}

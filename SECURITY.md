@@ -16,6 +16,12 @@ Both browser interfaces run Python in a dedicated worker. Cancellation, executio
 
 Analysis inputs are treated as source text, not programs to execute. Source files and ZIPs have intake budgets. Native subprocesses use the bounded process broker. The local server publishes an allowlist, not the whole checkout. No source upload is required by the normal analysis path; downloading the CDN runtime still discloses ordinary network metadata to its provider.
 
+## Evidence-contract implementation boundary
+
+The bounded evidence-contract modules inspect admitted source and JSON bytes without launching submitted programmes. `src/codeprobe_interpretation.py` does not launch Git or infer repository identity from a parent checkout. It records a deterministic admitted-file-set identity, while exact release commit and tree anchors are supplied by an external provenance receipt after the integration commit exists. This avoids an unbounded process dependency and an impossible self-referential commit claim.
+
+The evidence-contract route is a scientific and provenance boundary, not a security sandbox. A hostile Python runtime, modified package, compromised filesystem or actor able to replace the trusted source set remains outside its guarantees. Its source-localisation coordinates and review opportunities do not establish authorship, intent or misconduct.
+
 ## Supported snapshot and incident handling
 
 The tested browser dependency remains Pyodide 0.25.0. Pinning and byte verification do not establish that this old runtime is free of vulnerabilities or supported upstream. See [the runtime lifecycle](docs/21-runtime-lifecycle.md) and [worker boundaries](docs/20-worker-resilience.md). Optional runtime packages are outside the approved dependency graph.

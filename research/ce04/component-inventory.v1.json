@@ -1,0 +1,61 @@
+{
+  "schema": "codeprobe-implementation-components/v1",
+  "version": "1.1.0",
+  "base_commit": "78f853eff8185da170a67d9f11d159e23dde036f",
+  "components": [
+    "research/claim-policy.v1.json",
+    "research/construct-map.v1.json",
+    "research/measurement-error-register.v1.json",
+    "research/observation-catalogue.v1.json",
+    "research/s03/error-register-extension.v1.json",
+    "research/s04/acceptance-lock.v1.json",
+    "research/s04/calibration-design.v1.json",
+    "research/ce04/component-inventory.v1.json",
+    "research/s04/condition-migration.v1.json",
+    "research/s04/profiles.v1.json",
+    "src/codeprobe_calibration_admission.py",
+    "src/codeprobe_interpretation.py",
+    "src/codeprobe_measurement_kernel.py",
+    "src/codeprobe_review_contract.py",
+    "src/codeprobe_s01_observation_adapter.py",
+    "research/ce04/locator-contract.v1.json",
+    "schemas/codeprobe-measurement-kernel-result-v1.schema.json",
+    "schemas/codeprobe-observation-catalogue-v1.schema.json"
+  ],
+  "inherited_sha256": {
+    "research/claim-policy.v1.json": "b9ebcf240396356e347ddcf1df254c948e594edab202ffdeed8ab35174ecaea2",
+    "research/construct-map.v1.json": "f9645a8f101fc67c99f998a9e13323275f0c0b0184a51f92f34626cb16d12424",
+    "research/measurement-error-register.v1.json": "85979b58e521e208c953a49ee559dcedfc4ab5528a7612f7bf13a977571a52dd",
+    "research/s03/error-register-extension.v1.json": "d14fbefa9eec586481c35143787b04ce7178658e7eb2abf54f7a1d7c79b32a5a",
+    "research/s04/acceptance-lock.v1.json": "2402c6812ff44f84cd5237d3648338a5aed72f2cb9b8c4fc0ae5a6624f1328c4",
+    "research/s04/calibration-design.v1.json": "fbe7da17370eec77f3357853846efe94837666e877470e6b76b2341e8da610ba",
+    "research/s04/condition-migration.v1.json": "64ece300e816d6f904f5d4d99569dca4055d6c08e9f815f18dc2c0941aa7a517",
+    "research/s04/profiles.v1.json": "2a47e13f05abc2dc9099516d6e07bb17134ca6790aee65d224c7ab6260a81dfd",
+    "src/codeprobe_calibration_admission.py": "8926e21511eb376b0c6e6d051c2399b83430a90ef351803bdccb75a0f72221c9",
+    "src/codeprobe_review_contract.py": "c922e8dfd98188e30fa2621ba38a61cde834f343cdc42a48360569ac699f6c0a"
+  },
+  "revised_components": {
+    "research/observation-catalogue.v1.json": {
+      "baseline_sha256": "2d48306d88942a7b44d9b68139e94f4af6b6d2ae290f0fb2e0a88cf5a4365725",
+      "candidate_sha256": "1efa91353849738f63a4eeba000bcfd2a94c02680b1cf430ba7f8faf2b4e51f0"
+    },
+    "src/codeprobe_measurement_kernel.py": {
+      "baseline_sha256": "c5ae37de7f0cafc0dfa456574a23ead35636c1c7675668b5aa4c04d8be22e7e4",
+      "candidate_sha256": "5b7131c81120f7fd6e3bc6a8a0c6514cd2fce4064e42bef7fb674242bbed3d6f"
+    },
+    "schemas/codeprobe-measurement-kernel-result-v1.schema.json": {
+      "baseline_sha256": "aff581469e49b5b55490256b2ad28c6572f53a2672d65ba9b44bdbd198abd2c4",
+      "candidate_sha256": "0a510d7d6e71463075b2c7d7573fdfff74113f372f776eb85b61f1f67c931bb6"
+    },
+    "schemas/codeprobe-observation-catalogue-v1.schema.json": {
+      "baseline_sha256": "a64f21964c4818cd00936db10de5242f27e46fbcfd38ee6b7c8b75e8fe2e73e1",
+      "candidate_sha256": "ab19f7b0e8df4ac1931fbf5d0e1dc7c4f3e8cef947074c9306c63ef1883295d1"
+    },
+    "src/codeprobe_s01_observation_adapter.py": {
+      "baseline_sha256": "dd4dd1c60e69e5dd73aa1134426145a2335c731fe9dd6c52ed3be4bfe3c95779",
+      "candidate_sha256": "f2fe42ada970be0dff9d934eb7c16bc7fcf4922055c356ec7c650e1c79871976"
+    }
+  },
+  "identity_scope": "CE04 admitted source, schemas and locator contract. Historic S04 inventory retained unchanged. Full local source archive/tree identifies tests and remaining files.",
+  "self_hash_boundary": "The loader and inventory are covered by the complete source identity, not circular self-pins."
+}

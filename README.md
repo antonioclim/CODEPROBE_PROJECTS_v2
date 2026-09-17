@@ -1,6 +1,14 @@
-# CodeProbe v2.2.0 — local source-code and documentation review
+# CodeProbe v2.3.0 — evidence-contract research and formative review
 
 **Author and maintainer: Antonio Clim** ([`@antonioclim`](https://github.com/antonioclim)). See [Cite this repository](#cite-this-repository), [Contributing](CONTRIBUTING.md) and the [legacy lineage and retirement assessment](docs/history/14-legacy-lineage.md).
+
+## Scientific route and compatibility boundary
+
+CodeProbe v2.3.0 preserves two deliberately separated surfaces. The **current scientific route** is the bounded evidence-contract implementation under `src/codeprobe_measurement_kernel.py`, `src/codeprobe_interpretation.py`, `src/codeprobe_reporting.py`, `src/codeprobe_review_contract.py`, `schemas/` and `research/`. It keeps observation availability, measured values, interpretation policy, source localisation and consumer admission as distinct records. Its composition rule is vector-only and non-compensatory: one observation or dimension does not cancel another.
+
+The established browser, project-analysis and calibration application remains available as a **compatibility and educational surface**. Its historical aggregate score, display bands and provisional 60% trigger are retained for existing workflows and report-schema compatibility. They are not restored as current scientific guidance, a global evidential scalar, an origin classifier or a screenshot-based decision rule. The evidence-contract route does not estimate source-code authorship, determine misconduct or recommend sanctions.
+
+Neither surface is an empirically validated AI-authorship detector, misconduct detector or authorship-probability estimator. Software tests, replay checks and local calibration establish bounded software behaviour only. They do not establish external validity, population error rates or fitness for disciplinary use. See [the distribution boundary](DISTRIBUTION_BOUNDARY.md), [the reproducibility boundary](REPRODUCIBILITY.md) and [the v2.3.0 release notes](release/RELEASE_NOTES_v2.3.0.md).
 
 CodeProbe is an inspectable static-analysis kit for formative code review. It analyses **Python, JavaScript-family code, Bash-family shell scripts, C, C++ and C#**, with a separate **Markdown documentation profile**. Run it in a browser through Pyodide or use the native Python project-analysis and calibration tools. Submitted source is inspected as text; CodeProbe does not run the submitted programme, build its dependencies or connect to its databases.
 
@@ -8,7 +16,7 @@ CodeProbe is an inspectable static-analysis kit for formative code review. It an
 
 *The screenshot shows one example, not a C-only application. The main page's Language selector offers Auto, Python, JavaScript, Bash, C, C++ and C#, plus Markdown. The input and parser boundaries for each are listed below.*
 
-The reported **AI-style concern score** is a **review signal**, **not proof of misconduct**, a probability of AI authorship or a certificate of independent work. Software tests and local calibration do not establish detector accuracy, authorship attribution or suitability for sanctions.
+On the retained compatibility surface, the reported **AI-style concern score** is a **review signal**, **not proof of misconduct**, a probability of AI authorship or a certificate of independent work. It must not be transferred into the evidence-contract route as a global scalar. Software tests and local calibration do not establish detector accuracy, authorship attribution or suitability for sanctions.
 
 **Start here:** [supported languages](#supported-languages-and-source-extensions) · [documents and data](#documents-databases-and-other-file-types) · [folders and Git exports](#input-routes-folders-and-git-archives) · [quick start](#quick-start) · [CLI examples](#command-line-use) · [reports](#reports-and-exports) · [calibration](#course-local-calibration) · [input limits](#input-limits-and-exclusions) · [complete kit index](00-kit-index.md) · [citation](#cite-this-repository) · [legacy retirement](#relationship-to-the-legacy-repository).
 
@@ -20,7 +28,7 @@ The reported **AI-style concern score** is a **review signal**, **not proof of m
 | Single snippet or file? | Paste text or open a source file in `app/index.html`. Automatic detection can be overridden with a supported language. |
 | Whole project? | Select a folder, multiple files or a local ZIP. Projects may contain several supported languages. The CLI accepts a folder or ZIP. |
 | GitHub export? | A downloaded source ZIP is accepted within the limits. A detected single wrapper directory is normalised. CodeProbe itself does not clone a URL or inspect Git history. |
-| Markdown? | Yes, as documentation-quality context. It does not contribute an AI-style code score. |
+| Markdown? | Yes, as documentation-quality context. It does not contribute to the retained compatibility aggregate and it is represented separately in the evidence-contract route. |
 | Word, PDF or spreadsheets? | **Not direct analysis inputs.** Bundled educator DOCX material does not imply DOCX ingestion. No PDF/OCR, Office extraction or spreadsheet analysis is implemented. |
 | SQL or database files? | **Not supported as database or query-analysis inputs.** No database connection, schema introspection, query execution or record inspection is implemented. |
 | JSON and CSV? | Used for specific configuration, calibration or report roles; accepting those roles is not generic dataset-analysis support. |
@@ -39,7 +47,7 @@ This table follows the extension sets and language detector in [the runtime](src
 | **C** / `c` | `.c`, `.h` | Lexical and structural heuristics; no compiler, preprocessor execution, linking or binary analysis. A `.h` header may be classified as C++ from its contents. |
 | **C++** / `cpp` | `.cpp`, `.cxx`, `.cc`, `.hpp`, `.hxx`, `.hh`; content-sensitive `.h` | C++ structural and quality heuristics, not standards-complete semantic analysis, template instantiation or build validation. |
 | **C#** / `csharp` | `.cs` | C# lexical and structural heuristics. No Roslyn/.NET compilation, dependency resolution or runtime execution. |
-| **Markdown** / `markdown` | `.md`, `.markdown` | Documentation metrics only. The overall AI-style code aggregate is not applicable. Fenced code is not recursively analysed as separate programmes. |
+| **Markdown** / `markdown` | `.md`, `.markdown` | Documentation metrics only. The retained compatibility aggregate is not applicable. The evidence-contract route preserves parser status and limitations separately. Fenced code is not recursively analysed as separate programmes. |
 
 Extension matching is case-insensitive. Auto detection uses the precedence and finite shebang subset below. **Project admission is extension-based first:** an extensionless script, `.txt` file or unsupported-language file does not become an ordinary project source merely because the single-file detector could guess its contents.
 
@@ -389,6 +397,8 @@ The file report schema is `2.2.0`; the project schema is `2.2.0-project`. Useful
 
 ### Reading the result
 
+The following score bands describe only the retained compatibility surface. They are not part of the v2.3.0 evidence-contract scientific route and must not be used as origin, authorship or misconduct classifications.
+
 Metrics are separated into stylometry, quality, context and documentation roles. Good formatting, generic structure or a documentation-quality result should not be treated as evidence of AI authorship. Projects combine applicable file scores using source-line weighting with a per-file cap of **500 SLOC**. This is not a cross-file compiler, dependency graph or semantic clone detector.
 
 The current generic bands use the following thresholds for an applicable score:
@@ -441,7 +451,7 @@ migration. Unbound diagnostic reports can retain qualified partial results.
 
 Fresh UUID4 sample/group tokens are assigned for export after partitioning and fitting, including when the manifest supplies explicit identifiers. JSON/CSV observations share tokens within one export; no mapping is emitted. Repeated analytical values can agree while tokens and file digests vary. This is not anonymisation: scores, labels, row order, group sizes and free-text metadata can still permit linkage. Input manifests and the wrapper's generated manifest remain private. Source/release reproducibility is distinct from random calibration identifiers.
 
-**CLI migration:** `--min-per-class-for-language` was accepted but ignored and has now been removed. Existing scripts must remove it. It is refused before manifest reads or output publication; no arbitrary statistical minimum replaces it. Both shipped profile illustrations explicitly set `operational: false` and are refused on application. These tool/template corrections do not change the engine bytes or scoring formula.
+**CLI compatibility:** `--min-per-class-for-language` remains accepted as a hidden, deprecated and deliberately ignored alias so existing v2.2.0 scripts do not fail at argument parsing. Its value has no statistical or operational effect and no arbitrary minimum is inferred from it. New commands should omit it. Both shipped profile illustrations explicitly set `operational: false` and are refused on application. This compatibility shim does not change the score or threshold-selection formula.
 
 The student announcement is maintained in [Markdown](educator/02-student-announcement.md) and a semantically matching [Word document](educator/02-student-announcement.docx). The Word document names Antonio Clim as creator and uses British English proofing. Unverified legacy creation/modification dates and editor identity are omitted; file metadata are not a reconstructed authorship history. See [calibration guide](docs/06-calibration-guide.md) and [contract reconciliation](docs/22-contract-reconciliation.md).
 
@@ -501,7 +511,11 @@ The **naming-stable release** layout keeps application code, resources and evide
 ├── docs/                                  technical Markdown, history and preview image
 ├── educator/                              teaching/review material in Markdown and DOCX
 ├── calibration/                           JSON/CSV templates and output placeholders
-├── release/                               manifests, catalogue map and audit evidence
+├── release/                               manifests, catalogue map, notes and audit evidence
+├── provenance/                            CE04 identity and CE19/CE20 integration records
+├── reproducibility/                       public boundary notes, not the held CE09/CE11 packages
+├── research/                              claim, observation, construct and acceptance contracts
+├── schemas/                               machine-readable evidence-contract schemas
 └── tests/                                 maintained regression suite
 ```
 
@@ -527,7 +541,7 @@ Run the canonical read-only gate from the kit root; Node is required for the com
 python3 -I -S -B tools/check_release.py --require-node
 ```
 
-The maintained suite has a **487-case baseline**, with documented platform conditions. CI validates native Python 3.10–3.14, Windows/macOS, actual Chromium/Pyodide functionality, accessibility, supported-code coverage and release reproducibility. A successful gate does not prove bug absence or detector validity. Source inspection, integration tests and empirical claims have separate scopes.
+The maintained suite enforces explicit discovered/executed test floors, with documented platform conditions. CI validates native Python 3.10–3.14, Windows/macOS, actual Chromium/Pyodide functionality, accessibility, supported-code coverage and release reproducibility. A successful gate does not prove bug absence or detector validity. Source inspection, integration tests and empirical claims have separate scopes.
 
 Coverage enforcement requires the pinned **Python 3.14.7**, not an arbitrary interpreter:
 
@@ -546,10 +560,10 @@ python3 -I -S -B tools/check_release.py --require-node
 Build the manifest-verified packet:
 
 ```bash
-python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.3.0.zip
 ```
 
-The builder captures immutable manifest-verified bytes under `CodeProbe_Project_Kit_v2.2.0/` and prepares the ZIP and both sidecars under a durable journal. The checksum is withdrawn before public mutation and installed last. A later build, or `--recover-only` with the same `--out`, retains a complete new packet, restores the recorded prior packet or stops on unknown concurrent state. Process-interruption tests do not prove universal power-loss durability or atomic replacement of all three names.
+The builder captures immutable manifest-verified bytes under `CodeProbe_Project_Kit_v2.3.0/` and prepares the ZIP and both sidecars under a durable journal. The checksum is withdrawn before public mutation and installed last. A later build, or `--recover-only` with the same `--out`, retains a complete new packet, restores the recorded prior packet or stops on unknown concurrent state. Process-interruption tests do not prove universal power-loss durability or atomic replacement of all three names.
 
 Building a local ZIP is **not** publishing a GitHub Release. Tags, published assets, the current main branch and subsequent README improvements are separate versioned objects. Preserve existing release assets rather than silently replacing them after a documentation edit. [Final package audit](docs/15-final-release-audit.md) describes the naming and integrity checks, not institutional authorisation.
 
@@ -558,7 +572,7 @@ Building a local ZIP is **not** publishing a GitHub Release. Tags, published ass
 This repository is the maintained successor to
 [CODEPROBE_PROJECTS_v1](https://github.com/antonioclim/CODEPROBE_PROJECTS_v1).
 The repository suffixes distinguish distributions: the inspected legacy engine
-already identified itself as CodeProbe 2.0.0, whereas this line uses 2.2.0.
+already identified itself as CodeProbe 2.0.0, whereas this line uses 2.3.0.
 The shared languages alone therefore do not describe the evolution.
 
 **Legacy retirement notice.** Antonio Clim intends to withdraw the legacy
@@ -578,22 +592,17 @@ exist.
 
 ## Cite this repository
 
-For the published 2.2.0 release:
+For the v2.3.0 software release candidate and, after publication, the corresponding fixed release:
 
-> Clim, A. (2026). *CodeProbe: Formative source-code and documentation review*
-> (Version 2.2.0) [Computer software]. GitHub.
-> https://github.com/antonioclim/CODEPROBE_PROJECTS_v2/releases/tag/v2.2.0
+> Clim, A. (2026). *CodeProbe: Evidence contracts for measurement, policy and source localisation in heuristic code review*
+> (Version 2.3.0) [Computer software]. GitHub.
+> https://github.com/antonioclim/CODEPROBE_PROJECTS_v2/releases/tag/v2.3.0
 
-Machine-readable citation metadata are provided in [CITATION.cff](CITATION.cff), with a downloadable [CITATION.bib](CITATION.bib). The CFF uses the JSON subset of YAML so the standard-library CI suite can check its structure and identity without an additional YAML dependency.
-Use the author **Antonio Clim**, not the GitHub Actions bot that uploaded a
-release. No DOI, ORCID, affiliation or publication is asserted by these metadata.
+Machine-readable citation metadata are provided in [CITATION.cff](CITATION.cff), with a downloadable [CITATION.bib](CITATION.bib). The CFF uses the JSON subset of YAML so the standard-library CI suite can check its structure and identity without an additional YAML dependency. Use the author **Antonio Clim**, ORCID [0000-0003-4745-0431](https://orcid.org/0000-0003-4745-0431) and the stated affiliation, not an automated committer label. No DOI or journal-publication status is asserted by these software metadata.
 
-For a development checkout, record its exact commit alongside this citation.
-A citation to release 2.2.0 must not imply that the preserved release package includes
-later documentation changes on `main`. Attribution metadata are corrected
-prospectively without rewriting published release files.
+For a development checkout, record its exact commit alongside this citation. For a published release, record the immutable tag target or the SHA-256 of the exact archive used. The tag target belongs in an external release-provenance receipt because embedding the hash of a commit inside that same commit would be self-referential. A citation to release 2.3.0 must not imply that the preserved release package includes later documentation changes on `main`.
 
-The citation identifies the published source commit `2d38fbd3772a9f415dfcc52ab2840aadd15575e3`. The scholarly author is distinct from automated committer labels and historic licence notices. Applicable notices and documented contributions remain unchanged.
+The scholarly author is distinct from automated committer labels and historic licence notices. Applicable notices and documented contributions remain unchanged. The software citation does not convert the manuscript, figures or held reproducibility packages into MIT-licensed repository assets.
 
 ## Licence and scientific limits
 

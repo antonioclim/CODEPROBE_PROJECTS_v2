@@ -35,7 +35,7 @@ The manifest CLI writes a profile, validation summary, observations CSV and fit-
 
 `--target-fpr` specifies a fit-partition target, not an achieved population error probability. The default is 0.10; 0.05 and 5 both request 0.05 under the retained fraction/percentage convention. Study identifiers, explicit output paths and configuration overrides remain documented by `--help`.
 
-The ignored `--min-per-class-for-language` argument has been removed. Delete it from scripts; it is now rejected before input reading or output publication. This does not introduce an arbitrary sample-size minimum or change the score/threshold-selection formula. The existing partition balance, small-partition warnings and technical operational tests remain in force.
+The old `--min-per-class-for-language` argument remains accepted only as a hidden, deprecated compatibility alias. Its value is ignored and does not introduce an arbitrary sample-size minimum or change the score/threshold-selection formula. New scripts should omit it. The existing partition balance, small-partition warnings and technical operational tests remain in force.
 
 ## Using a generated profile
 

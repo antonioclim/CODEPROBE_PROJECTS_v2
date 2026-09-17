@@ -1,25 +1,28 @@
 {
   "cff-version": "1.2.0",
-  "message": "Please cite the published 2.2.0 release using these metadata. For a development checkout, also record the exact commit used. Citation metadata do not establish predictive validity for AI detection or authorship attribution.",
+  "message": "While this tree remains a release candidate, cite the exact commit or archive checksum used. After v2.3.0 is published, cite the immutable release and record its exact tag target or archive checksum. Citation metadata do not establish predictive validity for AI detection, authorship attribution or misconduct decisions.",
   "type": "software",
-  "title": "CodeProbe: Formative source-code and documentation review",
+  "title": "CodeProbe: Evidence contracts for measurement, policy and source localisation in heuristic code review",
   "authors": [
     {
       "family-names": "Clim",
-      "given-names": "Antonio"
+      "given-names": "Antonio",
+      "orcid": "https://orcid.org/0000-0003-4745-0431",
+      "affiliation": "Bucharest University of Economic Studies"
     }
   ],
-  "version": "2.2.0",
-  "date-released": "2026-09-06",
+  "version": "2.3.0",
+  "date-released": "2026-09-16",
   "repository-code": "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2",
-  "url": "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2/releases/tag/v2.2.0",
+  "url": "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2/releases/tag/v2.3.0",
   "license": "MIT",
-  "abstract": "Inspectable heuristic static analysis for formative source-code review, with a separate Markdown documentation profile, local project analysis, calibration tools and reproducible software-verification workflows. Software verification must not be interpreted as empirical validation of AI-authorship detection or as a basis for academic sanctions.",
+  "abstract": "A bounded source-review implementation that separates observation availability, measured values, interpretation policy, source localisation and consumer admission while retaining the established formative-review application as a compatibility surface. It is not an empirically validated AI-authorship detector, misconduct detector or authorship-probability estimator.",
   "keywords": [
-    "static analysis",
-    "formative assessment",
-    "source-code review",
-    "reproducible research software"
-  ],
-  "commit": "2d38fbd3772a9f415dfcc52ab2840aadd15575e3"
+    "software quality",
+    "source localisation",
+    "evidence contracts",
+    "result provenance",
+    "failure-oriented testing",
+    "computational repeatability"
+  ]
 }

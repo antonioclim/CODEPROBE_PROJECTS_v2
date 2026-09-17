@@ -1,6 +1,6 @@
 # Report schema notes
 
-CodeProbe v2.2.0 serialises reports as JSON and human-readable text. The JSON report is intended for traceable formative review, not automated disciplinary decisions.
+CodeProbe v2.3.0 serialises the retained compatibility reports as JSON and human-readable text. The software version changes while the public report schemas remain `2.2.0` and `2.2.0-project`. The JSON report is intended for traceable formative review, not automated disciplinary decisions.
 
 ## File report
 
