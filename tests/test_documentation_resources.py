@@ -95,7 +95,7 @@ class AuthorshipAndLineageDocumentationTests(unittest.TestCase):
         self.assertEqual(citation["type"], "software")
         self.assertEqual(citation["license"], "MIT")
         self.assertEqual(citation["version"], "2.3.0")
-        self.assertEqual(citation["date-released"], "2026-09-16")
+        self.assertEqual(citation["date-released"], "2026-09-17")
         self.assertNotIn("commit", citation)
         repository = "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2"
         self.assertEqual(citation["repository-code"], repository)
@@ -116,6 +116,10 @@ class AuthorshipAndLineageDocumentationTests(unittest.TestCase):
         self.assertIn("author = {Clim, Antonio}", bibtex)
         self.assertIn("version = {" + citation["version"] + "}", bibtex)
         self.assertIn("date = {" + citation["date-released"] + "}", bibtex)
+        zenodo = json.loads(self.text(".zenodo.json"))
+        self.assertEqual(zenodo["publication_date"], citation["date-released"])
+        changelog = self.text("CHANGELOG.md")
+        self.assertIn("## [2.3.0] - " + citation["date-released"], changelog)
         for text in (readme, bibtex):
             self.assertIn(citation["url"], text)
         self.assertIn("[CITATION.cff](CITATION.cff)", readme)
