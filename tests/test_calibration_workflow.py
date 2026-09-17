@@ -219,29 +219,32 @@ class CalibrationWorkflowTests(unittest.TestCase):
             for key in ("sample_id", "group_id"):
                 self.assertTrue({r[key] for r in first}.isdisjoint({r[key] for r in second}))
 
-    def test_retired_option_is_refused_before_manifest_reads_or_output(self):
+    def test_deprecated_option_is_accepted_and_ignored_for_command_compatibility(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            victim = base / "profile.json"
-            victim.write_bytes(b"unchanged")
+            base = Path(tmp).resolve()
+            manifest = prepare_inputs(base, "file")
+            reference = calibrate(manifest, base / "reference")
             for value in ("0", "10", "99999"):
-                with self.subTest(value=value), mock.patch.object(calibrate_profile, "load_manifest") as load:
-                    diagnostic = io.StringIO()
-                    with contextlib.redirect_stderr(diagnostic), self.assertRaises(SystemExit) as refused:
-                        calibrate_profile.main(["--manifest", str(base / "absent.json"), "--profile-out", str(victim),
-                                                "--min-per-class-for-language", value])
-                    self.assertEqual(refused.exception.code, 2)
-                    self.assertIn("unrecognized arguments", diagnostic.getvalue())
-                    load.assert_not_called()
-                    self.assertEqual(victim.read_bytes(), b"unchanged")
-                    self.assertEqual([p.name for p in base.iterdir()], ["profile.json"])
+                with self.subTest(value=value):
+                    output = base / f"compat-{value}"
+                    result = calibrate_profile.main([
+                        "--manifest", str(manifest),
+                        "--out-dir", str(output),
+                        "--profile-id", "unit-test-profile",
+                        "--label", "Unit test profile",
+                        "--target-fpr", "0.5",
+                        "--min-per-class-for-language", value,
+                    ])
+                    self.assertEqual(result, 0)
+                    profile = json.loads((output / OUTPUTS[0]).read_text(encoding="utf-8"))
+                    self.assertEqual(analytics(profile), analytics(reference))
 
-    def test_help_explains_retirement_without_an_active_argument(self):
+    def test_help_discloses_ignored_compatibility_alias_without_listing_it(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as help_exit:
             calibrate_profile.main(["--help"])
         self.assertEqual(help_exit.exception.code, 0)
-        self.assertIn("removed", output.getvalue())
+        self.assertIn("accepted and ignored", output.getvalue())
         self.assertNotIn("MIN_PER_CLASS_FOR_LANGUAGE", output.getvalue())
 
     def test_invalid_manifest_contracts_preserve_all_destinations(self):

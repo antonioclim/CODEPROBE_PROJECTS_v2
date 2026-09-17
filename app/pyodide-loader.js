@@ -30,8 +30,8 @@
   const PACKAGED_ENGINE_RECORD = Object.freeze({
     name: "codeprobe_runtime.py",
     path: "../src/codeprobe_runtime.py",
-    size_bytes: 385120,
-    sha256_hex: "d1f2fa9f9cf508df1c37e22cb2fb8664d414983ec71bafdb4291df2f02ac3485"
+    size_bytes: 385107,
+    sha256_hex: "5e7c9bd35d6173c19ebca26f0a1f81f550f19c45e9be01f107ddfd1e69c7548a"
   });
 
   const PROVENANCE_SCHEMA = "codeprobe-pyodide-provenance/v1";

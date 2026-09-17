@@ -1,0 +1,24 @@
+{
+  "schema": "codeprobe-ce20-p01-release-integration/v1",
+  "phase": "CE20-P01",
+  "date": "2026-09-16",
+  "author": "Antonio Clim",
+  "target_version": "2.3.0",
+  "base_main_commit": "d5e1aa9e86e855f05ea570de22110aefc972b400",
+  "base_main_tree": "dbffa8876ed833ceb9da6188255f215dc2dbf4ff",
+  "ce19_source_only_zip_sha256": "297a440521600191dddb38a7411c88843fc8d6d83555904ec0d81224ee97b02b",
+  "software_version": "2.3.0",
+  "file_report_schema": "2.2.0",
+  "project_report_schema": "2.2.0-project",
+  "compatibility_decisions": {
+    "python_api_wrappers_retained": [
+      "analyse_file(payload)",
+      "analyse_project(payload)"
+    ],
+    "min_per_class_for_language": "accepted_hidden_deprecated_ignored",
+    "direct_git_process_in_interpretation": "removed"
+  },
+  "scientific_boundary": "Evidence-contract route is vector-only and non-compensatory. Retained aggregate score and 60% trigger are compatibility constructs, not current scientific guidance.",
+  "remote_state": "not asserted by this local-only record",
+  "final_commit_and_tree": "record externally after an explicitly authorised integration commit exists"
+}

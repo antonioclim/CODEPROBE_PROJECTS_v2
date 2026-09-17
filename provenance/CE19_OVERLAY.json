@@ -1,0 +1,16 @@
+{
+  "schema": "codeprobe-ce19-repository-overlay/v1",
+  "date": "2026-09-16",
+  "author": "Antonio Clim",
+  "base_complete_ce04_tree": "573c2127f47e0775f94739a5390a5aaaafbffaae",
+  "base_complete_ce04_commit": null,
+  "active_native_components": 28,
+  "support_files": 1,
+  "complete_ce04_files": 348,
+  "complete_legacy_application_included": false,
+  "remote_write_performed": false,
+  "release_created": false,
+  "scientific_boundary": "Source-only evidence-contract candidate; not the historical v2.2.0 release or the complete CE04 application.",
+  "record_scope": "CE19 local assembly state before the subsequently authorised public branch upload; negative remote-state fields are historical within that scope.",
+  "integration_note": "CE20-P01 consumes this overlay as source material and may patch integrated files. Exact v2.3.0 candidate identity is recorded by the external CE20-P01 receipt, not by this historical overlay."
+}

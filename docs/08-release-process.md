@@ -122,7 +122,7 @@ same output target:
 ```bash
 python3 -I -S -B tools/build_release.py \
   --recover-only \
-  --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+  --out dist/CodeProbe_Project_Kit_v2.3.0.zip
 ```
 
 A normal build also runs this recovery step before validating the current
@@ -132,13 +132,13 @@ an institutional signing workflow.
 Build the packet with:
 
 ```bash
-python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.3.0.zip
 ```
 
 The builder runs the complete read-only gate against the committed evidence,
 captures immutable bytes for every manifest-listed file and for the verified
 manifest itself, then builds the ZIP only from that snapshot. The archive root
-is `CodeProbe_Project_Kit_v2.2.0/`, independent of both the checkout directory
+is `CodeProbe_Project_Kit_v2.3.0/`, independent of both the checkout directory
 and output ZIP basename. Output inside the checkout is allowed only under
 `dist/`; an external output is also permitted. The builder rejects non-`.zip`
 names, output target symbolic links, special files and hard links that alias

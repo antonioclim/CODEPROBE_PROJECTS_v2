@@ -81,6 +81,6 @@ Read canonical reviewed/eligible counts and separate group counts for `fit`, `ev
 
 ## CLI migration
 
-`--min-per-class-for-language` has been **removed**: the old parser accepted it but did not use its value. Remove it from existing scripts. It now produces an unrecognised-argument error before manifest reading or output publication. No arbitrary minimum has replaced it. Partition balance, group separation, small-corpus warnings and technical replay checks remain unchanged. This correction changes that CLI contract, not the scoring formula or engine identity.
+`--min-per-class-for-language` remains accepted as a hidden, deprecated compatibility alias because v2.2.0 commands may still supply it. The parser deliberately ignores its value: it does not enforce a sample-size minimum, alter partitioning or change the score/threshold-selection formula. New scripts should omit it. Partition balance, group separation, small-corpus warnings and technical replay checks remain unchanged.
 
 A score at or above the active trigger prompts inspection and explanation, not a requirement to lower the number. Make changes only for identified code or documentation issues and record disclosures under the course policy. No result proves authorship or misconduct.

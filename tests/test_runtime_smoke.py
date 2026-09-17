@@ -25,7 +25,7 @@ class PhaseOneSmokeTests(unittest.TestCase):
         self.analysis_engine = engine.AnalysisEngine(engine.merged_metric_config("default"))
 
     def test_version_is_current_phase_release(self) -> None:
-        self.assertEqual(engine.APP_VERSION, "2.2.0")
+        self.assertEqual(engine.APP_VERSION, "2.3.0")
 
     def test_markdown_is_documentation_only(self) -> None:
         markdown = """# Project notes

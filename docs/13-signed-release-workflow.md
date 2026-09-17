@@ -22,13 +22,13 @@ First reconcile any interrupted publication for the same output target:
 ```bash
 python3 -I -S -B tools/build_release.py \
   --recover-only \
-  --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+  --out dist/CodeProbe_Project_Kit_v2.3.0.zip
 ```
 
 Then build the packet:
 
 ```bash
-python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.2.0.zip
+python3 -I -S -B tools/build_release.py --out dist/CodeProbe_Project_Kit_v2.3.0.zip
 ```
 
 Do not delete a retained publication lock or transaction directory manually.
@@ -40,21 +40,21 @@ all completed successfully.
 ## 3. Verify the generated ZIP hash sidecar
 
 The builder writes
-`dist/CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt`. From the `dist/`
+`dist/CodeProbe_Project_Kit_v2.3.0.zip.sha256.txt`. From the `dist/`
 directory, verify it independently:
 
 ```bash
-sha256sum -c CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
+sha256sum -c CodeProbe_Project_Kit_v2.3.0.zip.sha256.txt
 ```
 
 On macOS:
 
 ```bash
-shasum -a 256 -c CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
+shasum -a 256 -c CodeProbe_Project_Kit_v2.3.0.zip.sha256.txt
 ```
 
 The package-audit sidecar is a required member of the release packet. Retain
-`CodeProbe_Project_Kit_v2.2.0.zip.package_audit.json`; it records the
+`CodeProbe_Project_Kit_v2.3.0.zip.package_audit.json`; it records the
 same ZIP name and SHA-256 together with exact member and container accounting.
 The checksum is published last and is the packet readiness marker.
 
@@ -63,9 +63,9 @@ The checksum is published last and is the packet readiness marker.
 Example using GnuPG:
 
 ```bash
-gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.2.0.zip
-gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
-gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.2.0.zip.package_audit.json
+gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.3.0.zip
+gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.3.0.zip.sha256.txt
+gpg --detach-sign --armor dist/CodeProbe_Project_Kit_v2.3.0.zip.package_audit.json
 gpg --detach-sign --armor release/release-manifest.json
 ```
 
@@ -86,12 +86,12 @@ Archive:
 ## 6. Verification by a recipient
 
 ```bash
-sha256sum -c CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt
-gpg --verify CodeProbe_Project_Kit_v2.2.0.zip.asc CodeProbe_Project_Kit_v2.2.0.zip
+sha256sum -c CodeProbe_Project_Kit_v2.3.0.zip.sha256.txt
+gpg --verify CodeProbe_Project_Kit_v2.3.0.zip.asc CodeProbe_Project_Kit_v2.3.0.zip
 ```
 
 On macOS, replace the first command with
-`shasum -a 256 -c CodeProbe_Project_Kit_v2.2.0.zip.sha256.txt`.
+`shasum -a 256 -c CodeProbe_Project_Kit_v2.3.0.zip.sha256.txt`.
 
 After extraction, run:
 

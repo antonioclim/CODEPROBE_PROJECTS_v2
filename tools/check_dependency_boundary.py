@@ -65,17 +65,37 @@ APPROVED_LOCAL_IMPORTS = {
     "check_release",
     "check_release_reproducibility",
     "codeprobe_engine",
+    "codeprobe_s01_observation_adapter",
+    "codeprobe_review_contract",
+    "codeprobe_reporting",
+    "codeprobe_report_cli",
+    "codeprobe_measurement_kernel",
+    "codeprobe_interpretation",
+    "codeprobe_calibration_admission",
     "codeprobe_runtime",
     "compare_releases",
     "final_audit",
     "prepare_pyodide_fixture",
     "run_local_server",
 }
-APPROVED_SOURCE_ENTRIES = {"codeprobe_engine", "codeprobe_runtime.py"}
-APPROVED_SOURCE_ENTRY_TYPES = {
+BASE_SOURCE_ENTRY_TYPES = {
     "codeprobe_engine": "directory",
     "codeprobe_runtime.py": "file",
 }
+EVIDENCE_CONTRACT_SOURCE_ENTRY_TYPES = {
+    "codeprobe_calibration_admission.py": "file",
+    "codeprobe_interpretation.py": "file",
+    "codeprobe_measurement_kernel.py": "file",
+    "codeprobe_report_cli.py": "file",
+    "codeprobe_reporting.py": "file",
+    "codeprobe_review_contract.py": "file",
+    "codeprobe_s01_observation_adapter.py": "file",
+}
+APPROVED_SOURCE_ENTRY_TYPES = {
+    **BASE_SOURCE_ENTRY_TYPES,
+    **EVIDENCE_CONTRACT_SOURCE_ENTRY_TYPES,
+}
+APPROVED_SOURCE_ENTRIES = set(APPROVED_SOURCE_ENTRY_TYPES)
 
 APPROVED_STDLIB_IMPORTS = {
     "__future__",
@@ -398,7 +418,14 @@ def check_vendor_boundary(root: Path) -> list[str]:
                     f"unapproved source-tree entry {_relative(child, root)}; "
                     "no first-party inventory entry exists"
                 )
-        for name, expected_type in APPROVED_SOURCE_ENTRY_TYPES.items():
+        required_entries = dict(BASE_SOURCE_ENTRY_TYPES)
+        evidence_route_present = (
+            (root / "research" / "claim-policy.v1.json").is_file()
+            or any((source_root / name).exists() for name in EVIDENCE_CONTRACT_SOURCE_ENTRY_TYPES)
+        )
+        if evidence_route_present:
+            required_entries.update(EVIDENCE_CONTRACT_SOURCE_ENTRY_TYPES)
+        for name, expected_type in required_entries.items():
             candidate = source_root / name
             has_expected_type = (
                 candidate.is_dir() if expected_type == "directory" else candidate.is_file()

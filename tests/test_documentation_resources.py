@@ -86,16 +86,24 @@ class AuthorshipAndLineageDocumentationTests(unittest.TestCase):
     def test_citation_has_named_author_and_explicit_software_release(self) -> None:
         citation = self.citation()
         self.assertEqual(citation["cff-version"], "1.2.0")
-        self.assertEqual(citation["authors"], [{"family-names": "Clim", "given-names": "Antonio"}])
+        self.assertEqual(citation["authors"], [{
+            "family-names": "Clim",
+            "given-names": "Antonio",
+            "orcid": "https://orcid.org/0000-0003-4745-0431",
+            "affiliation": "Bucharest University of Economic Studies",
+        }])
         self.assertEqual(citation["type"], "software")
         self.assertEqual(citation["license"], "MIT")
-        self.assertEqual(citation["version"], "2.2.0")
-        self.assertEqual(citation["date-released"], "2026-09-06")
-        self.assertEqual(citation["commit"], "2d38fbd3772a9f415dfcc52ab2840aadd15575e3")
+        self.assertEqual(citation["version"], "2.3.0")
+        self.assertEqual(citation["date-released"], "2026-09-16")
+        self.assertNotIn("commit", citation)
         repository = "https://github.com/antonioclim/CODEPROBE_PROJECTS_v2"
         self.assertEqual(citation["repository-code"], repository)
-        self.assertEqual(citation["url"], repository + "/releases/tag/v2.2.0")
-        self.assertTrue(citation["title"] and citation["message"])
+        self.assertEqual(citation["url"], repository + "/releases/tag/v2.3.0")
+        self.assertEqual(citation["title"], "CodeProbe: Evidence contracts for measurement, policy and source localisation in heuristic code review")
+        self.assertIn("release candidate", citation["message"])
+        self.assertIn("After v2.3.0 is published", citation["message"])
+        self.assertNotIn("published 2.3.0 release", citation["message"])
         self.assertFalse({"doi", "identifiers", "preferred-citation", "references"} & citation.keys())
 
     def test_readme_and_bibtex_use_the_cff_citation_identity(self) -> None:
