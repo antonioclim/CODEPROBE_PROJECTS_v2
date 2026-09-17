@@ -1,0 +1,23 @@
+{
+  "title": "CodeProbe: Evidence contracts for measurement, policy and source localisation in heuristic code review",
+  "upload_type": "software",
+  "description": "CodeProbe v2.3.0 integrates a bounded evidence-contract route that separates observation availability, measured values, interpretation policy, source localisation and consumer admission while retaining the formative-review application as a compatibility surface. It is not an empirically validated AI-authorship or misconduct detector. This metadata file does not authorise or assert a Zenodo deposit.",
+  "creators": [
+    {
+      "name": "Clim, Antonio",
+      "affiliation": "Bucharest University of Economic Studies",
+      "orcid": "0000-0003-4745-0431"
+    }
+  ],
+  "version": "2.3.0",
+  "publication_date": "2026-09-16",
+  "license": "MIT",
+  "keywords": [
+    "software quality",
+    "source localisation",
+    "evidence contracts",
+    "result provenance",
+    "failure-oriented testing",
+    "computational repeatability"
+  ]
+}
