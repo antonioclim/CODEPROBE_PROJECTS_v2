@@ -1,0 +1,74 @@
+name: Create and qualify CodeProbe v2.3.0 tag
+
+on:
+  push:
+    branches:
+      - release/tag-v2.3.0-20260917
+    paths:
+      - .github/workflows/create-v2.3.0-tag.yml
+      - .github/release/create_v230_tag.py
+
+permissions: {}
+
+concurrency:
+  group: codeprobe-create-v2.3.0-tag
+  cancel-in-progress: false
+
+jobs:
+  create_and_qualify_tag:
+    name: Create exact tag and qualify tag ref
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Check out reviewed orchestration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+          clean: true
+          lfs: false
+          submodules: false
+
+      - name: Verify exact publisher script before granting credentials
+        env:
+          EXPECTED_SCRIPT_SHA256: dadf5a3187429ba9fc0cdf73945aee9c4d0baa6d698aac5544ded158e5a3167b
+        run: |
+          set -euo pipefail
+          python3 -I -S -B - <<'PY'
+          import ast
+          import hashlib
+          import os
+          from pathlib import Path
+
+          path = Path(".github/release/create_v230_tag.py")
+          data = path.read_bytes()
+          actual = hashlib.sha256(data).hexdigest()
+          expected = os.environ["EXPECTED_SCRIPT_SHA256"]
+          if actual != expected:
+              raise SystemExit(
+                  f"publisher script SHA-256 differs: {actual} != {expected}"
+              )
+          ast.parse(data.decode("utf-8"))
+          print("Reviewed tag orchestrator identity and syntax verified.")
+          PY
+
+      - name: Create exact lightweight tag and qualify its exact ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_WORK: ${{ runner.temp }}/codeprobe-v2.3.0-tag-qualification
+        run: |
+          set -euo pipefail
+          mkdir -p "$RELEASE_WORK"
+          python3 -I -S -B ".github/release/create_v230_tag.py" \
+            | tee "$RELEASE_WORK/orchestration.log"
+
+      - name: Confirm that orchestration created no release artefact
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          test ! -e "${{ runner.temp }}/codeprobe-v2.3.0-tag-qualification/release"
+          echo "No GitHub Release asset or persistent Actions artefact is produced."
