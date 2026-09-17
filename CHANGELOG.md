@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.3.0] - 2026-09-16
+## [2.3.0] - 2026-09-17
 
 ### Evidence-contract research integration
 

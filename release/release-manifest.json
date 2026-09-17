@@ -3,7 +3,7 @@
   "app_name": "CodeProbe",
   "app_version": "2.3.0",
   "file_count": 193,
-  "total_source_size_bytes": 3477023,
+  "total_source_size_bytes": 3477282,
   "files": [
     {
       "path": ".codeprobeignore.example",
@@ -33,7 +33,7 @@
     {
       "path": ".zenodo.json",
       "size_bytes": 1004,
-      "sha256": "d62c35e32a2ccfdcc6bfb92f8281e43d9a684a7f4f04727d9dc56909a80d6eb2"
+      "sha256": "ee9cee403f2e1bd203b669b2ddff4196217c4fb02d3ef4ec86c0948a3e0a74f4"
     },
     {
       "path": "00-kit-index.md",
@@ -43,17 +43,17 @@
     {
       "path": "CHANGELOG.md",
       "size_bytes": 30015,
-      "sha256": "f54326ec8fa9ff83a3d24c4a7d26bc0d73f9bf83bea124b9f9dcbc176393adf3"
+      "sha256": "2c93f6c2febe5e905fe952d3405de461fff35be5fd91ca51587ba6e1a23fca5d"
     },
     {
       "path": "CITATION.bib",
       "size_bytes": 445,
-      "sha256": "82af21962c873dee63882a1bc4ae4a710e25d1b4cff5a58974ec2cf054e8dc21"
+      "sha256": "cb969784bff9c02e9ddbcabb4d19be0c8d029a315c41c57aa81f74a7bc3c975a"
     },
     {
       "path": "CITATION.cff",
       "size_bytes": 1530,
-      "sha256": "0aaddac411a3932305d890f856ae9d1b37771819cfaadd7e784996f0b652427c"
+      "sha256": "fd488b430be7b4861a80a4a2e42946b62f43c40ddeb195455ae317c6ad55b209"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -732,8 +732,8 @@
     },
     {
       "path": "tests/test_documentation_resources.py",
-      "size_bytes": 12264,
-      "sha256": "63b29736ec6fc3d091f958310090619a699fa6a47ce11ce8c278112e5b004a36"
+      "size_bytes": 12523,
+      "sha256": "89a9efb23c77e4b7e1ca9cda46ffcbbcffebe4b32a2e3f701de13009900f134a"
     },
     {
       "path": "tests/test_dynamic_ui_review.py",
@@ -971,5 +971,5 @@
       "sha256": "49341fd1e0807804a75dad876f3871dba0c7389f7bb26852f7ba2f42668e77dc"
     }
   ],
-  "manifest_sha256": "abed32eda548a27ffdc7a04285769b01567d7173680facf1a1858307f6d516b4"
+  "manifest_sha256": "0eb04c9e03ca05b07af343fccc8faf66cf863f5b9d9985823b749ac9f30e42bd"
 }
