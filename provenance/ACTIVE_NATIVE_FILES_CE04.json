@@ -1,0 +1,210 @@
+{
+  "original_full_tree": "573c2127f47e0775f94739a5390a5aaaafbffaae",
+  "original_full_commit": null,
+  "full_source_is_not_included": true,
+  "files": [
+    {
+      "native_path": "LICENSE",
+      "sha256": "660689f6f004532ab14f92a43c759fbfc8f5bdf60514c0510627a986e0e954d9",
+      "git_blob_sha1": "3a7815b19814732c25d9060fe9f83ed17cc27c9c",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "tools/codeprobe_s05.py",
+      "sha256": "ff6cc13c99e257f0d137ff28bc5e9571a1439a9c39b3319aa7ddd193536bbd3a",
+      "git_blob_sha1": "68f24e80a2910fdbc0bda658a94476ad6e9f4819",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "schemas/codeprobe-review-bundle-v1.schema.json",
+      "sha256": "1a0fe2ecc90cb2bfd9680c485e46803d71bca8f8cb35939ce1c2f81c9adfb360",
+      "git_blob_sha1": "8c1d212b40e88bafabb758f2ff4609997892c018",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "schemas/codeprobe-measurement-kernel-result-v1.schema.json",
+      "sha256": "0a510d7d6e71463075b2c7d7573fdfff74113f372f776eb85b61f1f67c931bb6",
+      "git_blob_sha1": "e9055820d88460326e6e15249f0d938eecc09542",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "schemas/codeprobe-observation-catalogue-v1.schema.json",
+      "sha256": "ab19f7b0e8df4ac1931fbf5d0e1dc7c4f3e8cef947074c9306c63ef1883295d1",
+      "git_blob_sha1": "fbd639d02390853b787d90cfdb1c323539472211",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "schemas/codeprobe-feedback-journal-v1.schema.json",
+      "sha256": "95d4798e79479d2b088fa6ad45c4f66a70611c47db208ffd95304a07dd59488b",
+      "git_blob_sha1": "25da1dd3953d31c304761e74f629b4e21ca9d150",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/measurement-error-register.v1.json",
+      "sha256": "85979b58e521e208c953a49ee559dcedfc4ab5528a7612f7bf13a977571a52dd",
+      "git_blob_sha1": "abb13f53958b6d2aea13017ba4d3896fb047f6cc",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/claim-policy.v1.json",
+      "sha256": "b9ebcf240396356e347ddcf1df254c948e594edab202ffdeed8ab35174ecaea2",
+      "git_blob_sha1": "fc482f6ce044fe7320f721f7168cf5b0832f93b5",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/observation-catalogue.v1.json",
+      "sha256": "1efa91353849738f63a4eeba000bcfd2a94c02680b1cf430ba7f8faf2b4e51f0",
+      "git_blob_sha1": "a40f55aafd9db9db01c4e9bb9707d732821bffde",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/construct-map.v1.json",
+      "sha256": "f9645a8f101fc67c99f998a9e13323275f0c0b0184a51f92f34626cb16d12424",
+      "git_blob_sha1": "b6dec6443b250698e67d367cb878b449bfa9495f",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "src/codeprobe_review_contract.py",
+      "sha256": "c922e8dfd98188e30fa2621ba38a61cde834f343cdc42a48360569ac699f6c0a",
+      "git_blob_sha1": "1d6d1744b81cebd4aaab445ff22a3094965ad981",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "src/codeprobe_interpretation.py",
+      "sha256": "b7b626109ee7967e8ad10ce3f3dd748faccc0aa514312fe7a75188c5ca362e51",
+      "git_blob_sha1": "dd7888b8cadd4b8c417fd7771936db3523cbb488",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "src/codeprobe_report_cli.py",
+      "sha256": "f554d49dced73912d97dafcc6dea17db6b50960fc110f97a1c3c7bbf119cfc32",
+      "git_blob_sha1": "453a011f09455224aac422056e10ca46a4e6dfc1",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "src/codeprobe_measurement_kernel.py",
+      "sha256": "5b7131c81120f7fd6e3bc6a8a0c6514cd2fce4064e42bef7fb674242bbed3d6f",
+      "git_blob_sha1": "97497418ebe8cf4fe7c51b1dde1e356b0f07809b",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "src/codeprobe_reporting.py",
+      "sha256": "3f78eae6022ab4aee8e91a2b7c37926c352942f950e49257efe36acdf2f34f57",
+      "git_blob_sha1": "239a12c262aadf82336c19c6521f285e6a8a6b03",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "src/codeprobe_calibration_admission.py",
+      "sha256": "8926e21511eb376b0c6e6d051c2399b83430a90ef351803bdccb75a0f72221c9",
+      "git_blob_sha1": "a866d5d7f2b9fed50048d81dd668b544ffc20ee0",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "src/codeprobe_s01_observation_adapter.py",
+      "sha256": "f2fe42ada970be0dff9d934eb7c16bc7fcf4922055c356ec7c650e1c79871976",
+      "git_blob_sha1": "59da0a6adabae2a0593ee20a14d0f59372c89d6d",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "app/s05/reader.css",
+      "sha256": "67dfcc4b01aaa85016d5c9da628ee723f2811b1792fc6214355124382fc2192e",
+      "git_blob_sha1": "4f2a31ba1fa4acd2d43e5a098bee1187cffd24af",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "app/s05/reader.js",
+      "sha256": "a9bdda956dc2734f796c7007f567199fe7e84fdbd43d34afe3262582c080e30c",
+      "git_blob_sha1": "cdb88ee9fbdd049da3063426a155f100978b635a",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/ce04/locator-contract.v1.json",
+      "sha256": "4cb8cbaa8003a08ec491b684f00df484163b9b8a9a453bc40bc798f6661fff87",
+      "git_blob_sha1": "c040d218bbfb9ace46b03f3348aa81ad8d9c3c25",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/ce04/component-inventory.v1.json",
+      "sha256": "f8030a0aa769caa4d2e5450bacf711357d1b36b981a5c187e83bb972db0d0bae",
+      "git_blob_sha1": "c929e098ebaaa6b73f842f80bf0b07971279a4a3",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/s05/acceptance-lock.v1.json",
+      "sha256": "a1fc2d39880a2a44a8a3d62f89eaadd17a39d2d20865fe39905be5edfda57acc",
+      "git_blob_sha1": "d3798cb979bea297b131833e64c8c66f52009ec8",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/s05/BRIDGE_PRIVACY_ACCESSIBILITY.md",
+      "sha256": "5cc31b87a7fc4eaa5f93d109cfefe04696565e8e7cbbe445c4cd12546ad6cb8f",
+      "git_blob_sha1": "5bd62f90697b506df963baecda980c55fa79b0a4",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/s03/error-register-extension.v1.json",
+      "sha256": "d14fbefa9eec586481c35143787b04ce7178658e7eb2abf54f7a1d7c79b32a5a",
+      "git_blob_sha1": "68e0166c209321a71f800d6610c6f6fde9d60c65",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/s04/calibration-design.v1.json",
+      "sha256": "fbe7da17370eec77f3357853846efe94837666e877470e6b76b2341e8da610ba",
+      "git_blob_sha1": "4a85cc17d9c5ce45272c5930133d9a3023dc3b8b",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/s04/acceptance-lock.v1.json",
+      "sha256": "2402c6812ff44f84cd5237d3648338a5aed72f2cb9b8c4fc0ae5a6624f1328c4",
+      "git_blob_sha1": "c9aab7f3c08bcea92b0bf489e347b00c93d740c2",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/s04/profiles.v1.json",
+      "sha256": "2a47e13f05abc2dc9099516d6e07bb17134ca6790aee65d224c7ab6260a81dfd",
+      "git_blob_sha1": "9c0255db93311389ca8d9a5d57bef5cc5c4a5175",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "research/s04/condition-migration.v1.json",
+      "sha256": "64ece300e816d6f904f5d4d99569dca4055d6c08e9f815f18dc2c0941aa7a517",
+      "git_blob_sha1": "375430e66f7b2655f2dd604ce4bc00067d456ca0",
+      "mode": "100644",
+      "role": "native_component"
+    },
+    {
+      "native_path": "tests/s05/view_oracle.py",
+      "sha256": "0816463001c82a1591d18e16e37e0529516b452973a1c8712423cd2dce46bff8",
+      "git_blob_sha1": "db981599427fdbacb7cbf11e7424a38d56229c55",
+      "mode": "100644",
+      "role": "support_only"
+    }
+  ]
+}

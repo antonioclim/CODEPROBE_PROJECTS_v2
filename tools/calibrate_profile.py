@@ -1233,7 +1233,7 @@ def print_calibration_outputs(result: Dict[str, Any]) -> None:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Generate a scoped CodeProbe calibration profile with group-exclusive evaluation and descriptive rates.",
-        epilog="--min-per-class-for-language was removed because it had no effect. Remove it from existing commands; no statistical minimum is implied. See calibration/README.md.",
+        epilog="The deprecated --min-per-class-for-language option is accepted and ignored for v2.2.0 command compatibility. It does not impose a statistical minimum. New commands should omit it; see calibration/README.md.",
     )
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--root", default="")
@@ -1244,6 +1244,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--target-fpr", type=float, default=0.10)
     parser.add_argument("--evaluation-fraction", type=float, default=None)
     parser.add_argument("--split-seed", default="")
+    parser.add_argument(
+        "--min-per-class-for-language",
+        type=int,
+        default=10,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--config")
     parser.add_argument("--out-dir")
     parser.add_argument("--profile-out")

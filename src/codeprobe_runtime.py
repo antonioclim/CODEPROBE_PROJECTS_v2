@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CodeProbe v2.2.0
+CodeProbe v2.3.0
 ================
 Browser-oriented heuristic analyser for source code and technical Markdown.
 
@@ -37,11 +37,11 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Type
 
 APP_NAME = "CodeProbe"
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 APP_TITLE = f"{APP_NAME} v{APP_VERSION}"
-FILE_REPORT_SCHEMA_VERSION = APP_VERSION
+FILE_REPORT_SCHEMA_VERSION = "2.2.0"
 REPORT_SCHEMA_VERSION = FILE_REPORT_SCHEMA_VERSION
-PROJECT_REPORT_SCHEMA_VERSION = f"{APP_VERSION}-project"
+PROJECT_REPORT_SCHEMA_VERSION = "2.2.0-project"
 PROJECT_SCHEMA_VERSION = PROJECT_REPORT_SCHEMA_VERSION
 ENGINE_FORMAT = "self-contained-browser-bundle"
 METHODOLOGY_LABEL = "heuristic-concern-not-authorship-verdict"

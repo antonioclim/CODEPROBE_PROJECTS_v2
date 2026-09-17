@@ -35,7 +35,7 @@
     "Non-operational illustration: do not activate this file or add a guessed scoring identity. Generate a fresh scoped profile from the curated corpus."
   ],
   "target_false_positive_rate": 0.05,
-  "tool_version": "2.2.0",
+  "tool_version": "2.3.0",
   "source": "illustrative-only",
   "operational": false,
   "operational_reason": "illustrative-template-not-fitted"

@@ -31,7 +31,7 @@ class FinalReleaseAuditTests(unittest.TestCase):
             self.assertTrue((ROOT / relative).is_file(), relative)
 
     def test_current_version_is_stable_release(self) -> None:
-        self.assertEqual(engine.APP_VERSION, "2.2.0")
+        self.assertEqual(engine.APP_VERSION, "2.3.0")
         self.assertEqual(engine.FILE_REPORT_SCHEMA_VERSION, "2.2.0")
         self.assertEqual(engine.PROJECT_REPORT_SCHEMA_VERSION, "2.2.0-project")
         self.assertEqual(MANIFEST_NAME, "release/release-manifest.json")

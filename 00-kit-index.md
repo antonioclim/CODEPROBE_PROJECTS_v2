@@ -1,6 +1,16 @@
 # CodeProbe kit index
 
-This page is the quickest way to locate the right part of the package. For current package navigation and release audit, start with `docs/01-naming-policy.md`, `docs/00-file-catalogue.md` and `release/file-rename-map.csv`.
+This page is the quickest way to locate the right part of the package. For the v2.3.0 evidence-contract route, begin with `DISTRIBUTION_BOUNDARY.md`, `REPRODUCIBILITY.md`, `research/claim-policy.v1.json` and `release/RELEASE_NOTES_v2.3.0.md`. For complete package navigation and release audit, use `docs/01-naming-policy.md`, `docs/00-file-catalogue.md` and `release/file-rename-map.csv`.
+
+## Evidence-contract research route
+
+- `src/codeprobe_measurement_kernel.py` — bounded source observations and source coordinates.
+- `src/codeprobe_interpretation.py` — explicit illustrative policies and non-compensatory interpretation capsules.
+- `src/codeprobe_reporting.py`, `src/codeprobe_review_contract.py` — bundle construction, validation and consumer admission.
+- `schemas/` — machine-readable measurement, observation, review-bundle and feedback-journal contracts.
+- `research/` — claim policy, construct map, measurement-error register and CE04/S05 acceptance records.
+- `provenance/` — historical CE04 identity and the CE19/CE20 integration boundary.
+- `app/s05/` — standalone reader assets; no authorisation to publish held CE09 or CE11 executable packages is implied.
 
 ## For students
 
@@ -32,7 +42,7 @@ This page is the quickest way to locate the right part of the package. For curre
 
 ## Citation, maintenance and lineage
 
-- [Cite this repository](README.md#cite-this-repository) — Antonio Clim, the published release and exact-commit guidance.
+- [Cite this repository](README.md#cite-this-repository) — Antonio Clim, release-candidate, published-release and exact-commit guidance.
 - [CITATION.cff](CITATION.cff) and [CITATION.bib](CITATION.bib) — machine-readable citation metadata.
 - [Contributing](CONTRIBUTING.md) — author/maintainer and contribution process.
 - [Legacy comparison](docs/history/14-legacy-lineage.md) — fixed-source comparison and attributed retirement rationale.
@@ -58,6 +68,6 @@ This page is the quickest way to locate the right part of the package. For curre
 
 ## Interpretation boundary
 
-CodeProbe reports a heuristic AI-style concern score. It does not prove AI authorship, misconduct or independent authorship. Use the report as part of a review packet containing the analysed files, ignored files, repository history, tests, design notes, disclosure and, where needed, an oral code walkthrough.
+The evidence-contract route reports separate observations, applicability, source evidence and reversible review opportunities. It does not produce a global authorship scalar. The retained compatibility application can still report a heuristic AI-style concern score for existing workflows, but that score is not current scientific guidance and does not prove AI authorship, misconduct or independent authorship. Use any report only within a documented human review packet.
 
 For isolated analysis and cancellation, read [worker resilience](docs/20-worker-resilience.md). For dependency reviews, read [runtime lifecycle](docs/21-runtime-lifecycle.md). Security reporting is described in [SECURITY.md](SECURITY.md); citation metadata is in `CITATION.cff`.

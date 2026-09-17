@@ -25,8 +25,19 @@ STANDARD_ROOT_FILES = {
     "CONTRIBUTING.md",
     "LICENSE",
     "README.md",
+    ".zenodo.json",
+    "CITATION.bib",
+    "CITATION.cff",
+    "DISTRIBUTION_BOUNDARY.md",
+    "NOTICE.md",
+    "REPRODUCIBILITY.md",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md",
 }
-EXPECTED_DIRS = {".github", "app", "src", "tools", "docs", "educator", "calibration", "release", "tests"}
+EXPECTED_DIRS = {
+    ".github", "app", "src", "tools", "docs", "educator", "calibration",
+    "release", "tests", "provenance", "reproducibility", "research", "schemas",
+}
 IGNORED_DIRS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "dist"}
 RETIRED_FILES = {
     "KIT_INDEX.md",
@@ -114,6 +125,8 @@ def check_file_names(root: Path) -> list[str]:
         if parts[0] == "tools" and path.suffix == ".py" and not SnakePy.match(name):
             errors.append(f"tool script should use snake_case.py: {rel}")
         if parts[0] == "tests" and path.suffix == ".py":
+            if rel == "tests/s05/view_oracle.py":
+                continue
             if not name.startswith("test_") or not SnakePy.match(name):
                 errors.append(f"test file should use test_snake_case.py: {rel}")
     return errors

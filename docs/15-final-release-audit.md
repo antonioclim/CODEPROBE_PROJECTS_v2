@@ -1,6 +1,6 @@
 # 15 — Final release audit
 
-This document records the v2.2.0 naming-stable release boundary. It is an internal audit note, not an authorship-classification claim.
+This document records the naming-stable baseline created for v2.2.0 and extended for the v2.3.0 evidence-contract integration. It is an internal audit note, not an authorship-classification claim.
 
 ## Stable package areas
 
@@ -63,7 +63,7 @@ CodeProbe reports a heuristic AI-style concern score. The score can guide revisi
 
 ## Release status boundary
 
-The v2.2.0 layout defines the naming-stable candidate boundary. A particular
+The v2.3.0 layout defines the current naming-stable candidate boundary. A particular
 commit is releasable only when the canonical read-only gate passes in both a
 fresh clone and an exact Git export under the same supported toolchain and a
 byte-preserving checkout configuration, the checkout remains byte-identical
